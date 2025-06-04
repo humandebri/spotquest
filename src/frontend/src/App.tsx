@@ -4,8 +4,10 @@ import Layout from './components/Layout'
 import Home from './pages/Home'
 import Game from './pages/Game'
 import Upload from './pages/Upload'
+import CameraUpload from './pages/CameraUpload'
 import Leaderboard from './pages/Leaderboard'
 import Profile from './pages/Profile'
+import Whitepaper from './pages/Whitepaper'
 import { useAuthStore } from './store/authStore'
 
 function App() {
@@ -22,8 +24,10 @@ function App() {
           <Route index element={<Home />} />
           <Route path="game" element={<Game />} />
           <Route path="upload" element={<Upload />} />
+          <Route path="camera" element={<CameraUpload />} />
           <Route path="leaderboard" element={<Leaderboard />} />
           <Route path="profile" element={<Profile />} />
+          <Route path="whitepaper" element={<Whitepaper />} />
         </Route>
       </Routes>
     </Router>

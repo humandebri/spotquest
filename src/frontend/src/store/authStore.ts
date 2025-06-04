@@ -1,42 +1,36 @@
 import { create } from 'zustand'
-import { AuthClient } from '@dfinity/auth-client'
 import { Principal } from '@dfinity/principal'
+import { authService } from '../services/auth'
 
 interface AuthState {
   isAuthenticated: boolean
   principal: Principal | null
-  authClient: AuthClient | null
   loading: boolean
   checkAuth: () => Promise<void>
-  login: () => Promise<void>
+  login: (provider?: 'ii' | 'plug') => Promise<void>
   logout: () => Promise<void>
 }
 
-export const useAuthStore = create<AuthState>((set, get) => ({
+export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,
   principal: null,
-  authClient: null,
   loading: true,
 
   checkAuth: async () => {
     try {
-      const authClient = await AuthClient.create()
-      const isAuthenticated = await authClient.isAuthenticated()
+      const isAuthenticated = await authService.isAuthenticated()
       
       if (isAuthenticated) {
-        const identity = authClient.getIdentity()
-        const principal = identity.getPrincipal()
+        const principal = await authService.getPrincipal()
         set({ 
           isAuthenticated: true, 
           principal,
-          authClient,
           loading: false 
         })
       } else {
         set({ 
           isAuthenticated: false, 
           principal: null,
-          authClient,
           loading: false 
         })
       }
@@ -46,36 +40,38 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  login: async () => {
-    const authClient = get().authClient || await AuthClient.create()
-    
-    await authClient.login({
-      identityProvider: process.env.DFX_NETWORK === "ic"
-        ? "https://identity.ic0.app"
-        : `http://localhost:8000?canisterId=${process.env.INTERNET_IDENTITY_CANISTER_ID}`,
-      onSuccess: () => {
-        const identity = authClient.getIdentity()
-        const principal = identity.getPrincipal()
+  login: async (provider: 'ii' | 'plug' = 'ii') => {
+    set({ loading: true })
+    try {
+      const principal = await authService.login(provider)
+      
+      if (principal) {
         set({ 
           isAuthenticated: true, 
           principal,
-          authClient 
+          loading: false 
         })
-      },
-      onError: (error) => {
-        console.error('Login failed:', error)
+      } else {
+        set({ loading: false })
       }
-    })
+    } catch (error) {
+      console.error('Login failed:', error)
+      set({ loading: false })
+    }
   },
 
   logout: async () => {
-    const authClient = get().authClient
-    if (authClient) {
-      await authClient.logout()
+    set({ loading: true })
+    try {
+      await authService.logout()
       set({ 
         isAuthenticated: false, 
-        principal: null 
+        principal: null,
+        loading: false 
       })
+    } catch (error) {
+      console.error('Logout failed:', error)
+      set({ loading: false })
     }
   }
 }))
