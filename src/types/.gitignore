@@ -1,0 +1,22 @@
+# Generated files
+*.did
+*.did.d.ts
+*.did.js
+
+# Build artifacts
+*.wasm
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp

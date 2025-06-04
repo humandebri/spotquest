@@ -1,0 +1,106 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# DFX related
+.dfx/
+.vessel/
+canister_ids.json
+.azle/
+.mops/
+
+# Build outputs
+dist/
+dist-ssr/
+build/
+*.local
+.output/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*~
+.*.swp
+.*.swo
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Test coverage
+coverage/
+*.lcov
+.nyc_output/
+
+# Logs
+logs/
+*.log
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# TypeScript
+*.tsbuildinfo
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Motoko package manager
+vessel.dhall
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# Backup files
+*.bak
+*.backup
+
+# IC specific
+.ic-assets.json
+identity.pem
+wallets.json
+
+# npm/yarn/pnpm
+.npm/
+.yarn/
+.pnpm-store/
+yarn.lock
+package-lock.json
+pnpm-lock.yaml
+
+# Testing
+playwright-report/
+playwright/.cache/
+test-results/
+e2e/videos/
+e2e/screenshots/
+
+# Misc
+*.orig
+.cache/

@@ -1,0 +1,38 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Text files
+*.mo text
+*.ts text
+*.tsx text
+*.js text
+*.jsx text
+*.json text
+*.md text
+*.yml text
+*.yaml text
+*.toml text
+*.sh text eol=lf
+*.did text
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.wasm binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
+
+# Diff settings
+*.mo diff=motoko
+*.ts diff=typescript
+*.tsx diff=typescript
+
+# Linguist settings
+*.mo linguist-language=Motoko
+*.did linguist-language=Candid
+docs/* linguist-documentation
+*.md linguist-documentation

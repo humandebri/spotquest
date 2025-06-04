@@ -1,0 +1,39 @@
+# DFX related
+.dfx/
+.vessel/
+canister_ids.json
+
+# Motoko build artifacts
+.moc/
+*.wasm
+*.did
+*.did.d.ts
+*.did.js
+
+# Motoko package manager
+vessel.dhall
+.mops/
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Backup files
+*.bak
+*.backup
