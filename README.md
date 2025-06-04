@@ -12,10 +12,19 @@
 ## 🏗️ アーキテクチャ
 
 ### Canisters
+
+#### 個別Canister構成（開発用）
 - **RewardMint**: ICRC-1準拠のSPOTトークン管理
 - **PhotoNFT**: ICRC-7準拠の写真NFT発行・保存
 - **GameEngine**: ゲームロジックとスコアリング
 - **ReputationOracle**: 写真品質管理とBAN判定
+
+#### 統合Canister構成（本番推奨）
+- **Integrated**: すべての機能とフロントエンドを1つのcanisterに統合
+  - ICRC-1/ICRC-7準拠のトークン・NFT機能
+  - ゲームエンジンとレピュテーション管理
+  - フロントエンドアセットの提供
+  - Taggrプロジェクトと同様のアーキテクチャ
 
 ### 技術スタック
 - Backend: Motoko (Internet Computer)
@@ -32,6 +41,8 @@
 - Rust (optional)
 
 ### インストール
+
+#### 開発環境（個別Canister）
 ```bash
 # Clone repository
 git clone https://github.com/yourusername/guess-the-spot.git
@@ -48,6 +59,21 @@ dfx deploy
 
 # Start frontend
 npm run dev
+```
+
+#### 本番環境（統合Canister）
+```bash
+# Build frontend
+cd src/frontend
+npm run build
+cd ../..
+
+# Deploy integrated canister
+dfx deploy integrated --network ic
+
+# Upload frontend assets
+./scripts/deploy-integrated.sh
+./upload_assets.sh <canister-id>
 ```
 
 ## 🎯 主な機能

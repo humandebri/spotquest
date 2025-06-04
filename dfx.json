@@ -1,25 +1,13 @@
 {
   "version": 1,
   "canisters": {
-    "reward_mint": {
+    "unified": {
       "type": "motoko",
-      "main": "src/backend/reward_mint/main.mo"
-    },
-    "photo_nft": {
-      "type": "motoko",
-      "main": "src/backend/photo_nft/main.mo"
-    },
-    "game_engine": {
-      "type": "motoko",
-      "main": "src/backend/game_engine/main.mo"
-    },
-    "reputation_oracle": {
-      "type": "motoko",
-      "main": "src/backend/reputation_oracle/main.mo"
+      "main": "src/backend/unified/main.mo"
     },
     "frontend": {
       "type": "assets",
-      "source": ["dist"]
+      "source": ["src/frontend/dist"]
     }
   },
   "defaults": {

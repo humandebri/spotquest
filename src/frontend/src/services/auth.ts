@@ -1,5 +1,4 @@
 import { AuthClient } from '@dfinity/auth-client';
-import { Actor, HttpAgent } from '@dfinity/agent';
 import { Principal } from '@dfinity/principal';
 
 const PLUG_WHITELIST = [
@@ -85,7 +84,7 @@ class AuthServiceImpl implements AuthService {
       const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
       const host = isLocal ? 'http://localhost:4943' : 'https://ic0.app';
 
-      const connected = await window.ic.plug.requestConnect({
+      const connected = await window.ic!.plug!.requestConnect({
         whitelist: PLUG_WHITELIST,
         host
       });
@@ -94,7 +93,7 @@ class AuthServiceImpl implements AuthService {
         return null;
       }
 
-      const principal = await window.ic.plug.agent.getPrincipal();
+      const principal = await window.ic!.plug!.agent.getPrincipal();
       this.plugPrincipal = principal;
       return principal;
     } catch (error) {
@@ -107,14 +106,14 @@ class AuthServiceImpl implements AuthService {
     if (this.authClient) {
       await this.authClient.logout();
     }
-    if (window.ic?.plug) {
+    if (window.ic && window.ic.plug) {
       await window.ic.plug.disconnect();
     }
     this.plugPrincipal = null;
   }
 
   async getIdentity() {
-    if (this.plugPrincipal) {
+    if (this.plugPrincipal && window.ic && window.ic.plug) {
       return window.ic.plug.agent;
     }
     return this.authClient?.getIdentity();
@@ -126,8 +125,8 @@ class AuthServiceImpl implements AuthService {
       return true;
     }
     
-    if (this.plugPrincipal) {
-      return await window.ic?.plug?.isConnected() || false;
+    if (this.plugPrincipal && window.ic && window.ic.plug) {
+      return await window.ic.plug.isConnected() || false;
     }
     return await this.authClient?.isAuthenticated() || false;
   }

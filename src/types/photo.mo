@@ -5,15 +5,17 @@ module {
     public type PhotoId = Nat;
     
     public type PhotoMeta = {
+        id: Nat;
+        owner: Principal;
         lat: Float;
         lon: Float;
         azim: Float;
-        ts: Time.Time;
-        ver: Blob;
-        qual: Float;
-        owner: Principal;
-        uploadedAt: Time.Time;
-        fileSize: Nat;
+        timestamp: Time.Time;
+        quality: Float;
+        uploadTime: Time.Time;
+        chunkCount: Nat;
+        totalSize: Nat;
+        perceptualHash: ?Text;
     };
     
     public type PhotoChunk = {
@@ -31,5 +33,13 @@ module {
         photoId: PhotoId;
         chunkIndex: Nat;
         data: Blob;
+    };
+    
+    public type ReputationData = {
+        photoId: PhotoId;
+        totalPlays: Nat;
+        totalReports: Nat;
+        qualityScore: Float;
+        lastUpdated: Time.Time;
     };
 }

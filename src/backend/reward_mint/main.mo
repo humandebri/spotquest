@@ -24,7 +24,9 @@ actor RewardMint {
     private var balances = HashMap.HashMap<Principal, Nat>(10, Principal.equal, Principal.hash);
     private stable var balanceEntries : [(Principal, Nat)] = [];
     
-    private var allowances = HashMap.HashMap<(Principal, Principal), Nat>(10, func(a, b) = a.0 == b.0 and a.1 == b.1, func(a) = Principal.hash(a.0) # Principal.hash(a.1));
+    private var allowances = HashMap.HashMap<(Principal, Principal), Nat>(10, 
+        func(a, b) = a.0 == b.0 and a.1 == b.1, 
+        func(a) = Principal.hash(a.0) +% Principal.hash(a.1));
     private stable var allowanceEntries : [((Principal, Principal), Nat)] = [];
     
     private stable var transactionId : Nat = 0;
@@ -41,7 +43,18 @@ actor RewardMint {
     
     system func postupgrade() {
         balances := HashMap.fromIter<Principal, Nat>(balanceEntries.vals(), balanceEntries.size(), Principal.equal, Principal.hash);
-        allowances := HashMap.fromIter<(Principal, Principal), Nat>(allowanceEntries.vals(), allowanceEntries.size(), func(a, b) = a.0 == b.0 and a.1 == b.1, func(a) = Principal.hash(a.0) # Principal.hash(a.1));
+        allowances := HashMap.fromIter<(Principal, Principal), Nat>(allowanceEntries.vals(), allowanceEntries.size(), 
+            func(a, b) = a.0 == b.0 and a.1 == b.1, 
+            func(a) = Principal.hash(a.0) +% Principal.hash(a.1));
+    };
+    
+    public shared(msg) func setOwner(newOwner: Principal) : async Result.Result<Text, Text> {
+        if (owner == Principal.fromText("aaaaa-aa")) {
+            owner := newOwner;
+            #ok("Owner set successfully");
+        } else {
+            #err("Owner already set");
+        };
     };
     
     public shared(msg) func setGameEngineCanister(canisterId: Principal) : async Result.Result<Text, Text> {

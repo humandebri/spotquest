@@ -5,6 +5,7 @@ import Time "mo:base/Time";
 import Blob "mo:base/Blob";
 import Buffer "mo:base/Buffer";
 import Nat8 "mo:base/Nat8";
+import Nat "mo:base/Nat";
 import Array "mo:base/Array";
 
 module {
@@ -15,13 +16,13 @@ module {
     private let MAX_LON : Float = 180.0;
     
     // Photo validation constants
-    private let MIN_PHOTO_SIZE : Nat = 10 * 1024; // 10KB minimum
-    private let MAX_PHOTO_SIZE : Nat = 5 * 1024 * 1024; // 5MB maximum
+    private let MIN_PHOTO_SIZE : Nat = 10240; // 10KB minimum
+    private let MAX_PHOTO_SIZE : Nat = 5242880; // 5MB maximum
     private let ALLOWED_FORMATS : [Text] = ["jpg", "jpeg", "png", "webp"];
     
     // Time validation constants
     private let MAX_FUTURE_TIME : Time.Time = 60_000_000_000; // 1 minute in nanoseconds
-    private let MAX_AGE : Time.Time = 365 * 24 * 60 * 60 * 1_000_000_000; // 1 year in nanoseconds
+    private let MAX_AGE : Time.Time = 31536000000000000; // 1 year in nanoseconds (365*24*60*60*1_000_000_000)
 
     // Validate GPS coordinates
     public func validateGPSCoordinates(lat: Float, lon: Float) : Result.Result<(), Text> {

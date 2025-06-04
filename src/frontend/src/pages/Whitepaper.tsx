@@ -242,8 +242,9 @@ export default function Whitepaper() {
                     {children}
                   </blockquote>
                 ),
-                code: ({ children, inline }) => (
-                  inline ? (
+                code: ({ children, ...props }: any) => {
+                  const inline = !props.node?.parent || props.node.parent.type !== 'pre';
+                  return inline ? (
                     <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono">
                       {children}
                     </code>
@@ -251,8 +252,8 @@ export default function Whitepaper() {
                     <code className="block bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto font-mono text-sm">
                       {children}
                     </code>
-                  )
-                ),
+                  );
+                },
                 pre: ({ children }) => (
                   <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto mb-4">
                     {children}

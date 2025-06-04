@@ -5,6 +5,7 @@ import Iter "mo:base/Iter";
 import Array "mo:base/Array";
 import Time "mo:base/Time";
 import Int "mo:base/Int";
+import Nat "mo:base/Nat";
 import Nat8 "mo:base/Nat8";
 import Text "mo:base/Text";
 import Buffer "mo:base/Buffer";
@@ -13,6 +14,7 @@ import Float "mo:base/Float";
 import Random "mo:base/Random";
 import Nat64 "mo:base/Nat64";
 import Photo "../../types/photo";
+import Hash "mo:base/Hash";
 
 actor GameEngine {
     // Owner and connected canisters
@@ -20,6 +22,11 @@ actor GameEngine {
     private stable var photoNFTCanisterId : ?Principal = null;
     private stable var rewardMintCanisterId : ?Principal = null;
     private stable var reputationOracleCanisterId : ?Principal = null;
+    
+    // Custom hash function for Nat
+    private func natHash(n: Nat) : Hash.Hash {
+        Text.hash(Nat.toText(n));
+    };
     
     // Game state
     public type GameRound = {
@@ -64,8 +71,8 @@ actor GameEngine {
     private stable var totalRoundsPlayed : Nat = 0;
     
     // Storage
-    private var activeRounds = HashMap.HashMap<Nat, GameRound>(10, Nat.equal, Nat.hash);
-    private var completedRounds = HashMap.HashMap<Nat, GameRound>(10, Nat.equal, Nat.hash);
+    private var activeRounds = HashMap.HashMap<Nat, GameRound>(10, Nat.equal, natHash);
+    private var completedRounds = HashMap.HashMap<Nat, GameRound>(10, Nat.equal, natHash);
     private stable var activeRoundEntries : [(Nat, GameRound)] = [];
     private stable var completedRoundEntries : [(Nat, GameRound)] = [];
     private stable var nextRoundId : Nat = 0;
@@ -79,11 +86,20 @@ actor GameEngine {
     };
     
     system func postupgrade() {
-        activeRounds := HashMap.fromIter<Nat, GameRound>(activeRoundEntries.vals(), activeRoundEntries.size(), Nat.equal, Nat.hash);
-        completedRounds := HashMap.fromIter<Nat, GameRound>(completedRoundEntries.vals(), completedRoundEntries.size(), Nat.equal, Nat.hash);
+        activeRounds := HashMap.fromIter<Nat, GameRound>(activeRoundEntries.vals(), activeRoundEntries.size(), Nat.equal, natHash);
+        completedRounds := HashMap.fromIter<Nat, GameRound>(completedRoundEntries.vals(), completedRoundEntries.size(), Nat.equal, natHash);
     };
     
     // Admin functions
+    public shared(msg) func setOwner(newOwner: Principal) : async Result.Result<Text, Text> {
+        if (owner == Principal.fromText("aaaaa-aa")) {
+            owner := newOwner;
+            #ok("Owner set successfully");
+        } else {
+            #err("Owner already set");
+        };
+    };
+    
     public shared(msg) func setPhotoNFTCanister(canisterId: Principal) : async Result.Result<Text, Text> {
         if (msg.caller != owner) {
             return #err("Only owner can set photo NFT canister");
@@ -168,7 +184,7 @@ actor GameEngine {
         };
         
         if (iterLimit == 0) {
-            return Float.nan(); // formula failed to converge
+            return -1.0; // formula failed to converge
         };
         
         let uSq = cosSqAlpha * (a * a - b * b) / (b * b);

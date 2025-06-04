@@ -12,7 +12,7 @@ interface MapViewProps {
 }
 
 // Set your Mapbox token here
-mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || 'your-mapbox-token';
+mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_API_KEY || 'your-mapbox-token';
 
 export default function MapView({
   onLocationSelect,

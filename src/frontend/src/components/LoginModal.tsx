@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import Modal from './Modal';
-import Button from './Button';
 import { useAuthStore } from '../store/authStore';
 
 interface LoginModalProps {

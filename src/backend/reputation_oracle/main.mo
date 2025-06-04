@@ -5,10 +5,12 @@ import Iter "mo:base/Iter";
 import Array "mo:base/Array";
 import Time "mo:base/Time";
 import Int "mo:base/Int";
+import Nat "mo:base/Nat";
 import Text "mo:base/Text";
 import Buffer "mo:base/Buffer";
 import Debug "mo:base/Debug";
 import Float "mo:base/Float";
+import Hash "mo:base/Hash";
 import Photo "../../types/photo";
 
 actor ReputationOracle {
@@ -16,6 +18,11 @@ actor ReputationOracle {
     private stable var owner : Principal = Principal.fromText("aaaaa-aa");
     private stable var gameEngineCanisterId : ?Principal = null;
     private stable var photoNFTCanisterId : ?Principal = null;
+    
+    // Custom hash function for Nat
+    private func natHash(n: Nat) : Hash.Hash {
+        Text.hash(Nat.toText(n));
+    };
     
     // Reputation data structures
     public type PhotoReputation = {
@@ -47,7 +54,7 @@ actor ReputationOracle {
     private stable var BAD_RATIO_THRESHOLD : Float = 0.5;
     
     // Storage
-    private var photoReputations = HashMap.HashMap<Nat, PhotoReputation>(10, Nat.equal, Nat.hash);
+    private var photoReputations = HashMap.HashMap<Nat, PhotoReputation>(10, Nat.equal, natHash);
     private var userReputations = HashMap.HashMap<Principal, UserReputation>(10, Principal.equal, Principal.hash);
     private stable var photoReputationEntries : [(Nat, PhotoReputation)] = [];
     private stable var userReputationEntries : [(Principal, UserReputation)] = [];
@@ -58,11 +65,20 @@ actor ReputationOracle {
     };
     
     system func postupgrade() {
-        photoReputations := HashMap.fromIter<Nat, PhotoReputation>(photoReputationEntries.vals(), photoReputationEntries.size(), Nat.equal, Nat.hash);
+        photoReputations := HashMap.fromIter<Nat, PhotoReputation>(photoReputationEntries.vals(), photoReputationEntries.size(), Nat.equal, natHash);
         userReputations := HashMap.fromIter<Principal, UserReputation>(userReputationEntries.vals(), userReputationEntries.size(), Principal.equal, Principal.hash);
     };
     
     // Admin functions
+    public shared(msg) func setOwner(newOwner: Principal) : async Result.Result<Text, Text> {
+        if (owner == Principal.fromText("aaaaa-aa")) {
+            owner := newOwner;
+            #ok("Owner set successfully");
+        } else {
+            #err("Owner already set");
+        };
+    };
+    
     public shared(msg) func setGameEngineCanister(canisterId: Principal) : async Result.Result<Text, Text> {
         if (msg.caller != owner) {
             return #err("Only owner can set game engine canister");

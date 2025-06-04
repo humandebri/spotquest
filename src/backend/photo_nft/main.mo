@@ -5,6 +5,7 @@ import Iter "mo:base/Iter";
 import Array "mo:base/Array";
 import Time "mo:base/Time";
 import Int "mo:base/Int";
+import Nat "mo:base/Nat";
 import Nat8 "mo:base/Nat8";
 import Nat64 "mo:base/Nat64";
 import Text "mo:base/Text";
@@ -13,6 +14,7 @@ import Blob "mo:base/Blob";
 import Debug "mo:base/Debug";
 import Region "mo:base/Region";
 import Float "mo:base/Float";
+import Hash "mo:base/Hash";
 import Validation "./validation";
 
 actor PhotoNFT {
@@ -40,12 +42,17 @@ actor PhotoNFT {
         perceptualHash: ?Text;
     };
     
+    // Custom hash function for Nat
+    private func natHash(n: Nat) : Hash.Hash {
+        Text.hash(Nat.toText(n));
+    };
+    
     // NFT ownership mapping
-    private var owners = HashMap.HashMap<Nat, Principal>(10, Nat.equal, Nat.hash);
+    private var owners = HashMap.HashMap<Nat, Principal>(10, Nat.equal, natHash);
     private stable var ownerEntries : [(Nat, Principal)] = [];
     
     // Photo metadata storage
-    private var photoMetadata = HashMap.HashMap<Nat, PhotoMeta>(10, Nat.equal, Nat.hash);
+    private var photoMetadata = HashMap.HashMap<Nat, PhotoMeta>(10, Nat.equal, natHash);
     private stable var photoMetadataEntries : [(Nat, PhotoMeta)] = [];
     
     // Stable memory regions for photo storage
@@ -62,8 +69,18 @@ actor PhotoNFT {
     };
     
     system func postupgrade() {
-        owners := HashMap.fromIter<Nat, Principal>(ownerEntries.vals(), ownerEntries.size(), Nat.equal, Nat.hash);
-        photoMetadata := HashMap.fromIter<Nat, PhotoMeta>(photoMetadataEntries.vals(), photoMetadataEntries.size(), Nat.equal, Nat.hash);
+        owners := HashMap.fromIter<Nat, Principal>(ownerEntries.vals(), ownerEntries.size(), Nat.equal, natHash);
+        photoMetadata := HashMap.fromIter<Nat, PhotoMeta>(photoMetadataEntries.vals(), photoMetadataEntries.size(), Nat.equal, natHash);
+    };
+    
+    // Admin functions
+    public shared(msg) func setOwner(newOwner: Principal) : async Result.Result<Text, Text> {
+        if (owner == Principal.fromText("aaaaa-aa")) {
+            owner := newOwner;
+            #ok("Owner set successfully");
+        } else {
+            #err("Owner already set");
+        };
     };
     
     // Set game engine canister (owner only)
@@ -191,10 +208,11 @@ actor PhotoNFT {
                 let offset = Nat64.fromNat(args.chunkIndex * CHUNK_SIZE);
                 
                 // Grow region if needed
-                let requiredPages = (args.chunkIndex + 1) * CHUNK_SIZE / 65536 + 1;
+                let requiredPages = Nat64.fromNat((args.chunkIndex + 1) * CHUNK_SIZE / 65536 + 1);
                 let currentPages = Region.size(region);
                 if (currentPages < requiredPages) {
-                    let _ = Region.grow(region, requiredPages - currentPages);
+                    let growAmount = requiredPages - currentPages;
+                    let _ = Region.grow(region, growAmount);
                 };
                 
                 // Store chunk data

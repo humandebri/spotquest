@@ -3,6 +3,13 @@
 ## プロジェクト概要
 ICP上で動作する位置推理ゲーム。実写真と撮影方位から撮影地点を推理し、SPOTトークンで報酬を獲得。
 
+## アーキテクチャ更新（2025-06-04）
+Taggrプロジェクトと同様に、フロントエンドとバックエンドを統合したsingle canister architectureを採用。
+- `src/backend/integrated/main.mo`: 統合canister実装
+- HTTP経由でフロントエンドアセットを提供
+- すべてのバックエンド機能を1つのcanisterに統合
+- コスト削減と管理の簡素化を実現
+
 ## 詳細実装計画
 詳細な12週間の実装計画は `implementation_plan.md` を参照してください。
 
@@ -93,6 +100,7 @@ func calculateScore(distance: Float, azimuthError: Float) : Nat {
 
 ## TODOリスト
 
+### 完了済み ✅
 1. 基礎インフラ構築: ICRC-1準拠のSPOTトークンCanister実装
 2. PhotoNFT Canister: ICRC-7準拠NFT発行とstable memory写真保存機能
 3. GameEngine Canister: ハーヴァシン距離計算とスコアリングロジック
@@ -102,4 +110,11 @@ func calculateScore(distance: Float, azimuthError: Float) : Nat {
 7. フロントエンド基盤: React PWAセットアップとInternet Identity連携
 8. 写真アップロードUI: チャンク分割とプログレス表示
 9. ゲームプレイUI: 地図選択インターフェースとスコア表示
-10. テストネットデプロイと統合テスト
+10. 統合Canister実装: Taggrスタイルの単一canisterアーキテクチャ
+11. マルチウォレット対応: Internet Identity & Plug Wallet
+12. カメラ撮影機能: GPS/方位データ付き写真撮影
+13. ホワイトペーパーページ: 技術文書の表示
+
+### 本番デプロイ準備
+1. テストネットデプロイと統合テスト
+2. メインネットデプロイ
