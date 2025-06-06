@@ -1,0 +1,65 @@
+{
+  "expo": {
+    "name": "Guess the Spot",
+    "slug": "guess-the-spot",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1a1a2e"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.guessthespot.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app needs access to camera to take photos for the game.",
+        "NSPhotoLibraryUsageDescription": "This app needs access to photo library to select photos for the game.",
+        "NSLocationWhenInUseUsageDescription": "This app needs location access to tag photos with GPS coordinates.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs location access to tag photos with GPS coordinates."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1a1a2e"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.guessthespot.app",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Guess the Spot to use your location."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Guess the Spot to use camera."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you share them with your friends."
+        }
+      ],
+      "expo-secure-store"
+    ]
+  }
+}

@@ -42,4 +42,58 @@ module {
         qualityScore: Float;
         lastUpdated: Time.Time;
     };
+    
+    // 予約投稿関連の型定義
+    public type ScheduledPhoto = {
+        id: Nat;
+        photoMeta: PhotoMeta;
+        imageChunks: [PhotoChunk];
+        scheduledPublishTime: Time.Time;
+        status: {
+            #pending;
+            #published;
+            #cancelled;
+        };
+        title: Text;
+        description: Text;
+        difficulty: { #EASY; #NORMAL; #HARD; #EXTREME };
+        hint: Text;
+        tags: [Text];
+        createdAt: Time.Time;
+        updatedAt: Time.Time;
+    };
+    
+    public type PhotoUploadRequest = {
+        meta: PhotoMeta;
+        totalChunks: Nat;
+        scheduledPublishTime: ?Time.Time; // null = 即時公開
+        title: Text;
+        description: Text;
+        difficulty: { #EASY; #NORMAL; #HARD; #EXTREME };
+        hint: Text;
+        tags: [Text];
+    };
+    
+    // 通知システム用の型
+    public type Notification = {
+        id: Nat;
+        userId: Principal;
+        type: { 
+            #scheduledPhotoPublished;
+            #scheduledPhotoFailed;
+            #scheduledPhotoReminder;
+        };
+        photoId: Nat;
+        message: Text;
+        timestamp: Time.Time;
+        read: Bool;
+    };
+    
+    // 統計情報用の型
+    public type SchedulingStats = {
+        totalScheduled: Nat;
+        avgScheduleDelay: Nat; // 分単位
+        popularScheduleTimes: [(Nat, Nat)]; // (時間, 件数)
+        cancellationRate: Float;
+    };
 }

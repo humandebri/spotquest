@@ -1,0 +1,404 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Alert,
+  ActivityIndicator,
+  Platform,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
+import * as Location from 'expo-location';
+import { DeviceMotion } from 'expo-sensors';
+import * as ScreenOrientation from 'expo-screen-orientation';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../navigation/AppNavigator';
+
+type CameraScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Camera'>;
+
+interface LocationData {
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+  altitude: number | null;
+  heading: number | null;
+  speed: number | null;
+  timestamp: number;
+}
+
+export default function CameraScreen() {
+  const navigation = useNavigation<CameraScreenNavigationProp>();
+  const cameraRef = useRef<any>(null);
+
+  const [permission, requestPermission] = useCameraPermissions();
+  const [locationPermission, setLocationPermission] = useState<boolean | null>(null);
+  const [location, setLocation] = useState<LocationData | null>(null);
+  const [heading, setHeading] = useState<number | null>(null);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
+
+  // センサー監視用のrefs
+  const headingSubscriptionRef = useRef<Location.LocationSubscription | null>(null);
+  const deviceMotionSubscriptionRef = useRef<any>(null);
+
+  // カメラと位置情報の権限をリクエスト
+  useEffect(() => {
+    (async () => {
+      // カメラ権限
+      if (!permission?.granted) {
+        await requestPermission();
+      }
+
+      // 位置情報権限
+      const locationStatus = await Location.requestForegroundPermissionsAsync();
+      setLocationPermission(locationStatus.status === 'granted');
+
+      if (locationStatus.status === 'granted') {
+        startLocationTracking();
+        startDeviceMotionTracking();
+      } else {
+        setLocationError('位置情報の権限が必要です');
+      }
+    })();
+
+    return () => {
+      // クリーンアップ
+      if (headingSubscriptionRef.current) {
+        headingSubscriptionRef.current.remove();
+      }
+      if (deviceMotionSubscriptionRef.current) {
+        deviceMotionSubscriptionRef.current.remove();
+      }
+    };
+  }, []);
+
+  // 位置情報の追跡を開始
+  const startLocationTracking = async () => {
+    try {
+      // まず粗い推定を素早く取得
+      const quickLocation = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      setLocation({
+        latitude: quickLocation.coords.latitude,
+        longitude: quickLocation.coords.longitude,
+        accuracy: quickLocation.coords.accuracy,
+        altitude: quickLocation.coords.altitude,
+        heading: quickLocation.coords.heading,
+        speed: quickLocation.coords.speed,
+        timestamp: quickLocation.timestamp,
+      });
+
+      // その後、高精度ウォッチで置き換え
+      await Location.watchPositionAsync(
+        {
+          accuracy: Platform.OS === 'ios'
+            ? Location.Accuracy.BestForNavigation
+            : Location.Accuracy.Highest,
+          timeInterval: 3000,
+          distanceInterval: 0,
+        },
+        (newLocation) => {
+          setLocation({
+            latitude: newLocation.coords.latitude,
+            longitude: newLocation.coords.longitude,
+            accuracy: newLocation.coords.accuracy,
+            altitude: newLocation.coords.altitude,
+            heading: newLocation.coords.heading,
+            speed: newLocation.coords.speed,
+            timestamp: newLocation.timestamp,
+          });
+          setLocationError(null);
+        }
+      );
+    } catch (error) {
+      console.error('Location error:', error);
+      setLocationError('位置情報の取得に失敗しました');
+    }
+  };
+
+  // 角度を0-360度に正規化する関数
+  const normalizeDeg = (deg: number): number => {
+    // modulo演算で確実に0-360の範囲に収める
+    return ((deg % 360) + 360) % 360;
+  };
+
+  // 画面の向きに応じた方位角補正
+  const getOrientationOffset = (orientation: ScreenOrientation.Orientation): number => {
+    switch (orientation) {
+      case ScreenOrientation.Orientation.PORTRAIT_UP:        // ホームバー下（通常の縦向き）
+        return 90;
+      case ScreenOrientation.Orientation.PORTRAIT_DOWN:      // 端末上下逆さ
+        return 270;
+      case ScreenOrientation.Orientation.LANDSCAPE_RIGHT:    // ホームバー右
+        return 0;
+      case ScreenOrientation.Orientation.LANDSCAPE_LEFT:     // ホームバー左
+        return 180;
+      default:
+        return 90; // デフォルトは縦向き
+    }
+  };
+
+  // DeviceMotionを使った高精度方位角追跡（垂直保持対応）
+  const startDeviceMotionTracking = async () => {
+    try {
+      // DeviceMotionが利用可能かチェック
+      const isAvailable = await DeviceMotion.isAvailableAsync();
+      if (!isAvailable) {
+        console.log('DeviceMotion not available, falling back to Location API');
+        startHeadingTracking();
+        return;
+      }
+
+      // DeviceMotionの設定と監視開始
+      DeviceMotion.setUpdateInterval(100); // 10Hz更新
+
+      const subscription = DeviceMotion.addListener(async (motionData) => {
+        if (motionData.rotation && motionData.rotation.alpha !== null) {
+          // rotation.alpha はラジアンで提供される（範囲: -π to π）
+          // 符号をそのまま使用
+          const yawDeg = motionData.rotation.alpha * (180 / Math.PI);
+
+          try {
+            // 現在の画面の向きを取得
+            const orientation = await ScreenOrientation.getOrientationAsync();
+
+            // オフセットを取得して適用
+            const offset = getOrientationOffset(orientation);
+            // 180度のオフセット補正を追加（南北を正しく表示）
+            const compassHeading = normalizeDeg(180 - yawDeg + offset);
+
+            setHeading(Math.round(compassHeading));
+          } catch (orientationError) {
+            // ScreenOrientationが使えない場合は、縦向き固定として90度補正
+            console.log('Using fixed portrait orientation correction');
+            // 180度のオフセット補正を追加（南北を正しく表示）
+            const compassHeading = normalizeDeg(yawDeg + 90 - 180);
+            setHeading(Math.round(compassHeading));
+          }
+        }
+      });
+
+      deviceMotionSubscriptionRef.current = subscription;
+    } catch (error) {
+      console.error('DeviceMotion tracking error:', error);
+      // フォールバック: Location APIを使用
+      startHeadingTracking();
+    }
+  };
+
+  // フォールバック用のLocation API方位角追跡
+  const startHeadingTracking = async () => {
+    try {
+      const subscription = await Location.watchHeadingAsync(({ trueHeading, magHeading }) => {
+        // iOS: trueHeading があれば優先（磁北⇨真北補正済み）
+        // Android: magHeading のみだが OS 補正がかかる
+        const actualHeading = trueHeading ?? magHeading;
+        setHeading(Math.round(actualHeading));
+      });
+
+      headingSubscriptionRef.current = subscription;
+    } catch (error) {
+      console.error('Heading tracking error:', error);
+      setLocationError('方位角の取得に失敗しました');
+    }
+  };
+
+  // 写真を撮影
+  const takePicture = async () => {
+    if (!cameraRef.current) return;
+
+    if (!location) {
+      Alert.alert('エラー', '位置情報が取得できていません');
+      return;
+    }
+
+    setIsCapturing(true);
+    try {
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.8,
+        base64: true,
+        exif: true,
+      });
+
+      // 写真データと位置情報を処理
+      const photoData = {
+        uri: photo.uri,
+        base64: photo.base64,
+        width: photo.width,
+        height: photo.height,
+        metadata: {
+          latitude: location.latitude,
+          longitude: location.longitude,
+          accuracy: location.accuracy,
+          altitude: location.altitude,
+          heading: heading || location.heading,
+          timestamp: Date.now(),
+        },
+      };
+
+      console.log('Photo captured with location:', photoData.metadata);
+
+      // 写真アップロード画面に遷移
+      navigation.navigate('PhotoUpload', {
+        photoUri: photo.uri,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        azimuth: heading || location.heading || 0,
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      console.error('Camera error:', error);
+      Alert.alert('エラー', '写真の撮影に失敗しました');
+    } finally {
+      setIsCapturing(false);
+    }
+  };
+
+
+  if (!permission) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color="#3282b8" />
+      </View>
+    );
+  }
+
+  if (!permission.granted) {
+    return (
+      <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+        <View style={styles.permissionContainer}>
+          <Text style={styles.errorText}>カメラへのアクセスが拒否されました</Text>
+          <TouchableOpacity
+            style={styles.button}
+            onPress={requestPermission}
+          >
+            <Text style={styles.buttonText}>カメラの権限を許可する</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+      <View style={styles.cameraContainer}>
+        <CameraView style={styles.camera} facing="back" ref={cameraRef} />
+        <View style={[StyleSheet.absoluteFillObject, styles.overlay]}>
+          {/* 位置情報表示 */}
+          <View style={styles.locationInfo}>
+            {location ? (
+              <>
+                <Text style={styles.locationText}>
+                  📍 {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
+                </Text>
+                <Text style={styles.locationText}>
+                  精度: ±{location.accuracy?.toFixed(0)}m
+                </Text>
+                {heading !== null && (
+                  <Text style={styles.locationText}>
+                    🧭 方位: {heading}°
+                  </Text>
+                )}
+              </>
+            ) : (
+              <Text style={styles.locationText}>
+                {locationError || '位置情報を取得中...'}
+              </Text>
+            )}
+          </View>
+
+          {/* カメラコントロール */}
+          <View style={styles.controls}>
+            <TouchableOpacity
+              style={[styles.captureButton, isCapturing && styles.captureButtonDisabled]}
+              onPress={takePicture}
+              disabled={isCapturing || !location}
+            >
+              <View style={styles.captureButtonInner} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0f1117',
+  },
+  cameraContainer: {
+    flex: 1,
+  },
+  camera: {
+    flex: 1,
+  },
+  overlay: {
+    flex: 1,
+    backgroundColor: 'transparent',
+    justifyContent: 'space-between',
+  },
+  locationInfo: {
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    padding: 15,
+    margin: 20,
+    borderRadius: 10,
+  },
+  locationText: {
+    color: '#ffffff',
+    fontSize: 14,
+    marginBottom: 5,
+  },
+  controls: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingBottom: 30,
+    paddingHorizontal: 30,
+  },
+  captureButton: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  captureButtonDisabled: {
+    opacity: 0.5,
+  },
+  captureButtonInner: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#ffffff',
+  },
+  errorText: {
+    color: '#ff6b6b',
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  button: {
+    backgroundColor: '#3282b8',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 5,
+  },
+  buttonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  permissionContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+});

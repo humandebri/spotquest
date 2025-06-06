@@ -15,7 +15,14 @@ import Region "mo:base/Region";
 import Float "mo:base/Float";
 import Hash "mo:base/Hash";
 import Random "mo:base/Random";
+import Char "mo:base/Char";
+import Nat32 "mo:base/Nat32";
+import Timer "mo:base/Timer";
+import Trie "mo:base/Trie";
+import Option "mo:base/Option";
+import Debug "mo:base/Debug";
 import ICRC1 "../../types/icrc1";
+import PhotoTypes "../../types/photo";
 
 actor Unified {
     // System configuration
@@ -164,6 +171,11 @@ actor Unified {
         photoReputationEntries := Iter.toArray(photoReputations.entries());
         userReputationEntries := Iter.toArray(userReputations.entries());
         userProfileEntries := Iter.toArray(userProfiles.entries());
+        referralCodeEntries := Iter.toArray(referralCodes.entries());
+        referralStatEntries := Iter.toArray(referralStats.entries());
+        airdropCampaignEntries := Iter.toArray(airdropCampaigns.entries());
+        airdropClaimEntries := Iter.toArray(airdropClaims.entries());
+        userScheduledCountEntries := Iter.toArray(userScheduledCounts.entries());
     };
     
     system func postupgrade() {
@@ -177,6 +189,15 @@ actor Unified {
         completedRounds := HashMap.fromIter<Nat, GameRound>(completedRoundEntries.vals(), completedRoundEntries.size(), Nat.equal, natHash);
         photoReputations := HashMap.fromIter<Nat, PhotoReputation>(photoReputationEntries.vals(), photoReputationEntries.size(), Nat.equal, natHash);
         userReputations := HashMap.fromIter<Principal, UserReputation>(userReputationEntries.vals(), userReputationEntries.size(), Principal.equal, Principal.hash);
+        userProfiles := HashMap.fromIter<Principal, UserProfile>(userProfileEntries.vals(), userProfileEntries.size(), Principal.equal, Principal.hash);
+        referralCodes := HashMap.fromIter<Text, Principal>(referralCodeEntries.vals(), referralCodeEntries.size(), Text.equal, Text.hash);
+        referralStats := HashMap.fromIter<Principal, ReferralData>(referralStatEntries.vals(), referralStatEntries.size(), Principal.equal, Principal.hash);
+        airdropCampaigns := HashMap.fromIter<Nat, AirdropCampaign>(airdropCampaignEntries.vals(), airdropCampaignEntries.size(), Nat.equal, natHash);
+        airdropClaims := HashMap.fromIter<(Principal, Nat), AirdropClaim>(airdropClaimEntries.vals(), airdropClaimEntries.size(),
+            func(a, b) = a.0 == b.0 and a.1 == b.1,
+            func(a) = Principal.hash(a.0) +% natHash(a.1)
+        );
+        userScheduledCounts := HashMap.fromIter<Principal, Nat>(userScheduledCountEntries.vals(), userScheduledCountEntries.size(), Principal.equal, Principal.hash);
     };
     
     // Admin function
@@ -862,6 +883,38 @@ actor Unified {
     // Store game history
     private var userGameHistory = HashMap.HashMap<Principal, Buffer.Buffer<GameHistory>>(10, Principal.equal, Principal.hash);
     
+    // ====================
+    // Referral System
+    // ====================
+    public type ReferralData = {
+        referrer: ?Principal;
+        referredUsers: [Principal];
+        totalEarned: Nat;
+        tier: Nat; // 0: Bronze, 1: Silver, 2: Gold, 3: Diamond
+    };
+    
+    // Referral configuration
+    private stable var REFERRAL_REWARDS = {
+        signup = 100; // 1.00 SPOT for signup
+        firstUpload = 50; // 0.50 SPOT when referee uploads first photo
+        firstPlay = 30; // 0.30 SPOT when referee plays first game
+        ongoing = 0.05; // 5% of referee's earnings
+    };
+    
+    private stable var REFERRAL_TIERS = [
+        { name = "Bronze"; required = 0; bonus = 1.0 },
+        { name = "Silver"; required = 10; bonus = 1.2 },
+        { name = "Gold"; required = 50; bonus = 1.5 },
+        { name = "Diamond"; required = 100; bonus = 2.0 }
+    ];
+    
+    // Referral storage
+    private var referralCodes = HashMap.HashMap<Text, Principal>(10, Text.equal, Text.hash);
+    private stable var referralCodeEntries : [(Text, Principal)] = [];
+    
+    private var referralStats = HashMap.HashMap<Principal, ReferralData>(10, Principal.equal, Principal.hash);
+    private stable var referralStatEntries : [(Principal, ReferralData)] = [];
+    
     public query func getUserProfile(user: Principal) : async UserProfile {
         switch (userProfiles.get(user)) {
             case null {
@@ -1130,6 +1183,510 @@ actor Unified {
         };
     };
     
+    // ====================
+    // Referral Functions
+    // ====================
+    private func generateUniqueCode(user: Principal) : Text {
+        let principalText = Principal.toText(user);
+        let timestamp = Int.toText(Time.now());
+        let combined = principalText # "_" # timestamp;
+        
+        // Simple hash-like function to create a shorter code
+        var code = "";
+        let chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        var sum = 0;
+        
+        for (char in combined.chars()) {
+            sum += Nat32.toNat(Char.toNat32(char));
+        };
+        
+        // Generate 8-character code
+        for (i in Iter.range(0, 7)) {
+            let index = (sum + i * 7) % chars.size();
+            let char = switch (Text.toArray(chars)[index]) {
+                case (?c) { Char.toText(c) };
+                case null { "A" };
+            };
+            code := code # char;
+        };
+        
+        code;
+    };
+    
+    public shared(msg) func generateReferralCode() : async Result.Result<Text, Text> {
+        // Check if user already has a code
+        for ((code, owner) in referralCodes.entries()) {
+            if (owner == msg.caller) {
+                return #ok(code);
+            };
+        };
+        
+        // Generate new code
+        var code = generateUniqueCode(msg.caller);
+        var attempts = 0;
+        
+        // Ensure uniqueness
+        while (referralCodes.get(code) != null and attempts < 10) {
+            code := generateUniqueCode(msg.caller) # Nat.toText(attempts);
+            attempts += 1;
+        };
+        
+        referralCodes.put(code, msg.caller);
+        
+        // Initialize referral stats if not exists
+        switch (referralStats.get(msg.caller)) {
+            case null {
+                let data : ReferralData = {
+                    referrer = null;
+                    referredUsers = [];
+                    totalEarned = 0;
+                    tier = 0;
+                };
+                referralStats.put(msg.caller, data);
+            };
+            case (?_) {};
+        };
+        
+        #ok(code);
+    };
+    
+    public shared(msg) func registerWithReferral(referralCode: Text) : async Result.Result<Text, Text> {
+        // Check if user already registered
+        switch (referralStats.get(msg.caller)) {
+            case (?data) {
+                if (data.referrer != null) {
+                    return #err("User already has a referrer");
+                };
+            };
+            case null {};
+        };
+        
+        // Find referrer
+        switch (referralCodes.get(referralCode)) {
+            case null { #err("Invalid referral code") };
+            case (?referrer) {
+                if (referrer == msg.caller) {
+                    return #err("Cannot refer yourself");
+                };
+                
+                // Update referee's data
+                let refereeData : ReferralData = switch (referralStats.get(msg.caller)) {
+                    case null {{
+                        referrer = ?referrer;
+                        referredUsers = [];
+                        totalEarned = 0;
+                        tier = 0;
+                    }};
+                    case (?data) {{
+                        data with
+                        referrer = ?referrer;
+                    }};
+                };
+                referralStats.put(msg.caller, refereeData);
+                
+                // Update referrer's data
+                switch (referralStats.get(referrer)) {
+                    case null {
+                        let data : ReferralData = {
+                            referrer = null;
+                            referredUsers = [msg.caller];
+                            totalEarned = 0;
+                            tier = 0;
+                        };
+                        referralStats.put(referrer, data);
+                    };
+                    case (?data) {
+                        let updatedUsers = Array.append(data.referredUsers, [msg.caller]);
+                        let newTier = calculateReferralTier(updatedUsers.size());
+                        let updatedData = {
+                            data with
+                            referredUsers = updatedUsers;
+                            tier = newTier;
+                        };
+                        referralStats.put(referrer, updatedData);
+                    };
+                };
+                
+                // Mint signup bonus
+                switch (mint(referrer, REFERRAL_REWARDS.signup)) {
+                    case (#err(e)) { return #err("Failed to mint referral bonus: " # e) };
+                    case (#ok(_)) {
+                        // Update earnings
+                        switch (referralStats.get(referrer)) {
+                            case (?data) {
+                                let updatedData = {
+                                    data with
+                                    totalEarned = data.totalEarned + REFERRAL_REWARDS.signup;
+                                };
+                                referralStats.put(referrer, updatedData);
+                            };
+                            case null {};
+                        };
+                    };
+                };
+                
+                #ok("Successfully registered with referral");
+            };
+        };
+    };
+    
+    private func calculateReferralTier(referralCount: Nat) : Nat {
+        var tier = 0;
+        for (i in Iter.range(0, REFERRAL_TIERS.size() - 1)) {
+            if (referralCount >= REFERRAL_TIERS[i].required) {
+                tier := i;
+            };
+        };
+        tier;
+    };
+    
+    public query func getReferralStats(user: Principal) : async ?ReferralData {
+        referralStats.get(user);
+    };
+    
+    public query func getReferralCode(user: Principal) : async ?Text {
+        for ((code, owner) in referralCodes.entries()) {
+            if (owner == user) {
+                return ?code;
+            };
+        };
+        null;
+    };
+    
+    public query func getReferralLeaderboard(limit: Nat) : async [(Principal, ReferralData)] {
+        let entries = Buffer.Buffer<(Principal, ReferralData)>(10);
+        for ((user, data) in referralStats.entries()) {
+            entries.add((user, data));
+        };
+        
+        // Sort by total earned
+        let sorted = Array.sort<(Principal, ReferralData)>(
+            Buffer.toArray(entries),
+            func(a, b) = Nat.compare(b.1.totalEarned, a.1.totalEarned)
+        );
+        
+        if (sorted.size() > limit) {
+            Array.tabulate<(Principal, ReferralData)>(limit, func(i) = sorted[i]);
+        } else {
+            sorted;
+        };
+    };
+    
+    // Helper function to process referral rewards on game actions
+    private func processReferralReward(user: Principal, amount: Nat, rewardType: Text) {
+        switch (referralStats.get(user)) {
+            case (?userData) {
+                switch (userData.referrer) {
+                    case (?referrer) {
+                        // Calculate referral reward with tier bonus
+                        switch (referralStats.get(referrer)) {
+                            case (?referrerData) {
+                                let tierBonus = REFERRAL_TIERS[referrerData.tier].bonus;
+                                let baseReward = if (rewardType == "ongoing") {
+                                    Int.abs(Float.toInt(Float.fromInt(amount) * REFERRAL_REWARDS.ongoing));
+                                } else if (rewardType == "firstUpload") {
+                                    REFERRAL_REWARDS.firstUpload;
+                                } else if (rewardType == "firstPlay") {
+                                    REFERRAL_REWARDS.firstPlay;
+                                } else { 0 };
+                                
+                                let finalReward = Int.abs(Float.toInt(Float.fromInt(baseReward) * tierBonus));
+                                
+                                if (finalReward > 0) {
+                                    switch (mint(referrer, finalReward)) {
+                                        case (#ok(_)) {
+                                            let updatedData = {
+                                                referrerData with
+                                                totalEarned = referrerData.totalEarned + finalReward;
+                                            };
+                                            referralStats.put(referrer, updatedData);
+                                        };
+                                        case (#err(_)) {};
+                                    };
+                                };
+                            };
+                            case null {};
+                        };
+                    };
+                    case null {};
+                };
+            };
+            case null {};
+        };
+    };
+    
+    // ====================
+    // Airdrop Campaign Functions
+    // ====================
+    public type AirdropCampaign = {
+        id: Nat;
+        name: Text;
+        startTime: Time.Time;
+        endTime: Time.Time;
+        totalTokens: Nat;
+        claimedTokens: Nat;
+        rewards: {
+            signup: Nat;      // Tokens for new users
+            firstPhoto: Nat;  // Bonus for first photo upload
+            firstPlay: Nat;   // Bonus for first game play
+        };
+        isActive: Bool;
+    };
+    
+    public type AirdropClaim = {
+        user: Principal;
+        campaignId: Nat;
+        signupBonus: Nat;
+        firstPhotoBonus: Nat;
+        firstPlayBonus: Nat;
+        totalClaimed: Nat;
+        claimTime: Time.Time;
+    };
+    
+    // Airdrop storage
+    private stable var currentAirdropId : Nat = 0;
+    private var airdropCampaigns = HashMap.HashMap<Nat, AirdropCampaign>(10, Nat.equal, natHash);
+    private stable var airdropCampaignEntries : [(Nat, AirdropCampaign)] = [];
+    
+    private var airdropClaims = HashMap.HashMap<(Principal, Nat), AirdropClaim>(10,
+        func(a, b) = a.0 == b.0 and a.1 == b.1,
+        func(a) = Principal.hash(a.0) +% natHash(a.1)
+    );
+    private stable var airdropClaimEntries : [((Principal, Nat), AirdropClaim)] = [];
+    
+    // Early bird bonus tracking
+    private stable var earlyBirdCount : Nat = 0;
+    private stable var EARLY_BIRD_LIMIT : Nat = 1000;
+    
+    public shared(msg) func createAirdropCampaign(args: {
+        name: Text;
+        duration: Time.Time; // Duration in nanoseconds
+        totalTokens: Nat;
+        signupBonus: Nat;
+        firstPhotoBonus: Nat;
+        firstPlayBonus: Nat;
+    }) : async Result.Result<Nat, Text> {
+        if (msg.caller != owner) {
+            return #err("Only owner can create airdrop campaigns");
+        };
+        
+        let campaignId = currentAirdropId;
+        currentAirdropId += 1;
+        
+        let campaign : AirdropCampaign = {
+            id = campaignId;
+            name = args.name;
+            startTime = Time.now();
+            endTime = Time.now() + args.duration;
+            totalTokens = args.totalTokens;
+            claimedTokens = 0;
+            rewards = {
+                signup = args.signupBonus;
+                firstPhoto = args.firstPhotoBonus;
+                firstPlay = args.firstPlayBonus;
+            };
+            isActive = true;
+        };
+        
+        airdropCampaigns.put(campaignId, campaign);
+        #ok(campaignId);
+    };
+    
+    public shared(msg) func claimAirdropSignupBonus() : async Result.Result<Nat, Text> {
+        // Find active campaign
+        var activeCampaign : ?AirdropCampaign = null;
+        for ((id, campaign) in airdropCampaigns.entries()) {
+            if (campaign.isActive and Time.now() <= campaign.endTime) {
+                activeCampaign := ?campaign;
+            };
+        };
+        
+        switch (activeCampaign) {
+            case null { #err("No active airdrop campaign") };
+            case (?campaign) {
+                let claimKey = (msg.caller, campaign.id);
+                
+                // Check if already claimed
+                switch (airdropClaims.get(claimKey)) {
+                    case (?claim) {
+                        if (claim.signupBonus > 0) {
+                            return #err("Signup bonus already claimed");
+                        };
+                    };
+                    case null {};
+                };
+                
+                // Check if campaign has enough tokens
+                if (campaign.claimedTokens + campaign.rewards.signup > campaign.totalTokens) {
+                    return #err("Airdrop campaign exhausted");
+                };
+                
+                // Mint signup bonus
+                switch (mint(msg.caller, campaign.rewards.signup)) {
+                    case (#err(e)) { return #err("Failed to mint airdrop: " # e) };
+                    case (#ok(_)) {
+                        // Update or create claim record
+                        let claim = switch (airdropClaims.get(claimKey)) {
+                            case null {{
+                                user = msg.caller;
+                                campaignId = campaign.id;
+                                signupBonus = campaign.rewards.signup;
+                                firstPhotoBonus = 0;
+                                firstPlayBonus = 0;
+                                totalClaimed = campaign.rewards.signup;
+                                claimTime = Time.now();
+                            }};
+                            case (?existing) {{
+                                existing with
+                                signupBonus = campaign.rewards.signup;
+                                totalClaimed = existing.totalClaimed + campaign.rewards.signup;
+                            }};
+                        };
+                        
+                        airdropClaims.put(claimKey, claim);
+                        
+                        // Update campaign
+                        let updatedCampaign = {
+                            campaign with
+                            claimedTokens = campaign.claimedTokens + campaign.rewards.signup;
+                        };
+                        airdropCampaigns.put(campaign.id, updatedCampaign);
+                        
+                        // Track early bird
+                        if (earlyBirdCount < EARLY_BIRD_LIMIT) {
+                            earlyBirdCount += 1;
+                        };
+                        
+                        #ok(campaign.rewards.signup);
+                    };
+                };
+            };
+        };
+    };
+    
+    // Process airdrop bonuses for first actions
+    private func processAirdropBonus(user: Principal, bonusType: Text) {
+        // Find active campaign
+        var activeCampaign : ?AirdropCampaign = null;
+        for ((id, campaign) in airdropCampaigns.entries()) {
+            if (campaign.isActive and Time.now() <= campaign.endTime) {
+                activeCampaign := ?campaign;
+            };
+        };
+        
+        switch (activeCampaign) {
+            case null {};
+            case (?campaign) {
+                let claimKey = (user, campaign.id);
+                let bonusAmount = if (bonusType == "firstPhoto") {
+                    campaign.rewards.firstPhoto;
+                } else if (bonusType == "firstPlay") {
+                    campaign.rewards.firstPlay;
+                } else { 0 };
+                
+                if (bonusAmount == 0) return;
+                
+                // Check if already claimed this bonus
+                switch (airdropClaims.get(claimKey)) {
+                    case (?claim) {
+                        if (bonusType == "firstPhoto" and claim.firstPhotoBonus > 0) return;
+                        if (bonusType == "firstPlay" and claim.firstPlayBonus > 0) return;
+                    };
+                    case null {};
+                };
+                
+                // Check if campaign has enough tokens
+                if (campaign.claimedTokens + bonusAmount <= campaign.totalTokens) {
+                    switch (mint(user, bonusAmount)) {
+                        case (#ok(_)) {
+                            // Update claim record
+                            let claim = switch (airdropClaims.get(claimKey)) {
+                                case null {{
+                                    user = user;
+                                    campaignId = campaign.id;
+                                    signupBonus = 0;
+                                    firstPhotoBonus = if (bonusType == "firstPhoto") { bonusAmount } else { 0 };
+                                    firstPlayBonus = if (bonusType == "firstPlay") { bonusAmount } else { 0 };
+                                    totalClaimed = bonusAmount;
+                                    claimTime = Time.now();
+                                }};
+                                case (?existing) {{
+                                    existing with
+                                    firstPhotoBonus = if (bonusType == "firstPhoto") { bonusAmount } else { existing.firstPhotoBonus };
+                                    firstPlayBonus = if (bonusType == "firstPlay") { bonusAmount } else { existing.firstPlayBonus };
+                                    totalClaimed = existing.totalClaimed + bonusAmount;
+                                }};
+                            };
+                            
+                            airdropClaims.put(claimKey, claim);
+                            
+                            // Update campaign
+                            let updatedCampaign = {
+                                campaign with
+                                claimedTokens = campaign.claimedTokens + bonusAmount;
+                            };
+                            airdropCampaigns.put(campaign.id, updatedCampaign);
+                        };
+                        case (#err(_)) {};
+                    };
+                };
+            };
+        };
+    };
+    
+    public query func getActiveAirdrop() : async ?AirdropCampaign {
+        for ((id, campaign) in airdropCampaigns.entries()) {
+            if (campaign.isActive and Time.now() <= campaign.endTime) {
+                return ?campaign;
+            };
+        };
+        null;
+    };
+    
+    public query func getAirdropClaim(user: Principal) : async ?AirdropClaim {
+        // Find active campaign
+        for ((id, campaign) in airdropCampaigns.entries()) {
+            if (campaign.isActive) {
+                let claimKey = (user, campaign.id);
+                switch (airdropClaims.get(claimKey)) {
+                    case (?claim) { return ?claim };
+                    case null {};
+                };
+            };
+        };
+        null;
+    };
+    
+    public query func isEarlyBird(user: Principal) : async Bool {
+        // Check if user was in first 1000 to join
+        switch (userProfiles.get(user)) {
+            case (?profile) {
+                // Simple check - could be improved with actual tracking
+                earlyBirdCount <= EARLY_BIRD_LIMIT;
+            };
+            case null { false };
+        };
+    };
+    
+    public shared(msg) func endAirdropCampaign(campaignId: Nat) : async Result.Result<Text, Text> {
+        if (msg.caller != owner) {
+            return #err("Only owner can end airdrop campaigns");
+        };
+        
+        switch (airdropCampaigns.get(campaignId)) {
+            case null { #err("Campaign not found") };
+            case (?campaign) {
+                let updatedCampaign = {
+                    campaign with
+                    isActive = false;
+                    endTime = Time.now();
+                };
+                airdropCampaigns.put(campaignId, updatedCampaign);
+                #ok("Campaign ended successfully");
+            };
+        };
+    };
+    
     // Note: preupgrade/postupgrade functions are already defined above
     
     // Override submitGuess to track history and update profiles
@@ -1248,6 +1805,12 @@ actor Unified {
                             joinDate = Time.now();
                         };
                         userProfiles.put(msg.caller, profile);
+                        
+                        // Process first play referral reward
+                        processReferralReward(msg.caller, 0, "firstPlay");
+                        
+                        // Process first play airdrop bonus
+                        processAirdropBonus(msg.caller, "firstPlay");
                     };
                     case (?profile) {
                         let updatedProfile = {
@@ -1257,6 +1820,9 @@ actor Unified {
                             bestScore = Nat.max(profile.bestScore, score);
                         };
                         userProfiles.put(msg.caller, updatedProfile);
+                        
+                        // Process ongoing referral rewards
+                        processReferralReward(msg.caller, playerReward, "ongoing");
                     };
                 };
                 
@@ -1372,6 +1938,12 @@ actor Unified {
                     joinDate = Time.now();
                 };
                 userProfiles.put(msg.caller, profile);
+                
+                // Process first upload referral reward
+                processReferralReward(msg.caller, 0, "firstUpload");
+                
+                // Process first upload airdrop bonus
+                processAirdropBonus(msg.caller, "firstPhoto");
             };
             case (?profile) {
                 let updatedProfile = {
@@ -1383,5 +1955,327 @@ actor Unified {
         };
         
         #ok(tokenId);
+    };
+    
+    // ====================
+    // Scheduled Posting System
+    // ====================
+    
+    // Trieのキー生成関数
+    private func key(n: Nat) : Trie.Key<Nat> {
+        { hash = natHash(n); key = n };
+    };
+    
+    // 予約投稿の保存
+    private stable var scheduledPhotos : Trie.Trie<Nat, PhotoTypes.ScheduledPhoto> = Trie.empty();
+    private stable var nextScheduledPhotoId : Nat = 0;
+    
+    // タイマーID管理
+    private stable var publishTimers : Trie.Trie<Nat, Timer.TimerId> = Trie.empty();
+    
+    // ユーザーごとの予約投稿数管理
+    private var userScheduledCounts = HashMap.HashMap<Principal, Nat>(10, Principal.equal, Principal.hash);
+    private stable var userScheduledCountEntries : [(Principal, Nat)] = [];
+    
+    // 予約投稿の作成
+    public shared(msg) func schedulePhotoUpload(request: PhotoTypes.PhotoUploadRequest) : async Result.Result<Nat, Text> {
+        let caller = msg.caller;
+        
+        // 認証チェック
+        if (Principal.isAnonymous(caller)) {
+            return #err("Anonymous users cannot upload photos");
+        };
+        
+        // ユーザーの予約投稿数チェック
+        let currentCount = switch (userScheduledCounts.get(caller)) {
+            case null { 0 };
+            case (?count) { count };
+        };
+        
+        if (currentCount >= 10) {
+            return #err("Maximum 10 scheduled posts per user");
+        };
+        
+        // 予約時間の検証
+        switch (request.scheduledPublishTime) {
+            case (?scheduledTime) {
+                let now = Time.now();
+                if (scheduledTime <= now) {
+                    return #err("Scheduled time must be in the future");
+                };
+                
+                // 最短5分後
+                let minScheduleTime = now + (5 * 60 * 1_000_000_000);
+                if (scheduledTime < minScheduleTime) {
+                    return #err("Cannot schedule less than 5 minutes in advance");
+                };
+                
+                // 最大予約期間のチェック（30日）
+                let maxScheduleTime = now + (30 * 24 * 60 * 60 * 1_000_000_000);
+                if (scheduledTime > maxScheduleTime) {
+                    return #err("Cannot schedule more than 30 days in advance");
+                };
+            };
+            case null { /* 即時公開 */ };
+        };
+        
+        // 写真IDの生成
+        let photoId = nextScheduledPhotoId;
+        nextScheduledPhotoId += 1;
+        
+        // 予約投稿の作成
+        let scheduledPhoto : PhotoTypes.ScheduledPhoto = {
+            id = photoId;
+            photoMeta = request.meta;
+            imageChunks = [];
+            scheduledPublishTime = Option.get(request.scheduledPublishTime, Time.now());
+            status = #pending;
+            title = request.title;
+            description = request.description;
+            difficulty = request.difficulty;
+            hint = request.hint;
+            tags = request.tags;
+            createdAt = Time.now();
+            updatedAt = Time.now();
+        };
+        
+        // 保存
+        scheduledPhotos := Trie.put(
+            scheduledPhotos,
+            key(photoId),
+            Nat.equal,
+            scheduledPhoto
+        );
+        
+        // ユーザーの予約投稿数を更新
+        userScheduledCounts.put(caller, currentCount + 1);
+        
+        // タイマーの設定
+        switch (request.scheduledPublishTime) {
+            case (?scheduledTime) {
+                let delay = Int.abs(scheduledTime - Time.now());
+                let timerId = Timer.setTimer(
+                    #nanoseconds(delay),
+                    func() : async () {
+                        await publishScheduledPhoto(photoId);
+                    }
+                );
+                publishTimers := Trie.put(
+                    publishTimers,
+                    key(photoId),
+                    Nat.equal,
+                    timerId
+                );
+            };
+            case null {
+                // 即時公開
+                ignore publishScheduledPhoto(photoId);
+            };
+        };
+        
+        #ok(photoId);
+    };
+    
+    // 予約投稿の公開処理
+    private func publishScheduledPhoto(photoId: Nat) : async () {
+        switch (Trie.get(scheduledPhotos, key(photoId), Nat.equal)) {
+            case (?scheduled) {
+                if (scheduled.status == #pending) {
+                    // NFTとしてミント
+                    let mintResult = await mintPhotoNFT({
+                        lat = scheduled.photoMeta.lat;
+                        lon = scheduled.photoMeta.lon;
+                        azim = scheduled.photoMeta.azim;
+                        timestamp = scheduled.photoMeta.timestamp;
+                        perceptualHash = scheduled.photoMeta.perceptualHash;
+                        deviceAttestation = null;
+                    });
+                    
+                    switch (mintResult) {
+                        case (#ok(nftId)) {
+                            // ステータス更新
+                            let updated = {
+                                scheduled with
+                                status = #published;
+                                updatedAt = Time.now();
+                            };
+                            
+                            scheduledPhotos := Trie.put(
+                                scheduledPhotos,
+                                key(photoId),
+                                Nat.equal,
+                                updated
+                            );
+                            
+                            // ゲームラウンドに追加
+                            ignore createGameRound({
+                                photoId = nftId;
+                                duration = 3600_000_000_000; // 1時間
+                            });
+                            
+                            // ユーザーの予約投稿数を減らす
+                            switch (userScheduledCounts.get(scheduled.photoMeta.owner)) {
+                                case (?count) {
+                                    if (count > 0) {
+                                        userScheduledCounts.put(scheduled.photoMeta.owner, count - 1);
+                                    };
+                                };
+                                case null {};
+                            };
+                        };
+                        case (#err(e)) {
+                            // エラーログ（実際の実装では通知システムに送る）
+                            Debug.print("Failed to publish scheduled photo: " # e);
+                        };
+                    };
+                    
+                    // タイマーのクリーンアップ
+                    publishTimers := Trie.remove(publishTimers, key(photoId), Nat.equal);
+                };
+            };
+            case null {};
+        };
+    };
+    
+    // 予約投稿のキャンセル
+    public shared(msg) func cancelScheduledPhoto(photoId: Nat) : async Result.Result<(), Text> {
+        let caller = msg.caller;
+        
+        switch (Trie.get(scheduledPhotos, key(photoId), Nat.equal)) {
+            case (?scheduled) {
+                // 所有者チェック
+                if (scheduled.photoMeta.owner != caller) {
+                    return #err("Not the owner");
+                };
+                
+                if (scheduled.status != #pending) {
+                    return #err("Photo already published or cancelled");
+                };
+                
+                // 公開5分前はキャンセル不可
+                let now = Time.now();
+                let timeTillPublish = scheduled.scheduledPublishTime - now;
+                if (timeTillPublish < (5 * 60 * 1_000_000_000)) {
+                    return #err("Cannot cancel within 5 minutes of scheduled time");
+                };
+                
+                // タイマーのキャンセル
+                switch (Trie.get(publishTimers, key(photoId), Nat.equal)) {
+                    case (?timerId) {
+                        Timer.cancelTimer(timerId);
+                        publishTimers := Trie.remove(publishTimers, key(photoId), Nat.equal);
+                    };
+                    case null {};
+                };
+                
+                // ステータス更新
+                let updated = {
+                    scheduled with
+                    status = #cancelled;
+                    updatedAt = Time.now();
+                };
+                
+                scheduledPhotos := Trie.put(
+                    scheduledPhotos,
+                    key(photoId),
+                    Nat.equal,
+                    updated
+                );
+                
+                // ユーザーの予約投稿数を減らす
+                switch (userScheduledCounts.get(caller)) {
+                    case (?count) {
+                        if (count > 0) {
+                            userScheduledCounts.put(caller, count - 1);
+                        };
+                    };
+                    case null {};
+                };
+                
+                #ok(());
+            };
+            case null {
+                #err("Scheduled photo not found");
+            };
+        };
+    };
+    
+    // ユーザーの予約投稿一覧取得
+    public query(msg) func getUserScheduledPhotos() : async [PhotoTypes.ScheduledPhoto] {
+        let caller = msg.caller;
+        let results = Buffer.Buffer<PhotoTypes.ScheduledPhoto>(0);
+        
+        for ((k, v) in Trie.iter(scheduledPhotos)) {
+            if (v.photoMeta.owner == caller and v.status == #pending) {
+                results.add(v);
+            };
+        };
+        
+        Buffer.toArray(results);
+    };
+    
+    // すべての予約投稿一覧取得（管理者用）
+    public query(msg) func getAllScheduledPhotos() : async Result.Result<[PhotoTypes.ScheduledPhoto], Text> {
+        if (msg.caller != owner) {
+            return #err("Only owner can view all scheduled photos");
+        };
+        
+        let results = Buffer.Buffer<PhotoTypes.ScheduledPhoto>(0);
+        
+        for ((k, v) in Trie.iter(scheduledPhotos)) {
+            if (v.status == #pending) {
+                results.add(v);
+            };
+        };
+        
+        #ok(Buffer.toArray(results));
+    };
+    
+    // 予約投稿の統計情報取得
+    public query func getSchedulingStats() : async PhotoTypes.SchedulingStats {
+        var totalScheduled = 0;
+        var totalDelay : Nat = 0;
+        var cancelledCount = 0;
+        let hourCounts = HashMap.HashMap<Nat, Nat>(24, Nat.equal, natHash);
+        
+        for ((k, v) in Trie.iter(scheduledPhotos)) {
+            totalScheduled += 1;
+            
+            if (v.status == #cancelled) {
+                cancelledCount += 1;
+            };
+            
+            // 遅延時間の計算（分単位）
+            let delay = Int.abs(v.scheduledPublishTime - v.createdAt) / (60 * 1_000_000_000);
+            totalDelay += delay;
+            
+            // 時間帯別カウント
+            let hour = (v.scheduledPublishTime / (60 * 60 * 1_000_000_000)) % 24;
+            switch (hourCounts.get(hour)) {
+                case null { hourCounts.put(hour, 1); };
+                case (?count) { hourCounts.put(hour, count + 1); };
+            };
+        };
+        
+        let avgDelay = if (totalScheduled > 0) {
+            totalDelay / totalScheduled;
+        } else { 0 };
+        
+        let cancellationRate = if (totalScheduled > 0) {
+            Float.fromInt(cancelledCount) / Float.fromInt(totalScheduled);
+        } else { 0.0 };
+        
+        // 時間帯別統計をソート
+        let hourStats = Buffer.Buffer<(Nat, Nat)>(0);
+        for ((hour, count) in hourCounts.entries()) {
+            hourStats.add((hour, count));
+        };
+        
+        {
+            totalScheduled = totalScheduled;
+            avgScheduleDelay = avgDelay;
+            popularScheduleTimes = Buffer.toArray(hourStats);
+            cancellationRate = cancellationRate;
+        };
     };
 }

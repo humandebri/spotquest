@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Icon Generator</title>
+</head>
+<body>
+    <h1>PWA Icon Generator</h1>
+    <p>Right-click on each icon and save as PNG:</p>
+    
+    <h2>192x192 Icon</h2>
+    <canvas id="canvas192" width="192" height="192" style="border: 1px solid #ccc;"></canvas>
+    
+    <h2>512x512 Icon</h2>
+    <canvas id="canvas512" width="512" height="512" style="border: 1px solid #ccc;"></canvas>
+    
+    <h2>Screenshot (1280x720)</h2>
+    <canvas id="screenshot" width="1280" height="720" style="border: 1px solid #ccc; max-width: 640px;"></canvas>
+
+    <script>
+        // Icon design
+        function drawIcon(ctx, size) {
+            const scale = size / 512;
+            ctx.scale(scale, scale);
+            
+            // Background
+            ctx.fillStyle = '#1a1a2e';
+            roundRect(ctx, 0, 0, 512, 512, 60);
+            ctx.fill();
+            
+            // Target circle
+            ctx.beginPath();
+            ctx.arc(256, 200, 80, 0, Math.PI * 2);
+            ctx.fillStyle = '#16213e';
+            ctx.fill();
+            ctx.strokeStyle = '#0f4c75';
+            ctx.lineWidth = 8;
+            ctx.stroke();
+            
+            // Crosshair
+            ctx.beginPath();
+            ctx.moveTo(256, 120);
+            ctx.lineTo(256, 280);
+            ctx.moveTo(176, 200);
+            ctx.lineTo(336, 200);
+            ctx.strokeStyle = '#3282b8';
+            ctx.lineWidth = 12;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+            
+            // Location pin
+            ctx.beginPath();
+            ctx.moveTo(180, 350);
+            ctx.quadraticCurveTo(256, 300, 332, 350);
+            ctx.strokeStyle = '#0f4c75';
+            ctx.lineWidth = 8;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+            
+            // Text
+            ctx.fillStyle = '#3282b8';
+            ctx.font = 'bold 48px Arial, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('SPOT', 256, 420);
+        }
+        
+        function roundRect(ctx, x, y, width, height, radius) {
+            ctx.beginPath();
+            ctx.moveTo(x + radius, y);
+            ctx.lineTo(x + width - radius, y);
+            ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+            ctx.lineTo(x + width, y + height - radius);
+            ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+            ctx.lineTo(x + radius, y + height);
+            ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+            ctx.lineTo(x, y + radius);
+            ctx.quadraticCurveTo(x, y, x + radius, y);
+            ctx.closePath();
+        }
+        
+        function drawScreenshot(ctx) {
+            // Background gradient
+            const gradient = ctx.createLinearGradient(0, 0, 0, 720);
+            gradient.addColorStop(0, '#1a1a2e');
+            gradient.addColorStop(1, '#0f1123');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 1280, 720);
+            
+            // Title
+            ctx.fillStyle = '#3282b8';
+            ctx.font = 'bold 72px Arial, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('Guess the Spot', 640, 200);
+            
+            // Subtitle
+            ctx.fillStyle = '#0f4c75';
+            ctx.font = '36px Arial, sans-serif';
+            ctx.fillText('写真から場所を当てるWeb3ゲーム', 640, 280);
+            
+            // Icon in center
+            ctx.save();
+            ctx.translate(640 - 128, 360 - 128);
+            drawIcon(ctx, 256);
+            ctx.restore();
+            
+            // Features
+            ctx.fillStyle = '#3282b8';
+            ctx.font = '24px Arial, sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText('✓ 写真NFTをミント', 400, 500);
+            ctx.fillText('✓ 場所を推測して報酬獲得', 400, 540);
+            ctx.fillText('✓ ICPブロックチェーン上で動作', 400, 580);
+        }
+        
+        // Draw 192x192 icon
+        const ctx192 = document.getElementById('canvas192').getContext('2d');
+        drawIcon(ctx192, 192);
+        
+        // Draw 512x512 icon
+        const ctx512 = document.getElementById('canvas512').getContext('2d');
+        drawIcon(ctx512, 512);
+        
+        // Draw screenshot
+        const ctxScreenshot = document.getElementById('screenshot').getContext('2d');
+        drawScreenshot(ctxScreenshot);
+        
+        // Auto-download function
+        function downloadCanvas(canvasId, filename) {
+            const canvas = document.getElementById(canvasId);
+            canvas.toBlob(function(blob) {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            });
+        }
+        
+        // Add download buttons
+        setTimeout(() => {
+            const container = document.createElement('div');
+            container.innerHTML = `
+                <br><br>
+                <button onclick="downloadCanvas('canvas192', 'icon-192.png')">Download 192x192</button>
+                <button onclick="downloadCanvas('canvas512', 'icon-512.png')">Download 512x512</button>
+                <button onclick="downloadCanvas('screenshot', 'screenshot-1.png')">Download Screenshot</button>
+            `;
+            document.body.appendChild(container);
+        }, 100);
+    </script>
+</body>
+</html>
