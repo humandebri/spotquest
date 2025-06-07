@@ -1203,7 +1203,10 @@ actor Unified {
         // Generate 8-character code
         for (i in Iter.range(0, 7)) {
             let index = (sum + i * 7) % chars.size();
-            let char = Char.toText(Text.toArray(chars)[index]);
+            let char = switch (Text.toArray(chars)[index]) {
+                case (?c) { Char.toText(c) };
+                case null { "A" };
+            };
             code := code # char;
         };
         
@@ -2037,13 +2040,12 @@ actor Unified {
         };
         
         // 保存
-        let (newTrie, _) = Trie.put(
+        scheduledPhotos := Trie.put(
             scheduledPhotos,
             key(photoId),
             Nat.equal,
             scheduledPhoto
         );
-        scheduledPhotos := newTrie;
         
         // ユーザーの予約投稿数を更新
         userScheduledCounts.put(caller, currentCount + 1);
@@ -2058,13 +2060,12 @@ actor Unified {
                         await publishScheduledPhoto(photoId);
                     }
                 );
-                let (newTimerTrie, _) = Trie.put(
+                publishTimers := Trie.put(
                     publishTimers,
                     key(photoId),
                     Nat.equal,
                     timerId
                 );
-                publishTimers := newTimerTrie;
             };
             case null {
                 // 即時公開
@@ -2099,17 +2100,18 @@ actor Unified {
                                 updatedAt = Time.now();
                             };
                             
-                            let (newScheduledTrie, _) = Trie.put(
+                            scheduledPhotos := Trie.put(
                                 scheduledPhotos,
                                 key(photoId),
                                 Nat.equal,
                                 updated
                             );
-                            scheduledPhotos := newScheduledTrie;
                             
                             // ゲームラウンドに追加
-                            // TODO: startNewRound関数を使用してゲームラウンドを開始
-                            // ignore startNewRound();
+                            ignore createGameRound({
+                                photoId = nftId;
+                                duration = 3600_000_000_000; // 1時間
+                            });
                             
                             // ユーザーの予約投稿数を減らす
                             switch (userScheduledCounts.get(scheduled.photoMeta.owner)) {
@@ -2128,8 +2130,7 @@ actor Unified {
                     };
                     
                     // タイマーのクリーンアップ
-                    let (newPublishTimers, _) = Trie.remove(publishTimers, key(photoId), Nat.equal);
-                    publishTimers := newPublishTimers;
+                    publishTimers := Trie.remove(publishTimers, key(photoId), Nat.equal);
                 };
             };
             case null {};
@@ -2162,8 +2163,7 @@ actor Unified {
                 switch (Trie.get(publishTimers, key(photoId), Nat.equal)) {
                     case (?timerId) {
                         Timer.cancelTimer(timerId);
-                        let (newTimerTrie2, _) = Trie.remove(publishTimers, key(photoId), Nat.equal);
-                        publishTimers := newTimerTrie2;
+                        publishTimers := Trie.remove(publishTimers, key(photoId), Nat.equal);
                     };
                     case null {};
                 };
@@ -2175,13 +2175,12 @@ actor Unified {
                     updatedAt = Time.now();
                 };
                 
-                let (newScheduledTrie2, _) = Trie.put(
+                scheduledPhotos := Trie.put(
                     scheduledPhotos,
                     key(photoId),
                     Nat.equal,
                     updated
                 );
-                scheduledPhotos := newScheduledTrie2;
                 
                 // ユーザーの予約投稿数を減らす
                 switch (userScheduledCounts.get(caller)) {
@@ -2251,7 +2250,7 @@ actor Unified {
             totalDelay += delay;
             
             // 時間帯別カウント
-            let hour = Int.abs(v.scheduledPublishTime / (60 * 60 * 1_000_000_000)) % 24;
+            let hour = (v.scheduledPublishTime / (60 * 60 * 1_000_000_000)) % 24;
             switch (hourCounts.get(hour)) {
                 case null { hourCounts.put(hour, 1); };
                 case (?count) { hourCounts.put(hour, count + 1); };

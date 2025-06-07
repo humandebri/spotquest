@@ -1,5 +1,6 @@
-import { Actor, HttpAgent } from '@dfinity/agent';
+import { Actor, HttpAgent, Identity } from '@dfinity/agent';
 import { Principal } from '@dfinity/principal';
+import { authService } from './auth';
 
 // Canister ID設定
 const UNIFIED_CANISTER_ID = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || 'ryjl3-tyaaa-aaaaa-aaaba-cai';
@@ -81,11 +82,10 @@ const idlFactory = ({ IDL }: any) => {
     perceptualHash: IDL.Opt(IDL.Text),
   });
 
-  const PhotoUploadData = IDL.Record({
-    imageData: IDL.Text,
-    latitude: IDL.Float64,
-    longitude: IDL.Float64,
-    azimuth: IDL.Float64,
+  const PhotoUploadRequest = IDL.Record({
+    meta: PhotoMetadata,
+    totalChunks: IDL.Nat,
+    scheduledPublishTime: IDL.Opt(IDL.Nat),
     title: IDL.Text,
     description: IDL.Text,
     difficulty: IDL.Variant({
@@ -96,8 +96,6 @@ const idlFactory = ({ IDL }: any) => {
     }),
     hint: IDL.Text,
     tags: IDL.Vec(IDL.Text),
-    timestamp: IDL.Nat,
-    scheduledPublishTime: IDL.Opt(IDL.Nat),
   });
 
   const Result = IDL.Variant({
@@ -130,8 +128,8 @@ const idlFactory = ({ IDL }: any) => {
   });
 
   return IDL.Service({
-    uploadPhoto: IDL.Func([PhotoUploadData], [Result], []),
-    schedulePhotoUpload: IDL.Func([PhotoUploadData], [Result], []),
+    uploadPhoto: IDL.Func([PhotoUploadRequest], [Result], []),
+    schedulePhotoUpload: IDL.Func([PhotoUploadRequest], [Result], []),
     cancelScheduledPhoto: IDL.Func([IDL.Nat], [IDL.Variant({ 'ok': IDL.Null, 'err': IDL.Text })], []),
     getUserScheduledPhotos: IDL.Func([], [IDL.Vec(ScheduledPhoto)], ['query']),
     getPhotoMetadata: IDL.Func([IDL.Nat], [IDL.Opt(PhotoMetadata)], ['query']),
@@ -153,19 +151,26 @@ class PhotoService {
 
   async init() {
     try {
+      const host = process.env.EXPO_PUBLIC_IC_HOST || 'https://ic0.app';
+      const canisterId = UNIFIED_CANISTER_ID;
+      
+      console.log('Initializing photo service:', { host, canisterId });
+      
       this.agent = new HttpAgent({
-        host: process.env.EXPO_PUBLIC_IC_HOST || 'https://ic0.app',
+        host: host,
       });
 
-      if (__DEV__) {
-        // 開発環境ではローカルレプリカを使用
-        await this.agent.fetchRootKey();
-      }
+      // メインネットに接続する場合、fetchRootKeyは不要
+      // if (__DEV__) {
+      //   await this.agent.fetchRootKey();
+      // }
 
       this.actor = Actor.createActor(idlFactory, {
         agent: this.agent,
-        canisterId: UNIFIED_CANISTER_ID,
+        canisterId: canisterId,
       });
+      
+      console.log('Photo service initialized successfully');
     } catch (error) {
       console.error('Failed to initialize photo service:', error);
       throw error;
@@ -189,8 +194,8 @@ class PhotoService {
 
       console.log(`Uploading photo with ${chunks.length} chunks`);
 
-      // Canisterに送信（予約投稿APIを使用）
-      const result = await this.actor.schedulePhotoUpload({
+      // IDLで定義されたPhotoUploadRequest形式に合わせてデータを送信
+      const uploadRequest = {
         meta: {
           id: BigInt(0), // サーバー側で設定される
           owner: this.agent?.getPrincipal() || Principal.anonymous(),
@@ -202,7 +207,7 @@ class PhotoService {
           uploadTime: BigInt(Date.now() * 1000000), // ナノ秒
           chunkCount: BigInt(chunks.length),
           totalSize: BigInt(base64Data.length),
-          perceptualHash: null,
+          perceptualHash: [],
         },
         totalChunks: BigInt(chunks.length),
         scheduledPublishTime: data.scheduledPublishTime ? [data.scheduledPublishTime] : [],
@@ -211,7 +216,12 @@ class PhotoService {
         difficulty: { [data.difficulty]: null },
         hint: data.hint,
         tags: data.tags,
-      });
+      };
+
+      console.log('Sending upload request:', uploadRequest);
+
+      // Canisterに送信（予約投稿APIを使用）
+      const result = await this.actor.schedulePhotoUpload(uploadRequest);
 
       return result;
     } catch (error) {

@@ -31,14 +31,16 @@ class AuthService {
 
   async login(): Promise<Principal | null> {
     try {
-      // 開発環境でのモック
+      // 開発環境でのモック - 有効なPrincipalを使用
       if (__DEV__) {
-        const mockPrincipal = Principal.fromText('2vxsx-fae');
+        // テスト用の有効なPrincipal（あなたの実際のPrincipalに置き換えてください）
+        const mockPrincipal = Principal.fromText('lqfvd-m7ihy-e5dvc-gngvr-blzbt-pupeq-6t7ua-r7v4p-bvqjw-ea7gl-4qe');
         await this.saveSession({
           provider: 'mock',
           principal: mockPrincipal.toString(),
           timestamp: Date.now(),
         });
+        console.log('Development mode: Using mock principal:', mockPrincipal.toString());
         return mockPrincipal;
       }
 

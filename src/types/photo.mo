@@ -78,7 +78,7 @@ module {
     public type Notification = {
         id: Nat;
         userId: Principal;
-        type: { 
+        notificationType: { 
             #scheduledPhotoPublished;
             #scheduledPhotoFailed;
             #scheduledPhotoReminder;

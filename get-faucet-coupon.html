@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ICP Faucet - Get Free Cycles</title>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 2px 20px rgba(0,0,0,0.08);
+        }
+        h1 {
+            color: #2e3440;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .step-container {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border: 1px solid #e1e5e9;
+        }
+        .step-number {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            background: #3b82f6;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            margin-right: 10px;
+            font-weight: bold;
+        }
+        .info-box {
+            background: #e8f4f8;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #3b82f6;
+        }
+        .principal {
+            font-family: 'Courier New', monospace;
+            background: #f0f0f0;
+            padding: 12px;
+            border-radius: 6px;
+            word-break: break-all;
+            user-select: all;
+            cursor: pointer;
+            font-size: 14px;
+            border: 1px solid #ddd;
+        }
+        .copy-btn {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+            transition: background 0.2s;
+        }
+        .copy-btn:hover {
+            background: #2563eb;
+        }
+        .faucet-btn {
+            background: #10b981;
+            color: white;
+            padding: 15px 40px;
+            font-size: 18px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: background 0.2s;
+        }
+        .faucet-btn:hover {
+            background: #059669;
+        }
+        .center {
+            text-align: center;
+            margin: 30px 0;
+        }
+        .command-box {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            overflow-x: auto;
+            margin: 15px 0;
+        }
+        .command-prefix {
+            color: #22d3ee;
+            font-weight: bold;
+        }
+        .success {
+            display: none;
+            background: #10b981;
+            color: white;
+            padding: 10px;
+            border-radius: 6px;
+            text-align: center;
+            margin-top: 10px;
+        }
+        .warning {
+            background: #fef3c7;
+            border: 1px solid #fbbf24;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .check-balance {
+            background: #f59e0b;
+            color: white;
+            padding: 12px 30px;
+            font-size: 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            margin: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 ICP Faucet - 無料サイクルを取得</h1>
+        <p class="subtitle">Guess-the-Spot をPlaygroundにデプロイするための無料サイクルを取得しましょう</p>
+        
+        <div class="info-box">
+            <h3>あなたのPrincipal ID:</h3>
+            <div class="principal" id="principal">kp3jy-nzopx-eq5zo-s2x3r-bzgf6-s3coz-dag7m-egdeo-sydev-zdk3i-kqe</div>
+            <button class="copy-btn" onclick="copyPrincipal()">📋 Principal IDをコピー</button>
+            <div class="success" id="copySuccess">✅ クリップボードにコピーしました！</div>
+        </div>
+
+        <div class="step-container">
+            <h3><span class="step-number">1</span>ICP Faucetにアクセス</h3>
+            <p>下のボタンをクリックして、ICP Faucetサイトを開いてください：</p>
+            <div class="center">
+                <a href="https://faucet.dfinity.org/" target="_blank" class="faucet-btn">
+                    🚿 ICP Faucetを開く
+                </a>
+            </div>
+        </div>
+
+        <div class="step-container">
+            <h3><span class="step-number">2</span>Faucetでクーポンを取得</h3>
+            <ol>
+                <li>Principal ID（既にコピー済み）を貼り付ける</li>
+                <li>"Request Cycles" をクリック</li>
+                <li>表示されるクーポンコードをコピー</li>
+            </ol>
+        </div>
+
+        <div class="step-container">
+            <h3><span class="step-number">3</span>クーポンを使用</h3>
+            <p>取得したクーポンコードを以下のコマンドの最後に追加して実行：</p>
+            <div class="command-box">
+                <span class="command-prefix">$</span> dfx cycles --network ic redeem-faucet-coupon YOUR_COUPON_CODE_HERE
+            </div>
+        </div>
+
+        <div class="step-container">
+            <h3><span class="step-number">4</span>Playgroundにデプロイ</h3>
+            <p>サイクルを取得したら、以下のコマンドでデプロイ：</p>
+            <div class="command-box">
+                <span class="command-prefix">$</span> export DFX_WARNING=-mainnet_plaintext_identity<br>
+                <span class="command-prefix">$</span> dfx deploy unified --network playground
+            </div>
+        </div>
+
+        <div class="warning">
+            <strong>⚠️ 注意:</strong> 
+            <ul>
+                <li>Faucetは1日1回まで使用可能です</li>
+                <li>提供されるのはテスト用の少量のサイクルです</li>
+                <li>本番環境では実際のICPを購入してサイクルに変換する必要があります</li>
+            </ul>
+        </div>
+
+        <div class="center">
+            <button class="check-balance" onclick="checkBalance()">
+                💰 現在のサイクル残高を確認
+            </button>
+        </div>
+
+        <div id="balance-result" style="margin-top: 20px; display: none;">
+            <div class="command-box">
+                <span class="command-prefix">$</span> export DFX_WARNING=-mainnet_plaintext_identity && dfx cycles balance --network playground
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function copyPrincipal() {
+            const principal = document.getElementById('principal').textContent;
+            navigator.clipboard.writeText(principal).then(() => {
+                document.getElementById('copySuccess').style.display = 'block';
+                setTimeout(() => {
+                    document.getElementById('copySuccess').style.display = 'none';
+                }, 3000);
+            });
+        }
+        
+        function checkBalance() {
+            document.getElementById('balance-result').style.display = 'block';
+        }
+        
+        // ページ読み込み時に自動でコピー
+        window.onload = function() {
+            copyPrincipal();
+        };
+    </script>
+</body>
+</html>

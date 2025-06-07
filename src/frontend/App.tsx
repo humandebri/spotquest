@@ -1,73 +1,39 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import 'react-native-gesture-handler';
+import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
+import { NavigationContainer } from '@react-navigation/native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { View, Text, ActivityIndicator } from 'react-native';
+import { useAuthStore } from './src/store/authStore';
+import AppNavigator from './src/navigation/AppNavigator';
 
 export default function App() {
-  return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="light" />
-      <View style={styles.content}>
-        <Text style={styles.title}>🌍 Guess the Spot</Text>
-        <Text style={styles.subtitle}>テストアプリ</Text>
-        
-        <TouchableOpacity 
-          style={styles.button}
-          onPress={() => Alert.alert('Success!', 'アプリが正常に動作しています')}
-        >
-          <Text style={styles.buttonText}>テストボタン</Text>
-        </TouchableOpacity>
-        
-        <View style={styles.status}>
-          <Text style={styles.statusText}>✅ React Native 動作中</Text>
-          <Text style={styles.statusText}>✅ Expo 動作中</Text>
-          <Text style={styles.statusText}>✅ TypeScript 動作中</Text>
-        </View>
+  const { isLoading, checkAuth, isAuthenticated } = useAuthStore();
+  const [isReady, setIsReady] = React.useState(false);
+
+  useEffect(() => {
+    const init = async () => {
+      await checkAuth();
+      setIsReady(true);
+    };
+    init();
+  }, []);
+
+  if (!isReady || isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1a1a2e' }}>
+        <ActivityIndicator size="large" color="#3282b8" />
+        <Text style={{ color: '#3282b8', marginTop: 10 }}>Loading...</Text>
       </View>
-    </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaProvider>
+      <NavigationContainer>
+        <StatusBar style="light" />
+        <AppNavigator />
+      </NavigationContainer>
+    </SafeAreaProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0f1117',
-  },
-  content: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    marginBottom: 10,
-  },
-  subtitle: {
-    fontSize: 18,
-    color: '#94a3b8',
-    marginBottom: 40,
-  },
-  button: {
-    backgroundColor: '#3282b8',
-    paddingHorizontal: 30,
-    paddingVertical: 15,
-    borderRadius: 10,
-    marginBottom: 40,
-  },
-  buttonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  status: {
-    alignItems: 'center',
-  },
-  statusText: {
-    color: '#4ade80',
-    fontSize: 14,
-    marginBottom: 8,
-  },
-});

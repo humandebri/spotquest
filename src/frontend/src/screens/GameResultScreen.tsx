@@ -13,32 +13,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { BlurView } from 'expo-blur';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-interface GameResultProps {
-  route: {
-    params: {
-      guess: { latitude: number; longitude: number };
-      actualLocation: { latitude: number; longitude: number };
-      score: number;
-      timeUsed: number;
-      azimuthGuess?: number;
-      actualAzimuth?: number;
-      difficulty?: string;
-      photoUrl?: string;
-    };
-  };
-}
+type GameResultScreenRouteProp = RouteProp<RootStackParamList, 'GameResult'>;
+type GameResultScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'GameResult'>;
 
-type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-
-export default function GameResultScreen({ route }: GameResultProps) {
-  const navigation = useNavigation<NavigationProp>();
+export default function GameResultScreen() {
+  const navigation = useNavigation<GameResultScreenNavigationProp>();
+  const route = useRoute<GameResultScreenRouteProp>();
   const { 
     guess, 
     actualLocation, 
@@ -48,7 +35,12 @@ export default function GameResultScreen({ route }: GameResultProps) {
     actualAzimuth = 0,
     difficulty = 'NORMAL',
     photoUrl = 'https://picsum.photos/800/600',
-  } = route.params;
+  } = route.params || {
+    guess: { latitude: 0, longitude: 0 },
+    actualLocation: { latitude: 0, longitude: 0 },
+    score: 0,
+    timeUsed: 0,
+  };
 
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -69,12 +61,12 @@ export default function GameResultScreen({ route }: GameResultProps) {
     return R * c;
   };
 
-  const distance = calculateDistance(
+  const distance = guess && actualLocation ? calculateDistance(
     guess.latitude,
     guess.longitude,
     actualLocation.latitude,
     actualLocation.longitude
-  );
+  ) : 0;
 
   const azimuthError = Math.abs(azimuthGuess - actualAzimuth);
   const normalizedAzimuthError = Math.min(azimuthError, 360 - azimuthError);
@@ -628,5 +620,17 @@ const styles = StyleSheet.create({
     color: '#3282b8',
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    color: '#94a3b8',
+    marginTop: 10,
+    marginBottom: 20,
+    fontSize: 16,
   },
 });

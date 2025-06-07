@@ -6,13 +6,14 @@ import { useAuthStore } from '../store/authStore';
 import HomeScreen from '../screens/HomeScreen';
 import GameScreen from '../screens/GameScreen';
 import GamePlayScreen from '../screens/GamePlayScreen';
+import GuessMapScreen from '../screens/GuessMapScreen';
 import GameResultScreen from '../screens/GameResultScreen';
 import CameraScreen from '../screens/CameraScreen';
 import PhotoUploadScreen from '../screens/PhotoUploadScreen';
 import LeaderboardScreen from '../screens/LeaderboardScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import LoginScreen from '../screens/LoginScreen';
-import ScheduledPhotosScreen from '../screens/ScheduledPhotosScreen';
+// import ScheduledPhotosScreen from '../screens/ScheduledPhotosScreen';
 
 export type RootStackParamList = {
   Home: undefined;
@@ -20,6 +21,13 @@ export type RootStackParamList = {
   GamePlay: {
     gameMode?: string;
     difficulty?: 'EASY' | 'NORMAL' | 'HARD' | 'EXTREME';
+  };
+  GuessMap: {
+    photoUrl: string;
+    difficulty: string;
+    timeLeft: number;
+    initialGuess?: { latitude: number; longitude: number };
+    confidenceRadius?: number;
   };
   GameResult: {
     guess: { latitude: number; longitude: number };
@@ -42,7 +50,6 @@ export type RootStackParamList = {
   Leaderboard: undefined;
   Profile: undefined;
   Login: undefined;
-  ScheduledPhotos: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -81,6 +88,14 @@ export default function AppNavigator() {
             options={{ title: 'Guess the Location' }}
           />
           <Stack.Screen
+            name="GuessMap"
+            component={GuessMapScreen}
+            options={{ 
+              title: 'Select Location',
+              presentation: 'modal'
+            }}
+          />
+          <Stack.Screen
             name="GameResult"
             component={GameResultScreen}
             options={{ title: 'Game Result' }}
@@ -105,11 +120,11 @@ export default function AppNavigator() {
             component={ProfileScreen}
             options={{ title: 'My Profile' }}
           />
-          <Stack.Screen
+          {/* <Stack.Screen
             name="ScheduledPhotos"
             component={ScheduledPhotosScreen}
             options={{ title: 'Scheduled Posts' }}
-          />
+          /> */}
         </Stack.Group>
       ) : (
         <Stack.Screen

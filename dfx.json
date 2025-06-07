@@ -7,13 +7,18 @@
     },
     "frontend": {
       "type": "assets",
-      "source": ["src/frontend/dist"]
+      "source": ["src/frontend/dist"],
+      "build": []
     }
   },
   "networks": {
     "local": {
       "bind": "0.0.0.0:4943",
       "type": "ephemeral"
+    },
+    "playground": {
+      "providers": ["https://icp0.io"],
+      "type": "persistent"
     }
   },
   "defaults": {

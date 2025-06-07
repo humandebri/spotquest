@@ -8,12 +8,12 @@ import {
   TouchableOpacity,
   Modal,
   Animated,
-  PanResponder,
   Image,
   Alert,
+  ActivityIndicator,
+  PanResponder,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import MapView, { Marker, Circle, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
@@ -21,6 +21,7 @@ import Slider from '@react-native-community/slider';
 import { useNavigation, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
+import { useGameStore } from '../store/gameStore';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -94,21 +95,54 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { gameMode = 'normal', difficulty = Difficulty.NORMAL } = route.params || {};
   
-  // ゲーム状態
-  const [currentPhoto, setCurrentPhoto] = useState<GamePhoto>({
-    id: '1',
-    url: 'https://picsum.photos/800/600',
-    actualLocation: { latitude: 35.6762, longitude: 139.6503 }, // 東京
-    azimuth: 45,
-    timestamp: Date.now(),
-    uploader: '2vxsx-fae',
-    difficulty,
-  });
+  // Game store
+  const { 
+    currentPhoto, 
+    currentGuess,
+    confidenceRadius,
+    setCurrentPhoto,
+    setGuess: setGameGuess,
+    setTimeLeft: setGameTimeLeft,
+  } = useGameStore();
   
-  const [guess, setGuess] = useState<{ latitude: number; longitude: number } | null>(null);
+  // ゲーム状態
   const [azimuthGuess, setAzimuthGuess] = useState(0);
-  const [confidenceRadius, setConfidenceRadius] = useState(1000); // meters
   const [timeLeft, setTimeLeft] = useState(DifficultySettings[difficulty].timeLimit);
+  
+  // Initialize photo if not set
+  useEffect(() => {
+    if (!currentPhoto) {
+      setCurrentPhoto({
+        id: '1',
+        url: 'https://picsum.photos/800/600',
+        actualLocation: { latitude: 35.6762, longitude: 139.6503 }, // 東京
+        azimuth: 45,
+        timestamp: Date.now(),
+        uploader: '2vxsx-fae',
+        difficulty,
+      });
+    }
+  }, []);
+  
+  // 画像のアスペクト比を取得
+  useEffect(() => {
+    if (currentPhoto?.url) {
+      Image.getSize(
+        currentPhoto.url,
+        (width, height) => {
+          const ratio = width / height;
+          setImageAspectRatio(ratio);
+          // 画面のアスペクト比と比較
+          const screenRatio = SCREEN_WIDTH / SCREEN_HEIGHT;
+          // 横長画像の場合のみパンを有効にする
+          setCanPan(ratio > screenRatio);
+        },
+        (error) => {
+          console.error('Failed to get image size:', error);
+        }
+      );
+    }
+  }, [currentPhoto]);
   const [hints, setHints] = useState<Hint[]>([
     { id: '1', type: 'region', cost: 5, title: '地域', content: '', unlocked: false },
     { id: '2', type: 'climate', cost: 10, title: '気候', content: '', unlocked: false },
@@ -119,12 +153,135 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   ]);
   
   // UI状態
-  const [showPhotoZoom, setShowPhotoZoom] = useState(false);
   const [showHintModal, setShowHintModal] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState(false);
-  const [mapType, setMapType] = useState<'standard' | 'satellite' | 'terrain'>('standard');
   const [showCompass, setShowCompass] = useState(true);
-  const [photoZoom] = useState(new Animated.Value(1));
+  
+  // Photo pan and zoom state
+  const pan = useRef(new Animated.ValueXY()).current;
+  const scale = useRef(new Animated.Value(1)).current;
+  const lastScale = useRef(1);
+  const lastPan = useRef({ x: 0, y: 0 });
+  const lastDistance = useRef(0);
+  const isZooming = useRef(false);
+  const [imageAspectRatio, setImageAspectRatio] = useState(1);
+  const [canPan, setCanPan] = useState(false);
+  
+  // Calculate distance between two touches
+  const getDistance = (touches: any[]) => {
+    const dx = touches[0].pageX - touches[1].pageX;
+    const dy = touches[0].pageY - touches[1].pageY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+  
+  // PanResponder for dragging and zooming
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        // Store the current position
+        lastPan.current = {
+          x: pan.x._value,
+          y: pan.y._value,
+        };
+        lastScale.current = scale._value;
+        
+        // Check if it's a pinch gesture
+        if (evt.nativeEvent.touches.length === 2) {
+          isZooming.current = true;
+          lastDistance.current = getDistance(evt.nativeEvent.touches);
+        } else {
+          isZooming.current = false;
+        }
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        if (evt.nativeEvent.touches.length === 2 && isZooming.current) {
+          // Handle pinch zoom
+          const distance = getDistance(evt.nativeEvent.touches);
+          const scaleFactor = distance / lastDistance.current;
+          const newScale = lastScale.current * scaleFactor;
+          
+          // Limit scale between 1 and 5
+          scale.setValue(Math.max(1, Math.min(5, newScale)));
+        } else if (!isZooming.current) {
+          // Handle pan
+          const currentScale = scale._value;
+          const newX = lastPan.current.x + gestureState.dx;
+          const newY = lastPan.current.y + gestureState.dy;
+          
+          // Calculate image dimensions
+          const imageWidth = SCREEN_HEIGHT * imageAspectRatio;
+          const imageHeight = SCREEN_HEIGHT;
+          
+          // Calculate max pan based on zoom level
+          let maxX = 0;
+          let maxY = 0;
+          
+          if (currentScale > 1) {
+            // When zoomed in, allow panning
+            const scaledWidth = imageWidth * currentScale;
+            const scaledHeight = imageHeight * currentScale;
+            
+            maxX = Math.max(0, (scaledWidth - SCREEN_WIDTH) / 2);
+            maxY = Math.max(0, (scaledHeight - SCREEN_HEIGHT) / 2);
+          } else if (canPan) {
+            // For wide images at normal scale, allow horizontal panning
+            maxX = Math.max(0, (imageWidth - SCREEN_WIDTH) / 2);
+          }
+          
+          pan.setValue({
+            x: Math.max(-maxX, Math.min(maxX, newX)),
+            y: Math.max(-maxY, Math.min(maxY, newY)),
+          });
+        }
+      },
+      onPanResponderRelease: () => {
+        // Reset zoom if too small
+        if (scale._value < 1) {
+          Animated.spring(scale, {
+            toValue: 1,
+            friction: 5,
+            useNativeDriver: true,
+          }).start();
+        }
+        
+        // Center the image if panned too far
+        const currentScale = scale._value;
+        const imageWidth = SCREEN_HEIGHT * imageAspectRatio;
+        const imageHeight = SCREEN_HEIGHT;
+        
+        let maxX = 0;
+        let maxY = 0;
+        
+        if (currentScale > 1) {
+          const scaledWidth = imageWidth * currentScale;
+          const scaledHeight = imageHeight * currentScale;
+          
+          maxX = Math.max(0, (scaledWidth - SCREEN_WIDTH) / 2);
+          maxY = Math.max(0, (scaledHeight - SCREEN_HEIGHT) / 2);
+        } else if (canPan) {
+          maxX = Math.max(0, (imageWidth - SCREEN_WIDTH) / 2);
+        }
+        
+        const currentX = pan.x._value;
+        const currentY = pan.y._value;
+        
+        if (Math.abs(currentX) > maxX || Math.abs(currentY) > maxY) {
+          Animated.spring(pan, {
+            toValue: {
+              x: Math.max(-maxX, Math.min(maxX, currentX)),
+              y: Math.max(-maxY, Math.min(maxY, currentY)),
+            },
+            friction: 5,
+            useNativeDriver: true,
+          }).start();
+        }
+        
+        isZooming.current = false;
+      },
+    })
+  ).current;
   
   // タイマー
   useEffect(() => {
@@ -147,7 +304,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   };
   
   const calculatePotentialScore = () => {
-    if (!guess) return { min: 0, max: 100 };
+    if (!currentGuess) return { min: 0, max: 100 };
     
     const difficultyMultiplier = DifficultySettings[difficulty].scoreMultiplier;
     const baseScore = 100 - (confidenceRadius / 100);
@@ -159,12 +316,12 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   };
   
   const submitGuess = async (isTimeout = false) => {
-    if (!guess && !isTimeout) {
+    if (!currentGuess && !isTimeout) {
       Alert.alert('エラー', '地図をタップして場所を推測してください');
       return;
     }
     
-    const finalGuess = guess || {
+    const finalGuess = currentGuess || {
       latitude: (Math.random() - 0.5) * 180,
       longitude: (Math.random() - 0.5) * 360,
     };
@@ -172,9 +329,11 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     // TODO: ICPに推測を送信
     navigation.navigate('GameResult', {
       guess: finalGuess,
-      actualLocation: currentPhoto.actualLocation,
+      actualLocation: currentPhoto!.actualLocation,
       score: calculatePotentialScore().max,
       timeUsed: DifficultySettings[difficulty].timeLimit - timeLeft,
+      difficulty: difficulty,
+      photoUrl: currentPhoto!.url,
     });
   };
   
@@ -201,21 +360,92 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     return hintContents[type] || '';
   };
   
+  if (!currentPhoto) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#3282b8" />
+      </View>
+    );
+  }
+  
   return (
-    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      {/* 写真表示エリア */}
-      <View style={styles.photoSection}>
-        <TouchableOpacity 
-          activeOpacity={0.95}
-          onPress={() => setShowPhotoZoom(true)}
+    <View style={styles.container}>
+      {/* 写真を画面全体に表示 - ドラッグ可能 */}
+      <View style={styles.photoContainer}>
+        <Animated.Image 
+          source={{ uri: currentPhoto.url }} 
+          style={[
+            styles.fullScreenPhoto,
+            {
+              transform: [
+                { translateX: pan.x },
+                { translateY: pan.y },
+                { scale: scale },
+              ],
+            },
+          ]}
+          resizeMode="contain"
+          {...panResponder.panHandlers}
+        />
+      </View>
+      
+      {/* リセットボタン */}
+      {(scale._value !== 1 || pan.x._value !== 0 || pan.y._value !== 0) && (
+        <TouchableOpacity
+          style={styles.resetButton}
+          onPress={() => {
+            Animated.parallel([
+              Animated.spring(scale, {
+                toValue: 1,
+                friction: 5,
+                useNativeDriver: true,
+              }),
+              Animated.spring(pan, {
+                toValue: { x: 0, y: 0 },
+                friction: 5,
+                useNativeDriver: true,
+              }),
+            ]).start();
+          }}
         >
-          <Image 
-            source={{ uri: currentPhoto.url }} 
-            style={styles.photo}
-            resizeMode="cover"
-          />
-          
-          {/* 写真オーバーレイ情報 */}
+          <Ionicons name="contract" size={20} color="#fff" />
+        </TouchableOpacity>
+      )}
+      
+      {/* UI要素のコンテナ */}
+      <View style={styles.uiContainer} pointerEvents="box-none">
+        {/* 画面上部のステータスバー */}
+        <SafeAreaView style={styles.topBar} edges={['top']} pointerEvents="box-none">
+          <View style={styles.gameStatusBar} pointerEvents="box-none">
+            <View style={styles.statusItem} pointerEvents="auto">
+              <View style={styles.timer}>
+                <Ionicons name="timer" size={20} color="#fff" />
+                <Text style={styles.timerText}>
+                  {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
+                </Text>
+              </View>
+            </View>
+            
+            <View style={styles.statusItem} pointerEvents="auto">
+              <View style={styles.difficulty}>
+                <Text style={styles.difficultyText}>{difficulty}</Text>
+                <Text style={styles.multiplierText}>
+                  x{DifficultySettings[difficulty].scoreMultiplier}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </SafeAreaView>
+        
+        {/* 方位表示 */}
+        {showCompass && (
+          <View style={styles.compassContainer} pointerEvents="auto">
+            <CompassIndicator azimuth={currentPhoto.azimuth} />
+          </View>
+        )}
+        
+        {/* 写真情報オーバーレイ */}
+        <View style={styles.photoInfoContainer} pointerEvents="none">
           <LinearGradient
             colors={['transparent', 'rgba(0,0,0,0.7)']}
             style={styles.photoOverlay}
@@ -229,20 +459,14 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
               </Text>
             </View>
           </LinearGradient>
-          
-          {/* 方位表示 */}
-          {showCompass && (
-            <View style={styles.compassContainer}>
-              <CompassIndicator azimuth={currentPhoto.azimuth} />
-            </View>
-          )}
-        </TouchableOpacity>
+        </View>
         
-        {/* ツールバー */}
-        <View style={styles.photoToolbar}>
+        {/* 画面下部のツールバー */}
+        <View style={styles.bottomToolbar} pointerEvents="box-none">
           <TouchableOpacity 
             style={styles.toolButton}
             onPress={() => setShowCompass(!showCompass)}
+            pointerEvents="auto"
           >
             <Ionicons name="compass" size={24} color="#fff" />
           </TouchableOpacity>
@@ -250,6 +474,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
           <TouchableOpacity 
             style={styles.toolButton}
             onPress={() => setShowAnalysis(true)}
+            pointerEvents="auto"
           >
             <Ionicons name="analytics" size={24} color="#fff" />
           </TouchableOpacity>
@@ -257,149 +482,44 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
           <TouchableOpacity 
             style={styles.toolButton}
             onPress={() => setShowHintModal(true)}
+            pointerEvents="auto"
           >
             <Ionicons name="bulb" size={24} color="#FFD700" />
-            <Text style={styles.hintCount}>
-              {hints.filter(h => h.unlocked).length}/{hints.length}
-            </Text>
+            {hints.filter(h => h.unlocked).length > 0 && (
+              <View style={styles.hintBadge}>
+                <Text style={styles.hintBadgeText}>
+                  {hints.filter(h => h.unlocked).length}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+          
+          {/* 地図を開くボタン - アイコンのみ */}
+          <TouchableOpacity 
+            style={[styles.mapButton, currentGuess && styles.mapButtonActive]}
+            onPress={() => {
+              navigation.navigate('GuessMap', {
+                photoUrl: currentPhoto.url,
+                difficulty: difficulty,
+                timeLeft: timeLeft,
+                initialGuess: currentGuess,
+                confidenceRadius: confidenceRadius,
+              });
+            }}
+            pointerEvents="auto"
+            activeOpacity={0.8}
+          >
+            <LinearGradient
+              colors={currentGuess ? ['#4CAF50', '#45A049'] : ['#2196F3', '#1976D2']}
+              style={styles.mapButtonGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <Ionicons name="map" size={32} color="#fff" />
+            </LinearGradient>
           </TouchableOpacity>
         </View>
       </View>
-      
-      {/* タイマーと難易度表示 */}
-      <View style={styles.gameStatus}>
-        <View style={styles.timer}>
-          <Ionicons name="timer" size={20} color="#fff" />
-          <Text style={styles.timerText}>
-            {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
-          </Text>
-        </View>
-        
-        <View style={styles.difficulty}>
-          <Text style={styles.difficultyText}>{difficulty}</Text>
-          <Text style={styles.multiplierText}>
-            x{DifficultySettings[difficulty].scoreMultiplier}
-          </Text>
-        </View>
-        
-        <View style={styles.scorePreview}>
-          <Text style={styles.scoreLabel}>予想スコア</Text>
-          <Text style={styles.scoreRange}>
-            {calculatePotentialScore().min} - {calculatePotentialScore().max}
-          </Text>
-        </View>
-      </View>
-      
-      {/* 地図エリア */}
-      <View style={styles.mapSection}>
-        <MapView
-          style={styles.map}
-          provider={PROVIDER_GOOGLE}
-          mapType={mapType}
-          initialRegion={{
-            latitude: 0,
-            longitude: 0,
-            latitudeDelta: DifficultySettings[difficulty].startingZoom,
-            longitudeDelta: DifficultySettings[difficulty].startingZoom,
-          }}
-          onPress={(e) => setGuess(e.nativeEvent.coordinate)}
-        >
-          {guess && (
-            <>
-              {/* 推測マーカー */}
-              <Marker
-                coordinate={guess}
-                draggable
-                onDragEnd={(e) => setGuess(e.nativeEvent.coordinate)}
-              >
-                <View style={styles.guessMarker}>
-                  <Ionicons name="location" size={40} color="#FF0000" />
-                </View>
-              </Marker>
-              
-              {/* 確信度円 */}
-              <Circle
-                center={guess}
-                radius={confidenceRadius}
-                fillColor="rgba(255, 0, 0, 0.1)"
-                strokeColor="rgba(255, 0, 0, 0.5)"
-                strokeWidth={2}
-              />
-              
-              {/* 方位線 */}
-              <Polyline
-                coordinates={[
-                  guess,
-                  computeDestinationPoint(guess, azimuthGuess, 1000)
-                ]}
-                strokeColor="#0000FF"
-                strokeWidth={3}
-              />
-            </>
-          )}
-        </MapView>
-        
-        {/* 地図コントロール */}
-        <View style={styles.mapControls}>
-          <View style={styles.mapTypeSelector}>
-            <TouchableOpacity
-              style={[styles.mapTypeButton, mapType === 'standard' && styles.activeMapType]}
-              onPress={() => setMapType('standard')}
-            >
-              <Text style={styles.mapTypeText}>標準</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.mapTypeButton, mapType === 'satellite' && styles.activeMapType]}
-              onPress={() => setMapType('satellite')}
-            >
-              <Text style={styles.mapTypeText}>衛星</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.mapTypeButton, mapType === 'terrain' && styles.activeMapType]}
-              onPress={() => setMapType('terrain')}
-            >
-              <Text style={styles.mapTypeText}>地形</Text>
-            </TouchableOpacity>
-          </View>
-          
-          <View style={styles.confidenceControl}>
-            <Text style={styles.controlLabel}>確信度: {Math.round(confidenceRadius)}m</Text>
-            <Slider
-              style={styles.slider}
-              minimumValue={100}
-              maximumValue={DifficultySettings[difficulty].maxConfidenceRadius}
-              value={confidenceRadius}
-              onValueChange={setConfidenceRadius}
-              minimumTrackTintColor="#FF0000"
-              maximumTrackTintColor="#CCCCCC"
-            />
-          </View>
-          
-          <View style={styles.azimuthControl}>
-            <Text style={styles.controlLabel}>方位: {Math.round(azimuthGuess)}°</Text>
-            <AzimuthWheel 
-              value={azimuthGuess} 
-              onChange={setAzimuthGuess}
-            />
-          </View>
-        </View>
-      </View>
-      
-      {/* 推測送信ボタン */}
-      <TouchableOpacity
-        style={[styles.submitButton, !guess && styles.submitButtonDisabled]}
-        onPress={() => submitGuess()}
-        disabled={!guess}
-      >
-        <LinearGradient
-          colors={guess ? ['#4CAF50', '#45A049'] : ['#CCCCCC', '#AAAAAA']}
-          style={styles.submitGradient}
-        >
-          <Text style={styles.submitText}>
-            {guess ? '推測を送信' : '地図をタップして推測'}
-          </Text>
-        </LinearGradient>
-      </TouchableOpacity>
       
       {/* ヒントモーダル */}
       <HintModal
@@ -417,13 +537,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
         onClose={() => setShowAnalysis(false)}
       />
       
-      {/* ズーム写真モーダル */}
-      <PhotoZoomModal
-        visible={showPhotoZoom}
-        photo={currentPhoto}
-        onClose={() => setShowPhotoZoom(false)}
-      />
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -457,32 +571,6 @@ const CompassIndicator = ({ azimuth }: { azimuth: number }) => {
   );
 };
 
-// 方位角ホイールコンポーネント
-const AzimuthWheel = ({ value, onChange }: { value: number; onChange: (value: number) => void }) => {
-  const pan = useRef(new Animated.ValueXY()).current;
-  
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderMove: (_, gestureState) => {
-        const angle = Math.atan2(gestureState.dy, gestureState.dx) * (180 / Math.PI);
-        onChange((angle + 360) % 360);
-      },
-    })
-  ).current;
-  
-  return (
-    <View style={styles.azimuthWheel} {...panResponder.panHandlers}>
-      <View
-        style={[
-          styles.azimuthIndicator,
-          { transform: [{ rotate: `${value}deg` }] },
-        ]}
-      />
-      <Text style={styles.azimuthValue}>{Math.round(value)}°</Text>
-    </View>
-  );
-};
 
 // ヒントモーダル
 const HintModal = ({ visible, hints, onPurchase, onClose, costMultiplier }) => {
@@ -568,81 +656,7 @@ const PhotoAnalysisModal = ({ visible, photo, onClose }) => {
   );
 };
 
-// 写真ズームモーダル
-const PhotoZoomModal = ({ visible, photo, onClose }) => {
-  const scale = useRef(new Animated.Value(1)).current;
-  const translateX = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(0)).current;
-  
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderMove: Animated.event(
-        [null, { dx: translateX, dy: translateY }],
-        { useNativeDriver: false }
-      ),
-      onPanResponderRelease: () => {
-        Animated.spring(translateX, {
-          toValue: 0,
-          useNativeDriver: true,
-        }).start();
-        Animated.spring(translateY, {
-          toValue: 0,
-          useNativeDriver: true,
-        }).start();
-      },
-    })
-  ).current;
-  
-  return (
-    <Modal visible={visible} animationType="fade" transparent>
-      <View style={styles.zoomContainer}>
-        <TouchableOpacity style={styles.zoomClose} onPress={onClose}>
-          <Ionicons name="close" size={30} color="#fff" />
-        </TouchableOpacity>
-        
-        <Animated.Image
-          {...panResponder.panHandlers}
-          source={{ uri: photo.url }}
-          style={[
-            styles.zoomImage,
-            {
-              transform: [
-                { scale },
-                { translateX },
-                { translateY },
-              ],
-            },
-          ]}
-          resizeMode="contain"
-        />
-      </View>
-    </Modal>
-  );
-};
-
 // ヘルパー関数
-const computeDestinationPoint = (start: { latitude: number; longitude: number }, bearing: number, distance: number) => {
-  const R = 6371000; // 地球の半径（メートル）
-  const φ1 = start.latitude * (Math.PI / 180);
-  const λ1 = start.longitude * (Math.PI / 180);
-  const θ = bearing * (Math.PI / 180);
-  
-  const φ2 = Math.asin(
-    Math.sin(φ1) * Math.cos(distance / R) +
-    Math.cos(φ1) * Math.sin(distance / R) * Math.cos(θ)
-  );
-  
-  const λ2 = λ1 + Math.atan2(
-    Math.sin(θ) * Math.sin(distance / R) * Math.cos(φ1),
-    Math.cos(distance / R) - Math.sin(φ1) * Math.sin(φ2)
-  );
-  
-  return {
-    latitude: φ2 * (180 / Math.PI),
-    longitude: λ2 * (180 / Math.PI),
-  };
-};
 
 const getAnalysisIcon = (key: string): string => {
   const icons = {
@@ -671,21 +685,34 @@ const getAnalysisLabel = (key: string): string => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f1117',
+    backgroundColor: '#000000',
   },
-  photoSection: {
-    height: SCREEN_HEIGHT * 0.35,
-    position: 'relative',
-  },
-  photo: {
-    width: '100%',
-    height: '100%',
-  },
-  photoOverlay: {
+  photoContainer: {
     position: 'absolute',
-    bottom: 0,
+    top: 0,
+    left: 0,
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
+    backgroundColor: '#000',
+  },
+  fullScreenPhoto: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
+  },
+  uiContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
+  },
+  photoInfoContainer: {
+    position: 'absolute',
+    bottom: 120,
     left: 0,
     right: 0,
+  },
+  photoOverlay: {
     height: 80,
     justifyContent: 'flex-end',
     padding: 15,
@@ -693,6 +720,7 @@ const styles = StyleSheet.create({
   photoInfo: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'flex-end',
   },
   uploadTime: {
     color: '#fff',
@@ -706,7 +734,7 @@ const styles = StyleSheet.create({
   },
   compassContainer: {
     position: 'absolute',
-    top: 15,
+    top: 100,
     right: 15,
     backgroundColor: 'rgba(0,0,0,0.7)',
     borderRadius: 35,
@@ -750,22 +778,27 @@ const styles = StyleSheet.create({
   },
   toolButton: {
     backgroundColor: 'rgba(0,0,0,0.7)',
-    padding: 10,
-    borderRadius: 20,
-    flexDirection: 'row',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
     alignItems: 'center',
-    gap: 5,
   },
-  hintCount: {
-    color: '#FFD700',
-    fontSize: 12,
+  hintBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#FFD700',
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  hintBadgeText: {
+    color: '#000',
+    fontSize: 10,
     fontWeight: 'bold',
-  },
-  gameStatus: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    padding: 15,
-    backgroundColor: '#1a1a2e',
   },
   timer: {
     flexDirection: 'row',
@@ -774,7 +807,7 @@ const styles = StyleSheet.create({
   },
   timerText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: 'bold',
   },
   difficulty: {
@@ -788,108 +821,6 @@ const styles = StyleSheet.create({
   multiplierText: {
     color: '#4CAF50',
     fontSize: 14,
-    fontWeight: 'bold',
-  },
-  scorePreview: {
-    alignItems: 'flex-end',
-  },
-  scoreLabel: {
-    color: '#94a3b8',
-    fontSize: 12,
-  },
-  scoreRange: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  mapSection: {
-    flex: 1,
-    position: 'relative',
-  },
-  map: {
-    flex: 1,
-  },
-  guessMarker: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  mapControls: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(26, 26, 46, 0.95)',
-    padding: 15,
-    gap: 10,
-  },
-  mapTypeSelector: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  mapTypeButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-  },
-  activeMapType: {
-    backgroundColor: '#3282b8',
-  },
-  mapTypeText: {
-    color: '#fff',
-    fontSize: 12,
-  },
-  confidenceControl: {
-    marginTop: 10,
-  },
-  controlLabel: {
-    color: '#fff',
-    fontSize: 14,
-    marginBottom: 5,
-  },
-  slider: {
-    width: '100%',
-    height: 40,
-  },
-  azimuthControl: {
-    alignItems: 'center',
-  },
-  azimuthWheel: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  azimuthIndicator: {
-    position: 'absolute',
-    width: 2,
-    height: 30,
-    backgroundColor: '#FF0000',
-    bottom: 40,
-  },
-  azimuthValue: {
-    color: '#fff',
-    fontSize: 12,
-  },
-  submitButton: {
-    margin: 15,
-    borderRadius: 10,
-    overflow: 'hidden',
-  },
-  submitButtonDisabled: {
-    opacity: 0.5,
-  },
-  submitGradient: {
-    padding: 15,
-    alignItems: 'center',
-  },
-  submitText: {
-    color: '#fff',
-    fontSize: 16,
     fontWeight: 'bold',
   },
   modalContainer: {
@@ -996,20 +927,70 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-  zoomContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.95)',
+  // 新しいレイアウト用のスタイル
+  topBar: {
+    paddingHorizontal: 15,
+    paddingBottom: 10,
+    marginTop: -50,
+  },
+  gameStatusBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingTop: 10,
+  },
+  statusItem: {
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  bottomToolbar: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  resetButton: {
+    position: 'absolute',
+    bottom: 100,
+    right: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  mapButton: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    overflow: 'hidden',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  mapButtonActive: {
+    // Gradient colors handled in LinearGradient
+  },
+  mapButtonGradient: {
+    width: '100%',
+    height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  zoomClose: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
-    zIndex: 1,
-  },
-  zoomImage: {
-    width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT,
-  },
+  
 });

@@ -11,12 +11,17 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../navigation/AppNavigator';
 
 interface GameRound {
   id: number;
   photoUrl: string;
   actualLat: number;
   actualLon: number;
+  azimuth: number; // 写真の方位角
+  takenAt: number; // 撮影日時のタイムスタンプ
 }
 
 interface GuessResult {
@@ -26,209 +31,130 @@ interface GuessResult {
 }
 
 export default function GameScreen() {
-  const [currentRound, setCurrentRound] = useState<GameRound | null>(null);
-  const [selectedLocation, setSelectedLocation] = useState<{
-    latitude: number;
-    longitude: number;
-  } | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasGuessed, setHasGuessed] = useState(false);
-  const [result, setResult] = useState<GuessResult | null>(null);
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'Game'>>();
 
-  useEffect(() => {
-    loadNewRound();
-  }, []);
-
-  const loadNewRound = async () => {
-    setIsLoading(true);
-    try {
-      // TODO: ICPから新しいラウンドを取得
-      // デモ用のモックデータ
-      setTimeout(() => {
-        setCurrentRound({
-          id: 1,
-          photoUrl: 'https://picsum.photos/400/300',
-          actualLat: 35.6812,
-          actualLon: 139.7671,
-        });
-        setIsLoading(false);
-        setHasGuessed(false);
-        setSelectedLocation(null);
-        setResult(null);
-      }, 1000);
-    } catch (error) {
-      console.error('Failed to load round:', error);
-      Alert.alert('エラー', 'ゲームの読み込みに失敗しました');
-      setIsLoading(false);
-    }
+  // ゲーム開始ボタンを押したら実際のゲームプレイに遷移
+  const startGamePlay = () => {
+    navigation.navigate('GamePlay', {
+      gameMode: 'normal',
+      difficulty: 'NORMAL',
+    });
   };
-
-  const handleMapPress = (event: any) => {
-    if (hasGuessed) return;
-    
-    const { coordinate } = event.nativeEvent;
-    setSelectedLocation(coordinate);
-  };
-
-  const submitGuess = async () => {
-    if (!selectedLocation || !currentRound) return;
-
-    setIsLoading(true);
-    try {
-      // TODO: ICPに推測を送信
-      // デモ用の計算
-      const distance = calculateDistance(
-        selectedLocation.latitude,
-        selectedLocation.longitude,
-        currentRound.actualLat,
-        currentRound.actualLon
-      );
-
-      const score = Math.max(0, 100 - Math.floor(distance / 10));
-      const reward = score * 0.01; // SPOT tokens
-
-      setResult({ distance, score, reward });
-      setHasGuessed(true);
-    } catch (error) {
-      console.error('Failed to submit guess:', error);
-      Alert.alert('エラー', '推測の送信に失敗しました');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-    const R = 6371; // 地球の半径（km）
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-      Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-  };
-
-  const toRad = (deg: number): number => {
-    return deg * (Math.PI / 180);
-  };
-
-  if (isLoading && !currentRound) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#3282b8" />
-        <Text style={styles.loadingText}>Loading game...</Text>
-      </View>
-    );
-  }
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <ScrollView style={styles.scrollView}>
-        {/* Photo Section */}
-        <View style={styles.photoSection}>
-          <Text style={styles.instruction}>
-            Where was this photo taken?
+        {/* Game Mode Selection */}
+        <View style={styles.gameModeSection}>
+          <Text style={styles.sectionTitle}>
+            Select Game Mode
           </Text>
-          {currentRound && (
-            <Image
-              source={{ uri: currentRound.photoUrl }}
-              style={styles.photo}
-              resizeMode="cover"
-            />
-          )}
-        </View>
-
-        {/* Map Section */}
-        <View style={styles.mapSection}>
-          <MapView
-            style={styles.map}
-            provider={PROVIDER_GOOGLE}
-            initialRegion={{
-              latitude: 35.6812,
-              longitude: 139.7671,
-              latitudeDelta: 10,
-              longitudeDelta: 10,
-            }}
-            onPress={handleMapPress}
+          
+          <TouchableOpacity 
+            style={styles.gameModeCard}
+            onPress={startGamePlay}
           >
-            {selectedLocation && !hasGuessed && (
-              <Marker
-                coordinate={selectedLocation}
-                title="Your Guess"
-                pinColor="#3282b8"
-              />
-            )}
-            
-            {hasGuessed && currentRound && (
-              <>
-                <Marker
-                  coordinate={selectedLocation!}
-                  title="Your Guess"
-                  pinColor="#3282b8"
-                />
-                <Marker
-                  coordinate={{
-                    latitude: currentRound.actualLat,
-                    longitude: currentRound.actualLon,
-                  }}
-                  title="Actual Location"
-                  pinColor="#4ade80"
-                />
-              </>
-            )}
-          </MapView>
+            <View style={styles.gameModeIcon}>
+              <Text style={styles.gameModeEmoji}>🌍</Text>
+            </View>
+            <View style={styles.gameModeInfo}>
+              <Text style={styles.gameModeTitle}>Classic Mode</Text>
+              <Text style={styles.gameModeDescription}>
+                Guess the location from a single photo
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.gameModeCard, styles.comingSoon]}
+            disabled
+          >
+            <View style={styles.gameModeIcon}>
+              <Text style={styles.gameModeEmoji}>⚡</Text>
+            </View>
+            <View style={styles.gameModeInfo}>
+              <Text style={styles.gameModeTitle}>Speed Mode</Text>
+              <Text style={styles.gameModeDescription}>
+                Race against time with multiple photos
+              </Text>
+              <Text style={styles.comingSoonText}>Coming Soon</Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.gameModeCard, styles.comingSoon]}
+            disabled
+          >
+            <View style={styles.gameModeIcon}>
+              <Text style={styles.gameModeEmoji}>👥</Text>
+            </View>
+            <View style={styles.gameModeInfo}>
+              <Text style={styles.gameModeTitle}>Multiplayer</Text>
+              <Text style={styles.gameModeDescription}>
+                Compete with other players in real-time
+              </Text>
+              <Text style={styles.comingSoonText}>Coming Soon</Text>
+            </View>
+          </TouchableOpacity>
         </View>
 
-        {/* Action Section */}
-        <View style={styles.actionSection}>
-          {!hasGuessed ? (
-            <>
-              <TouchableOpacity
-                style={[
-                  styles.submitButton,
-                  !selectedLocation && styles.submitButtonDisabled,
-                ]}
-                onPress={submitGuess}
-                disabled={!selectedLocation || isLoading}
-              >
-                <Text style={styles.submitButtonText}>
-                  {selectedLocation ? 'Submit Guess' : 'Tap the map to guess'}
-                </Text>
-              </TouchableOpacity>
-            </>
-          ) : (
-            <>
-              {result && (
-                <View style={styles.resultContainer}>
-                  <Text style={styles.resultTitle}>Result</Text>
-                  <Text style={styles.resultText}>
-                    Distance: {result.distance.toFixed(2)} km
-                  </Text>
-                  <Text style={styles.resultText}>
-                    Score: {result.score} points
-                  </Text>
-                  <Text style={styles.resultText}>
-                    Reward: {result.reward.toFixed(2)} SPOT
-                  </Text>
-                </View>
-              )}
-              
-              <TouchableOpacity
-                style={styles.nextButton}
-                onPress={loadNewRound}
-              >
-                <Text style={styles.nextButtonText}>Next Round</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  gameModeSection: {
+    padding: 20,
+  },
+  sectionTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#ffffff',
+    marginBottom: 20,
+  },
+  gameModeCard: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  comingSoon: {
+    opacity: 0.5,
+  },
+  gameModeIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#0f1117',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 15,
+  },
+  gameModeEmoji: {
+    fontSize: 30,
+  },
+  gameModeInfo: {
+    flex: 1,
+  },
+  gameModeTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#ffffff',
+    marginBottom: 5,
+  },
+  gameModeDescription: {
+    fontSize: 14,
+    color: '#94a3b8',
+  },
+  comingSoonText: {
+    fontSize: 12,
+    color: '#3282b8',
+    marginTop: 5,
+    fontWeight: 'bold',
+  },
   container: {
     flex: 1,
     backgroundColor: '#0f1117',
@@ -255,10 +181,57 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     textAlign: 'center',
   },
+  photoContainer: {
+    position: 'relative',
+  },
   photo: {
     width: '100%',
     height: 250,
     borderRadius: 12,
+  },
+  compassContainer: {
+    position: 'absolute',
+    top: 10,
+    left: 0,
+    right: 0,
+    height: 20,
+  },
+  compassBar: {
+    height: 20,
+    position: 'relative',
+  },
+  compassLabel: {
+    position: 'absolute',
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 11,
+    fontWeight: '400',
+    transform: [{ translateX: -5 }], // 文字を中央揃え
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  compassCenterMark: {
+    position: 'absolute',
+    left: '50%',
+    top: 8,
+    width: 1,
+    height: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    transform: [{ translateX: -0.5 }],
+  },
+  monthBadge: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  monthText: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 12,
+    fontWeight: '500',
   },
   mapSection: {
     height: 300,
