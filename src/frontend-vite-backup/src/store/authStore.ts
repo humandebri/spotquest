@@ -2,9 +2,15 @@ import { create } from 'zustand'
 import { Principal } from '@dfinity/principal'
 import { authService } from '../services/auth'
 
+// Admin principals - replace with actual admin principals
+const ADMIN_PRINCIPALS = [
+  '4wbqy-noqfb-3dunk-64f7k-4v54w-kzvti-l24ky-jaz3f-73y36-gegjt-cqe', // Admin principal
+]
+
 interface AuthState {
   isAuthenticated: boolean
   principal: Principal | null
+  isAdmin: boolean
   loading: boolean
   checkAuth: () => Promise<void>
   login: (provider?: 'ii' | 'plug') => Promise<void>
@@ -14,6 +20,7 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,
   principal: null,
+  isAdmin: false,
   loading: true,
 
   checkAuth: async () => {
@@ -23,15 +30,18 @@ export const useAuthStore = create<AuthState>((set) => ({
       
       if (isAuthenticated) {
         const principal = await authService.getPrincipal()
+        const isAdmin = ADMIN_PRINCIPALS.includes(principal?.toString() || '')
         set({ 
           isAuthenticated: true, 
           principal,
+          isAdmin,
           loading: false 
         })
       } else {
         set({ 
           isAuthenticated: false, 
           principal: null,
+          isAdmin: false,
           loading: false 
         })
       }
@@ -40,6 +50,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ 
         isAuthenticated: false, 
         principal: null,
+        isAdmin: false,
         loading: false 
       })
     }
@@ -51,9 +62,11 @@ export const useAuthStore = create<AuthState>((set) => ({
       const principal = await authService.login(provider)
       
       if (principal) {
+        const isAdmin = ADMIN_PRINCIPALS.includes(principal.toString())
         set({ 
           isAuthenticated: true, 
           principal,
+          isAdmin,
           loading: false 
         })
       } else {
@@ -72,6 +85,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ 
         isAuthenticated: false, 
         principal: null,
+        isAdmin: false,
         loading: false 
       })
     } catch (error) {

@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  Image,
+  StyleSheet,
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import { useAuthStore } from '../store/authStore';
 
 export default function LoginScreen() {
@@ -25,177 +26,165 @@ export default function LoginScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      <View style={styles.content}>
-        {/* Logo */}
-        <View style={styles.logoContainer}>
-          <Text style={styles.logoIcon}>📍</Text>
-          <Text style={styles.logoText}>Guess the Spot</Text>
-          <Text style={styles.tagline}>写真から場所を当てるWeb3ゲーム</Text>
-        </View>
-
-        {/* Login Section */}
-        <View style={styles.loginSection}>
-          <Text style={styles.title}>Welcome!</Text>
-          <Text style={styles.subtitle}>
-            Connect your Internet Identity to start playing
-          </Text>
-
-          {error && (
-            <View style={styles.errorContainer}>
-              <Text style={styles.errorText}>{error}</Text>
+    <LinearGradient
+      colors={['#0f172a', '#1e293b', '#0f172a']}
+      style={styles.container}
+    >
+      <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
+        <View style={styles.content}>
+          <View style={styles.logoSection}>
+            <View style={styles.logoContainer}>
+              <MaterialCommunityIcons name="map-marker-question" size={60} color="#3b82f6" />
             </View>
-          )}
-
-          <TouchableOpacity
-            style={[styles.loginButton, isConnecting && styles.loginButtonDisabled]}
-            onPress={handleLogin}
-            disabled={isConnecting || isLoading}
-          >
-            {isConnecting ? (
-              <ActivityIndicator color="#ffffff" />
-            ) : (
-              <>
-                <Text style={styles.loginButtonText}>🔐 Connect with Internet Identity</Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          {Platform.OS !== 'web' && (
-            <Text style={styles.mobileNote}>
-              Note: Internet Identity login is currently only supported on web.
-              Mobile authentication coming soon!
+            <Text style={styles.title}>Guess the Spot</Text>
+            <Text style={styles.subtitle}>
+              写真から場所を当てる次世代Web3ゲーム
             </Text>
-          )}
+          </View>
 
-          {__DEV__ && (
+          <View style={styles.loginSection}>
+            <Text style={styles.welcomeText}>Welcome Back!</Text>
+            <Text style={styles.instructionText}>
+              Connect your Internet Identity to continue your journey
+            </Text>
+
+            {error && (
+              <View style={styles.errorContainer}>
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            )}
+
             <TouchableOpacity
-              style={styles.devButton}
+              style={[styles.loginButton, isConnecting && styles.loginButtonDisabled]}
               onPress={handleLogin}
+              disabled={isConnecting || isLoading}
             >
-              <Text style={styles.devButtonText}>🛠️ Dev Mode: Skip Login</Text>
+              {isConnecting ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <>
+                  <MaterialCommunityIcons name="shield-account" size={24} color="#ffffff" />
+                  <Text style={styles.loginButtonText}>
+                    Connect with Internet Identity
+                  </Text>
+                </>
+              )}
             </TouchableOpacity>
-          )}
-        </View>
 
-        {/* Features */}
-        <View style={styles.features}>
-          <View style={styles.featureItem}>
-            <Text style={styles.featureIcon}>📷</Text>
-            <Text style={styles.featureText}>Upload photos with GPS data</Text>
-          </View>
-          <View style={styles.featureItem}>
-            <Text style={styles.featureIcon}>🎮</Text>
-            <Text style={styles.featureText}>Guess locations & earn rewards</Text>
-          </View>
-          <View style={styles.featureItem}>
-            <Text style={styles.featureIcon}>🏆</Text>
-            <Text style={styles.featureText}>Compete on the leaderboard</Text>
+            {Platform.OS !== 'web' && (
+              <View style={styles.mobileInfo}>
+                <Feather name="info" size={16} color="#94a3b8" />
+                <Text style={styles.mobileInfoText}>
+                  Mobile authentication will open a browser window
+                </Text>
+              </View>
+            )}
           </View>
         </View>
-      </View>
-    </SafeAreaView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f1117',
+  },
+  safeArea: {
+    flex: 1,
   },
   content: {
     flex: 1,
-    padding: 20,
+    paddingHorizontal: 24,
     justifyContent: 'space-between',
   },
+  logoSection: {
+    alignItems: 'center',
+    marginTop: 64,
+  },
   logoContainer: {
+    width: 128,
+    height: 128,
+    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+    borderRadius: 64,
     alignItems: 'center',
-    marginTop: 50,
-  },
-  logoIcon: {
-    fontSize: 60,
-    marginBottom: 10,
-  },
-  logoText: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#3282b8',
-    marginBottom: 10,
-  },
-  tagline: {
-    fontSize: 16,
-    color: '#94a3b8',
-  },
-  loginSection: {
-    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+    borderWidth: 2,
+    borderColor: 'rgba(59, 130, 246, 0.3)',
   },
   title: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: 'bold',
     color: '#ffffff',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
     color: '#94a3b8',
     textAlign: 'center',
-    marginBottom: 30,
+    paddingHorizontal: 32,
+  },
+  loginSection: {
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  welcomeText: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#ffffff',
+    marginBottom: 12,
+  },
+  instructionText: {
+    fontSize: 16,
+    color: '#94a3b8',
+    textAlign: 'center',
+    marginBottom: 24,
   },
   errorContainer: {
-    backgroundColor: '#ff6b6b',
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 20,
+    width: '100%',
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.5)',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 24,
   },
   errorText: {
-    color: '#ffffff',
+    color: '#ef4444',
     fontSize: 14,
   },
   loginButton: {
-    backgroundColor: '#3282b8',
-    paddingVertical: 15,
-    paddingHorizontal: 30,
-    borderRadius: 10,
     width: '100%',
+    backgroundColor: '#3b82f6',
+    paddingVertical: 20,
+    borderRadius: 16,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   loginButtonDisabled: {
-    opacity: 0.7,
+    backgroundColor: '#64748b',
   },
   loginButtonText: {
     color: '#ffffff',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
+    marginLeft: 12,
   },
-  mobileNote: {
-    marginTop: 15,
-    fontSize: 12,
-    color: '#94a3b8',
-    textAlign: 'center',
-    fontStyle: 'italic',
-  },
-  devButton: {
-    marginTop: 20,
-    padding: 10,
-  },
-  devButtonText: {
-    color: '#fbbf24',
-    fontSize: 14,
-  },
-  features: {
-    marginBottom: 30,
-  },
-  featureItem: {
+  mobileInfo: {
+    marginTop: 16,
+    backgroundColor: 'rgba(148, 163, 184, 0.1)',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 15,
   },
-  featureIcon: {
-    fontSize: 24,
-    marginRight: 15,
-  },
-  featureText: {
-    fontSize: 16,
-    color: '#cbd5e1',
+  mobileInfoText: {
+    color: '#94a3b8',
+    fontSize: 14,
+    marginLeft: 8,
+    flex: 1,
   },
 });

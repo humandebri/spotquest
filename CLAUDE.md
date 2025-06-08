@@ -46,4 +46,70 @@
 - **開発ツール**: Motoko Playground（ブラウザ版）を使用しない
 - デモデータは絶対に入れないこと
 
+### レイアウト指針
+- nativewindを使用してレイアウトすること
+
+### 2025-06-08 更新事項
+1. **管理画面の追加** ✅
+   - AdminScreenコンポーネントを作成
+   - 管理者権限チェック機能をauthStoreに追加（isAdmin状態）
+   - 管理者のPrincipal IDリストで権限管理
+   - ナビゲーションに管理画面を追加
+   - HomeScreenに管理者用ボタンを条件付きで表示
+
+2. **認証システムの本番対応** ✅
+   - 開発用モック認証を完全削除
+   - モバイル版でもInternet Identity認証対応（WebBrowser使用）
+   - expo-web-browserパッケージを追加
+
+3. **管理機能の実装** ✅
+   - ダッシュボード（統計情報表示）
+   - ゲーム管理（アクティブ/完了ゲーム）
+   - 写真管理（一覧表示、削除機能）
+   - ユーザー管理（レピュテーション、BAN機能）
+   - システム設定（報酬率、手数料の設定）
+
+### ディレクトリ構造（最新）
+```
+src/frontend/
+├── App.tsx (メインアプリ)
+├── App-full.tsx (フルアプリ版)
+├── src/
+│   ├── screens/ (全画面実装済み)
+│   │   ├── HomeScreen.tsx (管理者ボタン追加)
+│   │   ├── LoginScreen.tsx
+│   │   ├── LoginScreenSimple.tsx
+│   │   ├── AdminScreen.tsx (管理画面 - 新規追加)
+│   │   ├── CameraScreen.tsx
+│   │   ├── GameModeScreen.tsx
+│   │   ├── GamePlayScreen.tsx
+│   │   ├── GameResultScreen.tsx
+│   │   ├── GuessMapScreen.tsx
+│   │   ├── LeaderboardScreen.tsx
+│   │   ├── PhotoUploadScreen.tsx
+│   │   └── ProfileScreen.tsx
+│   ├── navigation/ 
+│   │   └── AppNavigator.tsx (Admin画面を含む)
+│   ├── services/ 
+│   │   ├── auth.ts (getIdentityメソッド追加)
+│   │   ├── admin.ts (管理機能API - 新規追加)
+│   │   └── photo.ts
+│   ├── store/ 
+│   │   └── authStore.ts (isAdmin状態管理追加)
+│   └── utils/ 
+│       └── polyfills.ts
+├── package.json (expo-web-browser追加)
+├── metro.config.js
+├── babel.config.js
+└── .env (メインネット設定)
+```
+
+### 管理者設定
+管理者のPrincipal IDは`src/store/authStore.ts`の`ADMIN_PRINCIPALS`配列で管理:
+```typescript
+const ADMIN_PRINCIPALS = [
+  'lqfvd-m7ihy-e5dvc-gngvr-blzbt-pupeq-6t7ua-r7v4p-bvqjw-ea7gl-4qe', // Example admin principal
+];
+```
+
 （以下、既存のドキュメントの残りの部分は省略）

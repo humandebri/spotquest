@@ -8,10 +8,9 @@ import {
   Image,
   SafeAreaView,
 } from 'react-native';
-import MapView, { Marker, Circle, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import Slider from '@react-native-community/slider';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
@@ -23,176 +22,117 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 export default function GuessMapScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'GuessMap'>>();
   const route = useRoute<RouteProp<RootStackParamList, 'GuessMap'>>();
-  const { setGuess: setGameGuess, currentPhoto } = useGameStore();
+  const { setGuess: setGameGuess, currentPhoto, resetGame } = useGameStore();
   
   const { 
     photoUrl, 
     difficulty, 
     timeLeft, 
     initialGuess,
-    confidenceRadius: initialRadius = 1000,
   } = route.params || {};
 
   const [guess, setGuess] = useState<{ latitude: number; longitude: number } | null>(initialGuess || null);
-  const [confidenceRadius, setConfidenceRadius] = useState(initialRadius);
-  const [mapType, setMapType] = useState<'standard' | 'satellite' | 'terrain'>('standard');
-
-  // 方位線の終点を計算
-  const computeDestinationPoint = (start: { latitude: number; longitude: number }, bearing: number, distance: number) => {
-    const R = 6371000; // 地球の半径（メートル）
-    const φ1 = start.latitude * (Math.PI / 180);
-    const λ1 = start.longitude * (Math.PI / 180);
-    const θ = bearing * (Math.PI / 180);
-    
-    const φ2 = Math.asin(
-      Math.sin(φ1) * Math.cos(distance / R) +
-      Math.cos(φ1) * Math.sin(distance / R) * Math.cos(θ)
-    );
-    
-    const λ2 = λ1 + Math.atan2(
-      Math.sin(θ) * Math.sin(distance / R) * Math.cos(φ1),
-      Math.cos(distance / R) - Math.sin(φ1) * Math.sin(φ2)
-    );
-    
-    return {
-      latitude: φ2 * (180 / Math.PI),
-      longitude: λ2 * (180 / Math.PI),
-    };
-  };
 
   const handleSubmit = () => {
-    if (guess && currentPhoto) {
+    if (!guess) {
+      console.warn('No guess provided');
+      return;
+    }
+
+    try {
       // Save guess to store
-      setGameGuess(guess, confidenceRadius);
+      setGameGuess(guess, 1000); // Fixed confidence radius
       
-      // Navigate to GameResult with the guess data
-      navigation.navigate('GameResult', {
-        guess: guess,
-        actualLocation: currentPhoto.actualLocation,
+      // Default location if currentPhoto is undefined (Tokyo)
+      const actualLocation = currentPhoto?.actualLocation || { latitude: 35.6762, longitude: 139.6503 };
+      
+      // Ensure all required parameters are defined
+      const resultParams = {
+        guess: {
+          latitude: guess.latitude || 0,
+          longitude: guess.longitude || 0,
+        },
+        actualLocation: {
+          latitude: actualLocation.latitude || 35.6762,
+          longitude: actualLocation.longitude || 139.6503,
+        },
         score: 85, // TODO: Calculate actual score
-        timeUsed: 180 - timeLeft,
-        difficulty: difficulty,
-        photoUrl: photoUrl,
-      });
+        timeUsed: Math.max(0, 180 - (timeLeft || 180)),
+        difficulty: difficulty || 'NORMAL',
+        photoUrl: photoUrl || 'https://picsum.photos/800/600',
+      };
+
+      console.log('Navigating to GameResult with params:', resultParams);
+      
+      // Reset the guess in the store
+      setGameGuess(null, 1000);
+      
+      // Navigate to GameResult and remove this screen from stack
+      navigation.replace('GameResult', resultParams);
+    } catch (error) {
+      console.error('Error submitting guess:', error);
     }
   };
 
   return (
     <View style={styles.container}>
-      {/* 上部の写真サムネイル */}
-      <TouchableOpacity 
-        style={styles.photoHeader}
-        onPress={() => navigation.goBack()}
-        activeOpacity={0.9}
-      >
-        <Image 
-          source={{ uri: photoUrl }} 
-          style={styles.photoThumbnail}
-          resizeMode="cover"
-        />
-        <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.8)']}
-          style={styles.photoOverlay}
-        >
+      {/* 上部のヘッダー */}
+      <SafeAreaView style={styles.header}>
+        <View style={styles.headerContent}>
+          <View style={styles.photoContainer}>
+            <Image 
+              source={{ uri: photoUrl }} 
+              style={styles.photoThumbnail}
+              resizeMode="cover"
+            />
+          </View>
           <View style={styles.headerInfo}>
-            <View style={styles.backButton}>
-              <Ionicons name="arrow-back" size={24} color="#fff" />
-              <Text style={styles.backText}>写真に戻る</Text>
-            </View>
+            <Text style={styles.difficulty}>{difficulty}</Text>
             <View style={styles.timer}>
-              <Ionicons name="timer" size={20} color="#fff" />
+              <Ionicons name="timer" size={18} color="#fff" />
               <Text style={styles.timerText}>
                 {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
               </Text>
             </View>
           </View>
-        </LinearGradient>
-      </TouchableOpacity>
+        </View>
+      </SafeAreaView>
 
       {/* 地図 */}
       <MapView
         style={styles.map}
         provider={PROVIDER_GOOGLE}
-        mapType={mapType}
+        mapType="standard"
         initialRegion={{
-          latitude: guess?.latitude || 0,
-          longitude: guess?.longitude || 0,
-          latitudeDelta: 10,
-          longitudeDelta: 10,
+          latitude: initialGuess?.latitude || 35.6762,
+          longitude: initialGuess?.longitude || 139.6503,
+          latitudeDelta: initialGuess ? 5 : 50,
+          longitudeDelta: initialGuess ? 5 : 50,
         }}
         onPress={(e) => setGuess(e.nativeEvent.coordinate)}
       >
         {guess && (
-          <>
-            {/* 推測マーカー */}
-            <Marker
-              coordinate={guess}
-              draggable
-              onDragEnd={(e) => setGuess(e.nativeEvent.coordinate)}
-            >
-              <View style={styles.guessMarker}>
-                <Ionicons name="location" size={40} color="#FF0000" />
-              </View>
-            </Marker>
-            
-            {/* 確信度円 */}
-            <Circle
-              center={guess}
-              radius={confidenceRadius}
-              fillColor="rgba(255, 0, 0, 0.1)"
-              strokeColor="rgba(255, 0, 0, 0.5)"
-              strokeWidth={2}
-            />
-          </>
+          <Marker
+            coordinate={guess}
+            draggable
+            onDragEnd={(e) => setGuess(e.nativeEvent.coordinate)}
+          >
+            <View style={styles.guessMarker}>
+              <Ionicons name="location" size={40} color="#FF0000" />
+            </View>
+          </Marker>
         )}
       </MapView>
 
-      {/* コントロールパネル */}
-      <View style={styles.controlPanel}>
-        {/* 地図タイプ選択 */}
-        <View style={styles.mapTypeSelector}>
-          <TouchableOpacity
-            style={[styles.mapTypeButton, mapType === 'standard' && styles.activeMapType]}
-            onPress={() => setMapType('standard')}
-          >
-            <Text style={styles.mapTypeText}>標準</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.mapTypeButton, mapType === 'satellite' && styles.activeMapType]}
-            onPress={() => setMapType('satellite')}
-          >
-            <Text style={styles.mapTypeText}>衛星</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.mapTypeButton, mapType === 'terrain' && styles.activeMapType]}
-            onPress={() => setMapType('terrain')}
-          >
-            <Text style={styles.mapTypeText}>地形</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* 確信度スライダー */}
-        <View style={styles.confidenceControl}>
-          <Text style={styles.controlLabel}>確信度: {Math.round(confidenceRadius)}m</Text>
-          <Slider
-            style={styles.slider}
-            minimumValue={100}
-            maximumValue={5000}
-            value={confidenceRadius}
-            onValueChange={setConfidenceRadius}
-            minimumTrackTintColor="#FF0000"
-            maximumTrackTintColor="#CCCCCC"
-          />
-        </View>
-
-        {/* 送信ボタン */}
+      {/* 送信ボタン */}
+      <View style={styles.submitContainer}>
         <TouchableOpacity
           style={[styles.submitButton, !guess && styles.submitButtonDisabled]}
           onPress={handleSubmit}
           disabled={!guess}
         >
           <LinearGradient
-            colors={guess ? ['#4CAF50', '#45A049'] : ['#CCCCCC', '#AAAAAA']}
+            colors={guess ? ['#4CAF50', '#45A049'] : ['#64748b', '#475569']}
             style={styles.submitGradient}
           >
             <Text style={styles.submitText}>
@@ -210,50 +150,47 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0f1117',
   },
-  photoHeader: {
-    height: SCREEN_HEIGHT * 0.33,
-    position: 'relative',
+  header: {
+    backgroundColor: '#1a1a2e',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  headerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    gap: 12,
+  },
+  photoContainer: {
+    width: 80,
+    height: 60,
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   photoThumbnail: {
     width: '100%',
     height: '100%',
   },
-  photoOverlay: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: '100%',
-    justifyContent: 'flex-end',
-  },
   headerInfo: {
-    flexDirection: 'row',
+    flex: 1,
     justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 15,
   },
-  backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  backText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '500',
+  difficulty: {
+    color: '#FFD700',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 4,
   },
   timer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 15,
   },
   timerText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: 'bold',
   },
   map: {
@@ -263,40 +200,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  controlPanel: {
-    backgroundColor: '#1a1a2e',
-    padding: 15,
-    gap: 15,
-  },
-  mapTypeSelector: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  mapTypeButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-  },
-  activeMapType: {
-    backgroundColor: '#3282b8',
-  },
-  mapTypeText: {
-    color: '#fff',
-    fontSize: 12,
-  },
-  confidenceControl: {
-    marginTop: 5,
-  },
-  controlLabel: {
-    color: '#fff',
-    fontSize: 14,
-    marginBottom: 5,
-  },
-  slider: {
-    width: '100%',
-    height: 40,
+  submitContainer: {
+    position: 'absolute',
+    bottom: 30,
+    left: 20,
+    right: 20,
   },
   submitButton: {
     borderRadius: 10,

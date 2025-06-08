@@ -199,8 +199,10 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
         if (evt.nativeEvent.touches.length === 2 && isZooming.current) {
           // Handle pinch zoom
           const distance = getDistance(evt.nativeEvent.touches);
-          const scaleFactor = distance / lastDistance.current;
-          const newScale = lastScale.current * scaleFactor;
+          const scaleDelta = distance / lastDistance.current;
+          const newScale = Math.max(0.5, Math.min(3, lastScale.current * scaleDelta));
+          
+          scale.setValue(newScale);
           
           // Limit scale between 1 and 5
           scale.setValue(Math.max(1, Math.min(5, newScale)));
@@ -389,10 +391,26 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
         />
       </View>
       
-      {/* リセットボタン */}
-      {(scale._value !== 1 || pan.x._value !== 0 || pan.y._value !== 0) && (
-        <TouchableOpacity
-          style={styles.resetButton}
+      {/* ズームリセットボタン */}
+      <Animated.View
+        style={[
+          styles.resetButton,
+          {
+            opacity: scale.interpolate({
+              inputRange: [1, 1.1, 5],
+              outputRange: [0, 1, 1],
+            }),
+            transform: [{
+              scale: scale.interpolate({
+                inputRange: [1, 1.1, 5],
+                outputRange: [0.5, 1, 1],
+              }),
+            }],
+          },
+        ]}
+        pointerEvents={scale._value > 1 ? 'auto' : 'none'}
+      >
+        <TouchableOpacity 
           onPress={() => {
             Animated.parallel([
               Animated.spring(scale, {
@@ -406,11 +424,13 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
                 useNativeDriver: true,
               }),
             ]).start();
+            lastScale.current = 1;
+            lastPan.current = { x: 0, y: 0 };
           }}
         >
-          <Ionicons name="contract" size={20} color="#fff" />
+          <Ionicons name="contract" size={24} color="#fff" />
         </TouchableOpacity>
-      )}
+      </Animated.View>
       
       {/* UI要素のコンテナ */}
       <View style={styles.uiContainer} pointerEvents="box-none">
@@ -493,32 +513,35 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
               </View>
             )}
           </TouchableOpacity>
-          
-          {/* 地図を開くボタン - アイコンのみ */}
-          <TouchableOpacity 
-            style={[styles.mapButton, currentGuess && styles.mapButtonActive]}
-            onPress={() => {
-              navigation.navigate('GuessMap', {
-                photoUrl: currentPhoto.url,
-                difficulty: difficulty,
-                timeLeft: timeLeft,
-                initialGuess: currentGuess,
-                confidenceRadius: confidenceRadius,
-              });
-            }}
-            pointerEvents="auto"
-            activeOpacity={0.8}
-          >
-            <LinearGradient
-              colors={currentGuess ? ['#4CAF50', '#45A049'] : ['#2196F3', '#1976D2']}
-              style={styles.mapButtonGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            >
-              <Ionicons name="map" size={32} color="#fff" />
-            </LinearGradient>
-          </TouchableOpacity>
         </View>
+        
+        {/* 地図を開くボタン - コンパスの下に配置 */}
+        <TouchableOpacity 
+          style={[styles.mapButton, currentGuess && styles.mapButtonActive]}
+          onPress={() => {
+            navigation.navigate('GuessMap', {
+              photoUrl: currentPhoto.url,
+              difficulty: difficulty,
+              timeLeft: timeLeft,
+              initialGuess: currentGuess,
+              confidenceRadius: confidenceRadius,
+            });
+          }}
+          pointerEvents="auto"
+          activeOpacity={0.8}
+        >
+          <LinearGradient
+            colors={currentGuess ? ['#4CAF50', '#45A049'] : ['#FF6B6B', '#FF5252']}
+            style={styles.mapButtonGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <Ionicons name="map" size={32} color="#fff" />
+            {!currentGuess && (
+              <Text style={styles.mapButtonText}>推測</Text>
+            )}
+          </LinearGradient>
+        </TouchableOpacity>
       </View>
       
       {/* ヒントモーダル */}
@@ -955,7 +978,7 @@ const styles = StyleSheet.create({
   },
   resetButton: {
     position: 'absolute',
-    bottom: 100,
+    top: 260,
     right: 20,
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
     width: 44,
@@ -971,26 +994,35 @@ const styles = StyleSheet.create({
   },
   mapButton: {
     position: 'absolute',
-    bottom: 20,
-    right: 20,
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    top: 180,
+    right: 15,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     overflow: 'hidden',
     elevation: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowRadius: 6,
   },
   mapButtonActive: {
-    // Gradient colors handled in LinearGradient
+    width: 70,
+    height: 70,
+    borderRadius: 35,
   },
   mapButtonGradient: {
     width: '100%',
     height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
+    flexDirection: 'column',
+  },
+  mapButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginTop: 2,
   },
   
 });

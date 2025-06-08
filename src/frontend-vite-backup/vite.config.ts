@@ -34,6 +34,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    chunkSizeWarningLimit: 1000, // Increase warning limit to 1MB
     rollupOptions: {
       output: {
         assetFileNames: (assetInfo) => {
@@ -46,6 +47,12 @@ export default defineConfig({
             return '[name][extname]';
           }
           return 'assets/[name]-[hash][extname]';
+        },
+        manualChunks: {
+          // Split vendor libraries into separate chunks
+          vendor: ['react', 'react-dom', 'react-router-dom'],
+          auth: ['@dfinity/auth-client', '@dfinity/agent', '@dfinity/principal'],
+          icons: ['lucide-react'],
         },
       },
     },

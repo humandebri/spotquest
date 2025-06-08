@@ -17,6 +17,7 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { BlurView } from 'expo-blur';
+import { useGameStore } from '../store/gameStore';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -26,21 +27,21 @@ type GameResultScreenNavigationProp = NativeStackNavigationProp<RootStackParamLi
 export default function GameResultScreen() {
   const navigation = useNavigation<GameResultScreenNavigationProp>();
   const route = useRoute<GameResultScreenRouteProp>();
-  const { 
-    guess, 
-    actualLocation, 
-    score, 
-    timeUsed,
-    azimuthGuess = 0,
-    actualAzimuth = 0,
-    difficulty = 'NORMAL',
-    photoUrl = 'https://picsum.photos/800/600',
-  } = route.params || {
-    guess: { latitude: 0, longitude: 0 },
-    actualLocation: { latitude: 0, longitude: 0 },
-    score: 0,
-    timeUsed: 0,
-  };
+  const { resetGame } = useGameStore();
+  
+  // Safe parameter extraction with defaults
+  const params = route?.params || {};
+  console.log('GameResult route params:', params);
+  
+  // Ensure all values have defaults
+  const guess = params.guess || { latitude: 0, longitude: 0 };
+  const actualLocation = params.actualLocation || { latitude: 35.6762, longitude: 139.6503 };
+  const score = params.score ?? 0;
+  const timeUsed = params.timeUsed ?? 0;
+  const azimuthGuess = params.azimuthGuess ?? 0;
+  const actualAzimuth = params.actualAzimuth ?? 0;
+  const difficulty = params.difficulty || 'NORMAL';
+  const photoUrl = params.photoUrl || 'https://picsum.photos/800/600';
 
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -61,30 +62,48 @@ export default function GameResultScreen() {
     return R * c;
   };
 
-  const distance = guess && actualLocation ? calculateDistance(
-    guess.latitude,
-    guess.longitude,
-    actualLocation.latitude,
-    actualLocation.longitude
-  ) : 0;
+  const distance = (guess && actualLocation && 
+    typeof guess.latitude === 'number' && 
+    typeof guess.longitude === 'number' && 
+    typeof actualLocation.latitude === 'number' && 
+    typeof actualLocation.longitude === 'number') 
+    ? calculateDistance(
+        guess.latitude,
+        guess.longitude,
+        actualLocation.latitude,
+        actualLocation.longitude
+      ) 
+    : 0;
 
-  const azimuthError = Math.abs(azimuthGuess - actualAzimuth);
+  const azimuthError = Math.abs((azimuthGuess || 0) - (actualAzimuth || 0));
   const normalizedAzimuthError = Math.min(azimuthError, 360 - azimuthError);
 
   // Rewards calculation
   const baseReward = 1.0; // 1.00 SPOT
-  const earnedReward = (score / 100) * baseReward;
+  const earnedReward = ((score || 0) / 100) * baseReward;
 
   // Performance evaluation
   const getPerformanceRating = () => {
-    if (score >= 95) return { text: 'PERFECT!', color: '#FFD700', icon: 'trophy' };
-    if (score >= 85) return { text: 'EXCELLENT!', color: '#4CAF50', icon: 'star' };
-    if (score >= 70) return { text: 'GREAT!', color: '#2196F3', icon: 'thumbs-up' };
-    if (score >= 50) return { text: 'GOOD!', color: '#FF9800', icon: 'happy' };
+    const safeScore = score || 0;
+    if (safeScore >= 95) return { text: 'PERFECT!', color: '#FFD700', icon: 'trophy' };
+    if (safeScore >= 85) return { text: 'EXCELLENT!', color: '#4CAF50', icon: 'star' };
+    if (safeScore >= 70) return { text: 'GREAT!', color: '#2196F3', icon: 'thumbs-up' };
+    if (safeScore >= 50) return { text: 'GOOD!', color: '#FF9800', icon: 'happy' };
     return { text: 'NICE TRY!', color: '#9C27B0', icon: 'heart' };
   };
 
   const performance = getPerformanceRating();
+
+  // Difficulty multiplier function
+  const getDifficultyMultiplier = (diff: string) => {
+    switch (diff) {
+      case 'EASY': return 0.8;
+      case 'NORMAL': return 1.0;
+      case 'HARD': return 1.5;
+      case 'EXTREME': return 2.0;
+      default: return 1.0;
+    }
+  };
 
   useEffect(() => {
     // Entrance animations
@@ -111,7 +130,7 @@ export default function GameResultScreen() {
 
     // Score counter animation
     Animated.timing(scoreAnim, {
-      toValue: score,
+      toValue: score || 0,
       duration: 1500,
       useNativeDriver: false,
     }).start();
@@ -120,7 +139,7 @@ export default function GameResultScreen() {
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `I scored ${score} points in Guess the Spot! 🌍\nMy guess was ${distance.toFixed(1)}km away from the actual location.\nCan you beat my score?`,
+        message: `I scored ${score || 0} points in Guess the Spot! 🌍\nMy guess was ${(distance || 0).toFixed(1)}km away from the actual location.\nCan you beat my score?`,
         title: 'Guess the Spot Score',
       });
     } catch (error) {
@@ -129,6 +148,7 @@ export default function GameResultScreen() {
   };
 
   const handlePlayAgain = () => {
+    resetGame();
     navigation.navigate('Game');
   };
 
@@ -138,10 +158,20 @@ export default function GameResultScreen() {
 
   // Map region that includes both markers
   const getMapRegion = () => {
-    const minLat = Math.min(guess.latitude, actualLocation.latitude);
-    const maxLat = Math.max(guess.latitude, actualLocation.latitude);
-    const minLon = Math.min(guess.longitude, actualLocation.longitude);
-    const maxLon = Math.max(guess.longitude, actualLocation.longitude);
+    // Safety checks
+    if (!guess || !actualLocation) {
+      return {
+        latitude: 35.6762,
+        longitude: 139.6503,
+        latitudeDelta: 0.1,
+        longitudeDelta: 0.1,
+      };
+    }
+
+    const minLat = Math.min(guess.latitude || 0, actualLocation.latitude || 0);
+    const maxLat = Math.max(guess.latitude || 0, actualLocation.latitude || 0);
+    const minLon = Math.min(guess.longitude || 0, actualLocation.longitude || 0);
+    const maxLon = Math.max(guess.longitude || 0, actualLocation.longitude || 0);
     
     const midLat = (minLat + maxLat) / 2;
     const midLon = (minLon + maxLon) / 2;
@@ -157,7 +187,7 @@ export default function GameResultScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom'] as readonly ['left', 'right', 'bottom']}>
       <ScrollView 
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -190,12 +220,9 @@ export default function GameResultScreen() {
         {/* Score Display */}
         <Animated.View style={[styles.scoreSection, { opacity: fadeAnim }]}>
           <View style={styles.scoreCircle}>
-            <Animated.Text style={styles.scoreValue}>
-              {scoreAnim.interpolate({
-                inputRange: [0, score],
-                outputRange: ['0', score.toString()],
-              }).interpolate(val => Math.round(Number(val)).toString())}
-            </Animated.Text>
+            <Text style={styles.scoreValue}>
+              {score || 0}
+            </Text>
             <Text style={styles.scoreLabel}>POINTS</Text>
           </View>
           
@@ -215,20 +242,20 @@ export default function GameResultScreen() {
         <View style={styles.statsSection}>
           <View style={styles.statCard}>
             <Ionicons name="navigate" size={24} color="#3282b8" />
-            <Text style={styles.statValue}>{distance.toFixed(1)} km</Text>
+            <Text style={styles.statValue}>{(distance || 0).toFixed(1)} km</Text>
             <Text style={styles.statLabel}>Distance Error</Text>
           </View>
           
           <View style={styles.statCard}>
             <Ionicons name="compass" size={24} color="#3282b8" />
-            <Text style={styles.statValue}>{normalizedAzimuthError.toFixed(0)}°</Text>
+            <Text style={styles.statValue}>{(normalizedAzimuthError || 0).toFixed(0)}°</Text>
             <Text style={styles.statLabel}>Azimuth Error</Text>
           </View>
           
           <View style={styles.statCard}>
             <Ionicons name="timer" size={24} color="#3282b8" />
             <Text style={styles.statValue}>
-              {Math.floor(timeUsed / 60)}:{(timeUsed % 60).toString().padStart(2, '0')}
+              {Math.floor((timeUsed || 0) / 60)}:{((timeUsed || 0) % 60).toString().padStart(2, '0')}
             </Text>
             <Text style={styles.statLabel}>Time Used</Text>
           </View>
@@ -238,43 +265,69 @@ export default function GameResultScreen() {
         <View style={styles.mapSection}>
           <Text style={styles.sectionTitle}>Location Comparison</Text>
           <View style={styles.mapContainer}>
-            <MapView
-              style={styles.map}
-              provider={PROVIDER_GOOGLE}
-              region={getMapRegion()}
-              scrollEnabled={false}
-              zoomEnabled={false}
-              rotateEnabled={false}
-              pitchEnabled={false}
-            >
-              {/* Your guess */}
-              <Marker
-                coordinate={guess}
-                title="Your Guess"
+            {guess && actualLocation && guess.latitude != null && guess.longitude != null && 
+             actualLocation.latitude != null && actualLocation.longitude != null ? (
+              <MapView
+                style={styles.map}
+                provider={PROVIDER_GOOGLE}
+                region={getMapRegion()}
+                scrollEnabled={true}
+                zoomEnabled={true}
+                rotateEnabled={false}
+                pitchEnabled={false}
               >
-                <View style={styles.guessMarker}>
-                  <Ionicons name="location" size={40} color="#FF0000" />
-                </View>
-              </Marker>
-              
-              {/* Actual location */}
-              <Marker
-                coordinate={actualLocation}
-                title="Actual Location"
-              >
-                <View style={styles.actualMarker}>
-                  <Ionicons name="flag" size={40} color="#4CAF50" />
-                </View>
-              </Marker>
-              
-              {/* Connection line */}
-              <Polyline
-                coordinates={[guess, actualLocation]}
-                strokeColor="#FF0000"
-                strokeWidth={3}
-                lineDashPattern={[10, 5]}
-              />
-            </MapView>
+                {/* Your guess marker */}
+                <Marker
+                  coordinate={{
+                    latitude: Number(guess.latitude),
+                    longitude: Number(guess.longitude),
+                  }}
+                  title="Your Guess"
+                  description={`Lat: ${guess.latitude.toFixed(4)}, Lon: ${guess.longitude.toFixed(4)}`}
+                >
+                  <View style={styles.guessMarker}>
+                    <Ionicons name="location" size={40} color="#FF0000" />
+                  </View>
+                </Marker>
+                
+                {/* Actual location marker */}
+                <Marker
+                  coordinate={{
+                    latitude: Number(actualLocation.latitude),
+                    longitude: Number(actualLocation.longitude),
+                  }}
+                  title="Actual Location"
+                  description={`Lat: ${actualLocation.latitude.toFixed(4)}, Lon: ${actualLocation.longitude.toFixed(4)}`}
+                >
+                  <View style={styles.actualMarker}>
+                    <Ionicons name="flag" size={40} color="#4CAF50" />
+                  </View>
+                </Marker>
+                
+                {/* Connection line */}
+                <Polyline
+                  coordinates={[
+                    {
+                      latitude: Number(guess.latitude),
+                      longitude: Number(guess.longitude),
+                    },
+                    {
+                      latitude: Number(actualLocation.latitude),
+                      longitude: Number(actualLocation.longitude),
+                    },
+                  ]}
+                  strokeColor="#FF0000"
+                  strokeWidth={3}
+                />
+              </MapView>
+            ) : null}
+            
+            {/* Distance overlay */}
+            <View style={styles.distanceOverlay}>
+              <Text style={styles.distanceText}>
+                Distance: {(distance || 0).toFixed(1)} km
+              </Text>
+            </View>
             
             {/* Map Legend */}
             <View style={styles.mapLegend}>
@@ -301,24 +354,24 @@ export default function GameResultScreen() {
             />
             <BreakdownItem
               label="Distance Penalty"
-              value={-Math.round((distance / 10))}
-              percentage={Math.max(0, 100 - (distance / 10))}
+              value={-Math.round(((distance || 0) / 10))}
+              percentage={Math.max(0, 100 - ((distance || 0) / 10))}
               negative
             />
             <BreakdownItem
               label="Azimuth Penalty"
-              value={-Math.round(normalizedAzimuthError / 10)}
-              percentage={Math.max(0, 100 - (normalizedAzimuthError / 10))}
+              value={-Math.round((normalizedAzimuthError || 0) / 10)}
+              percentage={Math.max(0, 100 - ((normalizedAzimuthError || 0) / 10))}
               negative
             />
             <BreakdownItem
               label="Time Bonus"
-              value={Math.round(Math.max(0, 180 - timeUsed) / 10)}
-              percentage={Math.max(0, (180 - timeUsed) / 1.8)}
+              value={Math.round(Math.max(0, 180 - (timeUsed || 0)) / 10)}
+              percentage={Math.max(0, (180 - (timeUsed || 0)) / 1.8)}
             />
             <BreakdownItem
-              label={`${difficulty} Multiplier`}
-              value={`x${getDifficultyMultiplier(difficulty)}`}
+              label={`${difficulty || 'NORMAL'} Multiplier`}
+              value={`x${getDifficultyMultiplier(difficulty || 'NORMAL')}`}
               percentage={100}
               multiplier
             />
@@ -539,6 +592,22 @@ const styles = StyleSheet.create({
   legendText: {
     color: '#fff',
     fontSize: 12,
+  },
+  distanceOverlay: {
+    position: 'absolute',
+    top: 15,
+    left: 15,
+    right: 15,
+    backgroundColor: 'rgba(26, 26, 46, 0.95)',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  distanceText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
   breakdownSection: {
     paddingHorizontal: 20,

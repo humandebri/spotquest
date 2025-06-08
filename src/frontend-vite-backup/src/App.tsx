@@ -9,6 +9,7 @@ import CameraUpload from './pages/CameraUpload'
 import Leaderboard from './pages/Leaderboard'
 import Profile from './pages/Profile'
 import Whitepaper from './pages/Whitepaper'
+import Admin from './pages/Admin'
 import { useAuthStore } from './store/authStore'
 import { PWAInstallPrompt, PWAUpdatePrompt, ErrorBoundary } from './components'
 import { useReferralCode } from './hooks'
@@ -34,6 +35,7 @@ function AppContent() {
         <Route path="leaderboard" element={<Leaderboard />} />
         <Route path="profile" element={<Profile />} />
         <Route path="whitepaper" element={<Whitepaper />} />
+        <Route path="admin" element={<Admin />} />
       </Route>
     </Routes>
   )

@@ -4,7 +4,7 @@ import { useAuthStore } from '../store/authStore';
 
 // スクリーンのインポート
 import HomeScreen from '../screens/HomeScreen';
-import GameScreen from '../screens/GameScreen';
+import GameModeScreen from '../screens/GameModeScreen';
 import GamePlayScreen from '../screens/GamePlayScreen';
 import GuessMapScreen from '../screens/GuessMapScreen';
 import GameResultScreen from '../screens/GameResultScreen';
@@ -13,6 +13,7 @@ import PhotoUploadScreen from '../screens/PhotoUploadScreen';
 import LeaderboardScreen from '../screens/LeaderboardScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import LoginScreen from '../screens/LoginScreen';
+import AdminScreen from '../screens/AdminScreen';
 // import ScheduledPhotosScreen from '../screens/ScheduledPhotosScreen';
 
 export type RootStackParamList = {
@@ -50,6 +51,7 @@ export type RootStackParamList = {
   Leaderboard: undefined;
   Profile: undefined;
   Login: undefined;
+  Admin: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -79,8 +81,8 @@ export default function AppNavigator() {
           />
           <Stack.Screen
             name="Game"
-            component={GameScreen}
-            options={{ title: 'Play Game' }}
+            component={GameModeScreen}
+            options={{ title: 'Select Game Mode' }}
           />
           <Stack.Screen
             name="GamePlay"
@@ -92,7 +94,8 @@ export default function AppNavigator() {
             component={GuessMapScreen}
             options={{ 
               title: 'Select Location',
-              presentation: 'modal'
+              presentation: 'fullScreenModal',
+              headerShown: false
             }}
           />
           <Stack.Screen
@@ -119,6 +122,11 @@ export default function AppNavigator() {
             name="Profile"
             component={ProfileScreen}
             options={{ title: 'My Profile' }}
+          />
+          <Stack.Screen
+            name="Admin"
+            component={AdminScreen}
+            options={{ title: 'Admin Dashboard' }}
           />
           {/* <Stack.Screen
             name="ScheduledPhotos"

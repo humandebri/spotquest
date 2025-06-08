@@ -7,7 +7,7 @@
     },
     "frontend": {
       "type": "assets",
-      "source": ["src/frontend/dist"],
+      "source": ["src/frontend-vite-backup/dist"],
       "build": []
     }
   },

@@ -3,7 +3,7 @@ import { useAuthStore } from '../store/authStore'
 import { Button, Card, ReferralBanner, AirdropBanner } from '../components'
 
 export default function Home() {
-  const { isAuthenticated } = useAuthStore()
+  const { isAuthenticated, isAdmin } = useAuthStore()
 
   return (
     <div className="relative bg-white overflow-hidden">
@@ -27,11 +27,18 @@ export default function Home() {
                         Start Playing
                       </Button>
                     </Link>
-                    <Link to="/upload">
+                    <Link to="/upload" className="mr-3">
                       <Button variant="secondary" size="large">
                         Upload Photo
                       </Button>
                     </Link>
+                    {isAdmin && (
+                      <Link to="/admin">
+                        <Button variant="danger" size="large">
+                          Admin Dashboard
+                        </Button>
+                      </Link>
+                    )}
                   </>
                 ) : (
                   <Button

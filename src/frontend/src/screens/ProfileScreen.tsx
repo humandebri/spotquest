@@ -2,16 +2,24 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   ScrollView,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
+  StyleSheet,
   Modal,
   TextInput,
-  ActivityIndicator,
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { 
+  Ionicons, 
+  MaterialCommunityIcons, 
+  FontAwesome5,
+  Feather,
+  Foundation
+} from '@expo/vector-icons';
 import { useAuthStore } from '../store/authStore';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -34,6 +42,8 @@ interface UserStats {
 export default function ProfileScreen() {
   const navigation = useNavigation<NavigationProp>();
   const { principal, logout } = useAuthStore();
+  const [currentTab, setCurrentTab] = useState<'stats' | 'photos' | 'achievements'>('stats');
+  
   const [stats] = useState<UserStats>({
     totalGamesPlayed: 42,
     totalPhotosUploaded: 15,
@@ -45,15 +55,12 @@ export default function ProfileScreen() {
     longestStreak: 7,
   });
 
-  // 写真管理用の状態
+  // Photo management state
   const [userPhotos, setUserPhotos] = useState<PhotoMetadata[]>([]);
   const [isLoadingPhotos, setIsLoadingPhotos] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingPhoto, setEditingPhoto] = useState<PhotoMetadata | null>(null);
-  const [currentTab, setCurrentTab] = useState<'stats' | 'photos'>('stats');
-
-  // 編集フォームの状態
   const [editForm, setEditForm] = useState<PhotoUpdateInfo>({
     title: '',
     description: '',
@@ -63,7 +70,7 @@ export default function ProfileScreen() {
   });
   const [isUpdating, setIsUpdating] = useState(false);
 
-  // 写真一覧を読み込む
+  // Load user photos
   const loadUserPhotos = async (showRefreshing = false) => {
     if (showRefreshing) {
       setIsRefreshing(true);
@@ -76,7 +83,7 @@ export default function ProfileScreen() {
       setUserPhotos(photos);
     } catch (error) {
       console.error('Failed to load user photos:', error);
-      Alert.alert('エラー', '写真の読み込みに失敗しました');
+      Alert.alert('Error', 'Failed to load photos');
     } finally {
       setIsLoadingPhotos(false);
       setIsRefreshing(false);
@@ -89,92 +96,14 @@ export default function ProfileScreen() {
     }
   }, [currentTab]);
 
-  // 編集モーダルを開く
-  const openEditModal = (photo: PhotoMetadata) => {
-    setEditingPhoto(photo);
-    setEditForm({
-      title: photo.title || '',
-      description: photo.description || '',
-      difficulty: photo.difficulty || 'NORMAL',
-      hint: photo.hint || '',
-      tags: photo.tags || [],
-    });
-    setShowEditModal(true);
-  };
-
-  // 編集を保存
-  const handleSaveEdit = async () => {
-    if (!editingPhoto) return;
-
-    setIsUpdating(true);
-    try {
-      const result = await photoService.updatePhotoInfo(editingPhoto.id, editForm);
-      
-      if (result.err) {
-        throw new Error(result.err);
-      }
-
-      Alert.alert('成功', '写真情報を更新しました');
-      setShowEditModal(false);
-      loadUserPhotos(); // リストを再読み込み
-    } catch (error) {
-      console.error('Update error:', error);
-      Alert.alert('エラー', '更新に失敗しました');
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  // 写真を削除
-  const handleDeletePhoto = (photo: PhotoMetadata) => {
-    Alert.alert(
-      '削除確認',
-      `「${photo.title || 'Untitled'}」を削除しますか？\nこの操作は取り消せません。`,
-      [
-        { text: 'キャンセル', style: 'cancel' },
-        {
-          text: '削除',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const result = await photoService.deletePhoto(photo.id);
-              
-              if (result.err) {
-                throw new Error(result.err);
-              }
-
-              Alert.alert('成功', '写真を削除しました');
-              loadUserPhotos(); // リストを再読み込み
-            } catch (error) {
-              console.error('Delete error:', error);
-              Alert.alert('エラー', '削除に失敗しました');
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  // 時間のフォーマット
-  const formatTime = (timestamp: bigint) => {
-    const date = new Date(Number(timestamp) / 1000000); // ナノ秒からミリ秒に変換
-    return date.toLocaleString('ja-JP', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
   const handleLogout = () => {
     Alert.alert(
-      'ログアウト',
-      '本当にログアウトしますか？',
+      'Logout',
+      'Are you sure you want to logout?',
       [
-        { text: 'キャンセル', style: 'cancel' },
+        { text: 'Cancel', style: 'cancel' },
         {
-          text: 'ログアウト',
+          text: 'Logout',
           style: 'destructive',
           onPress: async () => {
             await logout();
@@ -184,542 +113,695 @@ export default function ProfileScreen() {
     );
   };
 
-  const StatCard = ({ title, value, unit = '' }: { title: string; value: string | number; unit?: string }) => (
-    <View style={styles.statCard}>
-      <Text style={styles.statValue}>
-        {value}{unit}
-      </Text>
-      <Text style={styles.statLabel}>{title}</Text>
-    </View>
-  );
+  const achievements = [
+    { 
+      icon: 'target',
+      name: 'Sharpshooter', 
+      description: 'Guess within 100m',
+      unlocked: true,
+      progress: 100,
+      color: '#3b82f6',
+    },
+    { 
+      icon: 'camera',
+      name: 'Photographer', 
+      description: 'Upload 10 photos',
+      unlocked: true,
+      progress: 100,
+      color: '#8b5cf6',
+    },
+    { 
+      icon: 'fire',
+      name: 'On Fire', 
+      description: '5 game win streak',
+      unlocked: false,
+      progress: 60,
+      color: '#f59e0b',
+    },
+    { 
+      icon: 'star',
+      name: 'Rising Star', 
+      description: 'Reach top 100',
+      unlocked: false,
+      progress: 30,
+      color: '#fbbf24',
+    },
+  ];
 
-  // 写真リストのレンダリング
-  const renderPhotoList = () => {
-    if (isLoadingPhotos) {
-      return (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3282b8" />
-          <Text style={styles.loadingText}>読み込み中...</Text>
-        </View>
-      );
-    }
-
-    if (userPhotos.length === 0) {
-      return (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>📷</Text>
-          <Text style={styles.emptyTitle}>投稿した写真がありません</Text>
-          <Text style={styles.emptyDescription}>
-            カメラで写真を撮影して投稿しましょう
-          </Text>
-          <TouchableOpacity
-            style={styles.cameraButton}
-            onPress={() => navigation.navigate('Camera')}
-          >
-            <Text style={styles.cameraButtonText}>カメラを開く</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
-
-    return (
-      <ScrollView
-        contentContainerStyle={styles.photosContainer}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={() => loadUserPhotos(true)}
-            tintColor="#3282b8"
-          />
-        }
-      >
-        {userPhotos.map((photo) => (
-          <View key={photo.id.toString()} style={styles.photoCard}>
-            <View style={styles.photoHeader}>
-              <View style={styles.photoInfo}>
-                <Text style={styles.photoTitle}>
-                  {photo.title || 'Untitled'}
-                </Text>
-                <Text style={styles.photoDescription} numberOfLines={2}>
-                  {photo.description || 'No description'}
-                </Text>
-              </View>
-              <View style={styles.difficultyBadge}>
-                <Text style={styles.difficultyText}>
-                  {photo.difficulty || 'NORMAL'}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.photoMeta}>
-              <Text style={styles.metaText}>
-                📍 {photo.lat.toFixed(4)}, {photo.lon.toFixed(4)}
-              </Text>
-              <Text style={styles.metaText}>
-                🧭 {photo.azim.toFixed(0)}°
-              </Text>
-              <Text style={styles.metaText}>
-                📅 {formatTime(photo.timestamp)}
-              </Text>
-            </View>
-
-            {photo.hint && (
-              <View style={styles.hintSection}>
-                <Text style={styles.hintLabel}>ヒント</Text>
-                <Text style={styles.hintText}>{photo.hint}</Text>
-              </View>
-            )}
-
-            {photo.tags && photo.tags.length > 0 && (
-              <View style={styles.tagsSection}>
-                <Text style={styles.tagsLabel}>タグ</Text>
-                <Text style={styles.tagsText}>{photo.tags.join(', ')}</Text>
-              </View>
-            )}
-
-            <View style={styles.photoActions}>
-              <TouchableOpacity
-                style={styles.editButton}
-                onPress={() => openEditModal(photo)}
-              >
-                <Text style={styles.editButtonText}>編集</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.deleteButton}
-                onPress={() => handleDeletePhoto(photo)}
-              >
-                <Text style={styles.deleteButtonText}>削除</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ))}
-      </ScrollView>
-    );
-  };
+  const statItems = [
+    { icon: 'game-controller', value: stats.totalGamesPlayed, label: 'Games', color: '#3b82f6' },
+    { icon: 'camera', value: stats.totalPhotosUploaded, label: 'Photos', color: '#8b5cf6' },
+    { icon: 'trophy', value: stats.bestScore, label: 'Best Score', color: '#f59e0b' },
+    { icon: 'analytics', value: stats.averageScore.toFixed(1), label: 'Avg Score', color: '#10b981' },
+    { icon: 'trending-up', value: `${(stats.winRate * 100).toFixed(0)}%`, label: 'Win Rate', color: '#ef4444' },
+    { icon: 'flame', value: stats.currentStreak, label: 'Streak', color: '#f97316' },
+  ];
 
   return (
-    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      {/* Profile Header */}
-      <View style={styles.header}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>👤</Text>
-        </View>
-        <Text style={styles.username}>Anonymous User</Text>
-        <Text style={styles.principal}>
-          {principal ? principal.toString() : 'Not connected'}
-        </Text>
-      </View>
+    <LinearGradient colors={['#0f172a', '#1e293b']} style={styles.container}>
+      <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
+        {/* Profile Header */}
+        <View style={styles.header}>
+          <View style={styles.profileInfo}>
+            <View style={styles.avatar}>
+              <MaterialCommunityIcons name="account" size={48} color="#ffffff" />
+            </View>
+            <Text style={styles.username}>Anonymous User</Text>
+            <Text style={styles.principal}>
+              {principal ? `${principal.toString().slice(0, 8)}...` : 'Not connected'}
+            </Text>
 
-      {/* Token Balance */}
-      <View style={styles.balanceContainer}>
-        <Text style={styles.balanceLabel}>SPOT Balance</Text>
-        <Text style={styles.balanceValue}>{stats.totalRewardsEarned.toFixed(2)}</Text>
-        <TouchableOpacity style={styles.withdrawButton}>
-          <Text style={styles.withdrawButtonText}>Withdraw</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Tab Navigation */}
-      <View style={styles.tabContainer}>
-        <TouchableOpacity
-          style={[styles.tab, currentTab === 'stats' && styles.activeTab]}
-          onPress={() => setCurrentTab('stats')}
-        >
-          <Text style={[styles.tabText, currentTab === 'stats' && styles.activeTabText]}>
-            統計
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, currentTab === 'photos' && styles.activeTab]}
-          onPress={() => setCurrentTab('photos')}
-        >
-          <Text style={[styles.tabText, currentTab === 'photos' && styles.activeTabText]}>
-            投稿写真 ({userPhotos.length})
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {currentTab === 'stats' ? (
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          {/* Stats Grid */}
-          <View style={styles.statsSection}>
-            <Text style={styles.sectionTitle}>Game Statistics</Text>
-            <View style={styles.statsGrid}>
-              <StatCard title="Games Played" value={stats.totalGamesPlayed} />
-              <StatCard title="Photos Uploaded" value={stats.totalPhotosUploaded} />
-              <StatCard title="Best Score" value={stats.bestScore} />
-              <StatCard title="Average Score" value={stats.averageScore.toFixed(1)} />
-              <StatCard title="Win Rate" value={(stats.winRate * 100).toFixed(0)} unit="%" />
-              <StatCard title="Current Streak" value={stats.currentStreak} />
+            {/* Balance Card */}
+            <View style={styles.balanceCard}>
+              <View style={styles.balanceContent}>
+                <View>
+                  <Text style={styles.balanceLabel}>SPOT Balance</Text>
+                  <Text style={styles.balanceValue}>
+                    {stats.totalRewardsEarned.toFixed(2)}
+                  </Text>
+                </View>
+                <TouchableOpacity style={styles.withdrawButton}>
+                  <Text style={styles.withdrawButtonText}>Withdraw</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.balanceChange}>
+                <Ionicons name="trending-up" size={20} color="#10b981" />
+                <Text style={styles.balanceChangeText}>+12.5% this week</Text>
+              </View>
             </View>
           </View>
+        </View>
 
-          {/* Achievements */}
-          <View style={styles.achievementsSection}>
-            <Text style={styles.sectionTitle}>Achievements</Text>
-            <View style={styles.achievementsList}>
-              {[
-                { icon: '🎯', name: 'Sharpshooter', description: 'Guess within 100m' },
-                { icon: '📷', name: 'Photographer', description: 'Upload 10 photos' },
-                { icon: '🔥', name: 'On Fire', description: '5 game win streak' },
-                { icon: '🌟', name: 'Rising Star', description: 'Reach top 100' },
-              ].map((achievement, index) => (
-                <View key={index} style={styles.achievementItem}>
-                  <Text style={styles.achievementIcon}>{achievement.icon}</Text>
-                  <View style={styles.achievementInfo}>
+        {/* Tab Navigation */}
+        <View style={styles.tabContainer}>
+          <View style={styles.tabs}>
+            {[
+              { id: 'stats' as const, label: 'Stats', icon: 'bar-chart' },
+              { id: 'photos' as const, label: 'Photos', icon: 'image' },
+              { id: 'achievements' as const, label: 'Achievements', icon: 'trophy' },
+            ].map((tab) => (
+              <TouchableOpacity
+                key={tab.id}
+                style={[styles.tab, currentTab === tab.id && styles.tabActive]}
+                onPress={() => setCurrentTab(tab.id)}
+              >
+                <Ionicons 
+                  name={tab.icon as any} 
+                  size={18} 
+                  color={currentTab === tab.id ? '#ffffff' : '#94a3b8'} 
+                />
+                <Text style={[
+                  styles.tabText,
+                  currentTab === tab.id && styles.tabTextActive
+                ]}>
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* Content */}
+        {currentTab === 'stats' && (
+          <ScrollView 
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Performance Stats</Text>
+              <View style={styles.statsGrid}>
+                {statItems.map((stat, index) => (
+                  <View key={index} style={styles.statCard}>
+                    <View style={[styles.statIcon, { backgroundColor: `${stat.color}20` }]}>
+                      {stat.icon === 'trophy' ? (
+                        <FontAwesome5 name={stat.icon} size={24} color={stat.color} />
+                      ) : (
+                        <Ionicons name={stat.icon as any} size={24} color={stat.color} />
+                      )}
+                    </View>
+                    <Text style={styles.statValue}>{stat.value}</Text>
+                    <Text style={styles.statLabel}>{stat.label}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Action Buttons */}
+              <View style={styles.actions}>
+                <TouchableOpacity style={styles.actionButton}>
+                  <Ionicons name="settings" size={24} color="#94a3b8" />
+                  <Text style={styles.actionButtonText}>Settings</Text>
+                  <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={styles.logoutButton}
+                  onPress={handleLogout}
+                >
+                  <Ionicons name="log-out" size={24} color="#ef4444" />
+                  <Text style={styles.logoutButtonText}>Logout</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
+        )}
+
+        {currentTab === 'photos' && (
+          <View style={styles.tabContent}>
+            {isLoadingPhotos ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#3b82f6" />
+                <Text style={styles.loadingText}>Loading photos...</Text>
+              </View>
+            ) : userPhotos.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <View style={styles.emptyIcon}>
+                  <Ionicons name="camera-outline" size={60} color="#475569" />
+                </View>
+                <Text style={styles.emptyTitle}>No Photos Yet</Text>
+                <Text style={styles.emptyText}>
+                  Start uploading photos to contribute to the game
+                </Text>
+                <TouchableOpacity 
+                  style={styles.primaryButton}
+                  onPress={() => navigation.navigate('Camera')}
+                >
+                  <Text style={styles.primaryButtonText}>Take Photo</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <ScrollView
+                contentContainerStyle={styles.photosContent}
+                refreshControl={
+                  <RefreshControl
+                    refreshing={isRefreshing}
+                    onRefresh={() => loadUserPhotos(true)}
+                    tintColor="#3b82f6"
+                  />
+                }
+                showsVerticalScrollIndicator={false}
+              >
+                {userPhotos.map((photo) => (
+                  <PhotoCard 
+                    key={photo.id.toString()}
+                    photo={photo}
+                    onEdit={() => {
+                      setEditingPhoto(photo);
+                      setEditForm({
+                        title: photo.title || '',
+                        description: photo.description || '',
+                        difficulty: photo.difficulty || 'NORMAL',
+                        hint: photo.hint || '',
+                        tags: photo.tags || [],
+                      });
+                      setShowEditModal(true);
+                    }}
+                    onDelete={() => {
+                      Alert.alert(
+                        'Delete Photo',
+                        `Delete "${photo.title || 'Untitled'}"? This cannot be undone.`,
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          {
+                            text: 'Delete',
+                            style: 'destructive',
+                            onPress: async () => {
+                              try {
+                                const result = await photoService.deletePhoto(photo.id);
+                                if (result.err) throw new Error(result.err);
+                                Alert.alert('Success', 'Photo deleted');
+                                loadUserPhotos();
+                              } catch (error) {
+                                Alert.alert('Error', 'Failed to delete photo');
+                              }
+                            },
+                          },
+                        ]
+                      );
+                    }}
+                  />
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        )}
+
+        {currentTab === 'achievements' && (
+          <ScrollView 
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={styles.sectionTitle}>Your Achievements</Text>
+            {achievements.map((achievement, index) => (
+              <View 
+                key={index} 
+                style={[styles.achievementCard, !achievement.unlocked && styles.achievementCardLocked]}
+              >
+                <View style={[styles.achievementIcon, { backgroundColor: `${achievement.color}20` }]}>
+                  {achievement.icon === 'target' ? (
+                    <MaterialCommunityIcons name={achievement.icon} size={28} color={achievement.color} />
+                  ) : achievement.icon === 'fire' ? (
+                    <FontAwesome5 name={achievement.icon} size={26} color={achievement.color} />
+                  ) : (
+                    <Ionicons name={achievement.icon as any} size={28} color={achievement.color} />
+                  )}
+                </View>
+                <View style={styles.achievementContent}>
+                  <View style={styles.achievementHeader}>
                     <Text style={styles.achievementName}>{achievement.name}</Text>
-                    <Text style={styles.achievementDescription}>{achievement.description}</Text>
+                    {achievement.unlocked && (
+                      <Ionicons name="checkmark-circle" size={18} color="#10b981" />
+                    )}
+                  </View>
+                  <Text style={styles.achievementDescription}>{achievement.description}</Text>
+                  <View style={styles.progressBar}>
+                    <View 
+                      style={[styles.progressFill, { width: `${achievement.progress}%` }]}
+                    />
                   </View>
                 </View>
-              ))}
-            </View>
-          </View>
+              </View>
+            ))}
+          </ScrollView>
+        )}
+      </SafeAreaView>
 
-          {/* Actions */}
-          <View style={styles.actions}>
-            <TouchableOpacity style={styles.actionButton}>
-              <Text style={styles.actionButtonText}>Edit Profile</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.actionButton}>
-              <Text style={styles.actionButtonText}>Settings</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.actionButton, styles.logoutButton]}
-              onPress={handleLogout}
-            >
-              <Text style={[styles.actionButtonText, styles.logoutButtonText]}>
-                Logout
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
-      ) : (
-        renderPhotoList()
-      )}
-
-      {/* 編集モーダル */}
+      {/* Edit Modal */}
       <Modal
         visible={showEditModal}
         transparent
         animationType="slide"
         onRequestClose={() => setShowEditModal(false)}
       >
-        <SafeAreaView style={styles.editModalContainer} edges={['top', 'left', 'right']}>
-          <View style={styles.editModalHeader}>
-            <Text style={styles.editModalTitle}>写真情報を編集</Text>
-            <TouchableOpacity
-              style={styles.editModalClose}
-              onPress={() => setShowEditModal(false)}
-            >
-              <Text style={styles.editModalCloseText}>閉じる</Text>
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={styles.editModalContent}>
-            <View style={styles.editFormGroup}>
-              <Text style={styles.editLabel}>タイトル</Text>
-              <TextInput
-                style={styles.editInput}
-                value={editForm.title}
-                onChangeText={(text) => setEditForm({...editForm, title: text})}
-                placeholder="写真のタイトル"
-                placeholderTextColor="#64748b"
-                maxLength={100}
-              />
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Edit Photo Info</Text>
+              <TouchableOpacity onPress={() => setShowEditModal(false)}>
+                <Ionicons name="close" size={28} color="#94a3b8" />
+              </TouchableOpacity>
             </View>
 
-            <View style={styles.editFormGroup}>
-              <Text style={styles.editLabel}>説明</Text>
-              <TextInput
-                style={[styles.editInput, styles.editTextArea]}
-                value={editForm.description}
-                onChangeText={(text) => setEditForm({...editForm, description: text})}
-                placeholder="写真の説明"
-                placeholderTextColor="#64748b"
-                multiline
-                numberOfLines={3}
-                maxLength={200}
-              />
-            </View>
-
-            <View style={styles.editFormGroup}>
-              <Text style={styles.editLabel}>難易度</Text>
-              <View style={styles.difficultyButtons}>
-                {(['EASY', 'NORMAL', 'HARD', 'EXTREME'] as const).map((level) => (
-                  <TouchableOpacity
-                    key={level}
-                    style={[
-                      styles.difficultyButton,
-                      editForm.difficulty === level && styles.difficultyButtonActive
-                    ]}
-                    onPress={() => setEditForm({...editForm, difficulty: level})}
-                  >
-                    <Text style={[
-                      styles.difficultyButtonText,
-                      editForm.difficulty === level && styles.difficultyButtonTextActive
-                    ]}>
-                      {level}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+            <ScrollView style={styles.modalBody}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Title</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={editForm.title}
+                  onChangeText={(text) => setEditForm({...editForm, title: text})}
+                  placeholder="Photo title"
+                  placeholderTextColor="#64748b"
+                />
               </View>
-            </View>
 
-            <View style={styles.editFormGroup}>
-              <Text style={styles.editLabel}>ヒント</Text>
-              <TextInput
-                style={styles.editInput}
-                value={editForm.hint}
-                onChangeText={(text) => setEditForm({...editForm, hint: text})}
-                placeholder="プレイヤーへのヒント"
-                placeholderTextColor="#64748b"
-                maxLength={100}
-              />
-            </View>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Description</Text>
+                <TextInput
+                  style={[styles.textInput, styles.textArea]}
+                  value={editForm.description}
+                  onChangeText={(text) => setEditForm({...editForm, description: text})}
+                  placeholder="Photo description"
+                  placeholderTextColor="#64748b"
+                  multiline
+                  textAlignVertical="top"
+                />
+              </View>
 
-            <View style={styles.editFormGroup}>
-              <Text style={styles.editLabel}>タグ（カンマ区切り）</Text>
-              <TextInput
-                style={styles.editInput}
-                value={editForm.tags.join(', ')}
-                onChangeText={(text) => setEditForm({
-                  ...editForm, 
-                  tags: text.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0)
-                })}
-                placeholder="例: 東京,観光地,桜"
-                placeholderTextColor="#64748b"
-              />
-            </View>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Difficulty</Text>
+                <View style={styles.difficultyOptions}>
+                  {(['EASY', 'NORMAL', 'HARD', 'EXTREME'] as const).map((level) => (
+                    <TouchableOpacity
+                      key={level}
+                      style={[
+                        styles.difficultyOption,
+                        editForm.difficulty === level && styles.difficultyOptionActive
+                      ]}
+                      onPress={() => setEditForm({...editForm, difficulty: level})}
+                    >
+                      <Text style={[
+                        styles.difficultyOptionText,
+                        editForm.difficulty === level && styles.difficultyOptionTextActive
+                      ]}>
+                        {level}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
 
-            <View style={styles.editModalActions}>
-              <TouchableOpacity
-                style={[styles.editSaveButton, isUpdating && styles.editSaveButtonDisabled]}
-                onPress={handleSaveEdit}
-                disabled={isUpdating}
-              >
-                {isUpdating ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
-                ) : (
-                  <Text style={styles.editSaveButtonText}>保存</Text>
-                )}
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={styles.editCancelButton}
-                onPress={() => setShowEditModal(false)}
-                disabled={isUpdating}
-              >
-                <Text style={styles.editCancelButtonText}>キャンセル</Text>
-              </TouchableOpacity>
-            </View>
-          </ScrollView>
-        </SafeAreaView>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Hint</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={editForm.hint}
+                  onChangeText={(text) => setEditForm({...editForm, hint: text})}
+                  placeholder="Hint for players"
+                  placeholderTextColor="#64748b"
+                />
+              </View>
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalButtonPrimary, isUpdating && styles.modalButtonDisabled]}
+                  onPress={async () => {
+                    if (!editingPhoto) return;
+                    setIsUpdating(true);
+                    try {
+                      const result = await photoService.updatePhotoInfo(editingPhoto.id, editForm);
+                      if (result.err) throw new Error(result.err);
+                      Alert.alert('Success', 'Photo updated');
+                      setShowEditModal(false);
+                      loadUserPhotos();
+                    } catch (error) {
+                      Alert.alert('Error', 'Failed to update photo');
+                    } finally {
+                      setIsUpdating(false);
+                    }
+                  }}
+                  disabled={isUpdating}
+                >
+                  {isUpdating ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <Text style={styles.modalButtonTextPrimary}>Save</Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalButtonSecondary]}
+                  onPress={() => setShowEditModal(false)}
+                >
+                  <Text style={styles.modalButtonTextSecondary}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
       </Modal>
-    </SafeAreaView>
+    </LinearGradient>
   );
 }
+
+// PhotoCard Component
+const PhotoCard = ({ photo, onEdit, onDelete }: any) => {
+  const formatTime = (timestamp: bigint) => {
+    const date = new Date(Number(timestamp) / 1000000);
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  };
+
+  const difficultyColors: any = {
+    EASY: '#10b981',
+    NORMAL: '#3b82f6',
+    HARD: '#f59e0b',
+    EXTREME: '#ef4444',
+  };
+
+  return (
+    <View style={styles.photoCard}>
+      <View style={styles.photoCardHeader}>
+        <View style={styles.photoCardInfo}>
+          <Text style={styles.photoCardTitle}>
+            {photo.title || 'Untitled Photo'}
+          </Text>
+          <Text style={styles.photoCardDescription} numberOfLines={2}>
+            {photo.description || 'No description'}
+          </Text>
+        </View>
+        <View style={[styles.difficultyBadge, { backgroundColor: `${difficultyColors[photo.difficulty || 'NORMAL']}20` }]}>
+          <Text style={[styles.difficultyBadgeText, { color: difficultyColors[photo.difficulty || 'NORMAL'] }]}>
+            {photo.difficulty || 'NORMAL'}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.photoCardMeta}>
+        <View style={styles.photoCardMetaItem}>
+          <Ionicons name="location" size={16} color="#94a3b8" />
+          <Text style={styles.photoCardMetaText}>
+            {photo.lat.toFixed(4)}, {photo.lon.toFixed(4)}
+          </Text>
+        </View>
+        <View style={styles.photoCardMetaItem}>
+          <Ionicons name="compass" size={16} color="#94a3b8" />
+          <Text style={styles.photoCardMetaText}>{photo.azim.toFixed(0)}°</Text>
+        </View>
+        <View style={styles.photoCardMetaItem}>
+          <Ionicons name="calendar" size={16} color="#94a3b8" />
+          <Text style={styles.photoCardMetaText}>{formatTime(photo.timestamp)}</Text>
+        </View>
+      </View>
+
+      {photo.hint && (
+        <View style={styles.photoCardHint}>
+          <Text style={styles.photoCardHintLabel}>Hint</Text>
+          <Text style={styles.photoCardHintText}>{photo.hint}</Text>
+        </View>
+      )}
+
+      <View style={styles.photoCardActions}>
+        <TouchableOpacity 
+          style={[styles.photoCardButton, styles.photoCardButtonEdit]}
+          onPress={onEdit}
+        >
+          <Feather name="edit-2" size={16} color="#3b82f6" />
+          <Text style={styles.photoCardButtonTextEdit}>Edit</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.photoCardButton, styles.photoCardButtonDelete]}
+          onPress={onDelete}
+        >
+          <Feather name="trash-2" size={16} color="#ef4444" />
+          <Text style={styles.photoCardButtonTextDelete}>Delete</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f1117',
   },
-  scrollContent: {
-    paddingTop: 20,
-    paddingBottom: 20,
-    paddingHorizontal: 20,
+  safeArea: {
+    flex: 1,
   },
   header: {
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 16,
+  },
+  profileInfo: {
     alignItems: 'center',
-    marginBottom: 0,
   },
   avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#1a1a2e',
-    justifyContent: 'center',
+    width: 96,
+    height: 96,
+    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+    borderRadius: 48,
     alignItems: 'center',
-    marginBottom: 15,
-  },
-  avatarText: {
-    fontSize: 40,
+    justifyContent: 'center',
+    marginBottom: 16,
+    borderWidth: 4,
+    borderColor: 'rgba(59, 130, 246, 0.3)',
   },
   username: {
+    color: '#ffffff',
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#ffffff',
-    marginBottom: 5,
+    marginBottom: 8,
   },
   principal: {
-    fontSize: 12,
     color: '#94a3b8',
+    fontSize: 14,
+    marginBottom: 24,
   },
-  balanceContainer: {
-    backgroundColor: '#1a1a2e',
+  balanceCard: {
+    width: '100%',
+    backgroundColor: 'rgba(30, 41, 59, 0.3)',
+    borderRadius: 16,
     padding: 20,
-    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(71, 85, 105, 0.5)',
+  },
+  balanceContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   balanceLabel: {
-    fontSize: 14,
     color: '#94a3b8',
-    marginBottom: 5,
+    fontSize: 14,
+    marginBottom: 4,
   },
   balanceValue: {
-    fontSize: 32,
+    color: '#ffffff',
+    fontSize: 28,
     fontWeight: 'bold',
-    color: '#4ade80',
-    marginBottom: 15,
   },
   withdrawButton: {
-    backgroundColor: '#3282b8',
-    paddingVertical: 10,
-    paddingHorizontal: 30,
-    borderRadius: 8,
+    backgroundColor: '#3b82f6',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
   },
   withdrawButtonText: {
     color: '#ffffff',
     fontWeight: 'bold',
   },
-  statsSection: {
-    marginBottom: 30,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    marginBottom: 15,
-  },
-  statsGrid: {
+  balanceChange: {
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+    borderRadius: 12,
+    padding: 12,
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginHorizontal: -5,
-  },
-  statCard: {
-    width: '31%',
-    backgroundColor: '#1a1a2e',
-    padding: 15,
-    borderRadius: 8,
-    margin: 5,
     alignItems: 'center',
   },
-  statValue: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#3282b8',
-    marginBottom: 5,
+  balanceChangeText: {
+    color: '#10b981',
+    marginLeft: 8,
+    fontSize: 14,
   },
-  statLabel: {
-    fontSize: 10,
-    color: '#94a3b8',
-    textAlign: 'center',
-  },
-  achievementsSection: {
-    marginBottom: 30,
-  },
-  achievementsList: {
-    gap: 10,
-  },
-  achievementItem: {
-    flexDirection: 'row',
-    backgroundColor: '#1a1a2e',
-    padding: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  achievementIcon: {
-    fontSize: 30,
-    marginRight: 15,
-  },
-  achievementInfo: {
-    flex: 1,
-  },
-  achievementName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    marginBottom: 2,
-  },
-  achievementDescription: {
-    fontSize: 12,
-    color: '#94a3b8',
-  },
-  actions: {
-    gap: 10,
-  },
-  actionButton: {
-    backgroundColor: '#1a1a2e',
-    padding: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 0,
-  },
-  actionButtonText: {
-    color: '#3282b8',
-    fontWeight: 'bold',
-  },
-  logoutButton: {
-    backgroundColor: '#ff6b6b',
-  },
-  logoutButtonText: {
-    color: '#ffffff',
-  },
-  // タブ関連のスタイル
   tabContainer: {
+    paddingHorizontal: 24,
+    marginBottom: 24,
+  },
+  tabs: {
+    backgroundColor: 'rgba(30, 41, 59, 0.3)',
+    borderRadius: 16,
+    padding: 4,
     flexDirection: 'row',
-    backgroundColor: '#1a1a2e',
-    marginHorizontal: 20,
-    marginBottom: 20,
-    borderRadius: 8,
-    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(71, 85, 105, 0.5)',
   },
   tab: {
     flex: 1,
     paddingVertical: 12,
-    paddingHorizontal: 16,
+    borderRadius: 12,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  activeTab: {
-    backgroundColor: '#3282b8',
+  tabActive: {
+    backgroundColor: '#3b82f6',
   },
   tabText: {
+    marginLeft: 8,
+    fontWeight: '600',
     color: '#94a3b8',
-    fontSize: 14,
-    fontWeight: '500',
   },
-  activeTabText: {
+  tabTextActive: {
     color: '#ffffff',
+  },
+  scrollContent: {
+    paddingBottom: 20,
+  },
+  section: {
+    paddingHorizontal: 24,
+  },
+  sectionTitle: {
+    color: '#ffffff',
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 16,
+    paddingHorizontal: 24,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -8,
+  },
+  statCard: {
+    width: '33.333%',
+    paddingHorizontal: 8,
+    marginBottom: 16,
+  },
+  statIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  statValue: {
+    color: '#ffffff',
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  statLabel: {
+    color: '#64748b',
+    fontSize: 12,
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  actions: {
+    marginTop: 24,
+  },
+  actionButton: {
+    backgroundColor: 'rgba(30, 41, 59, 0.3)',
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(71, 85, 105, 0.5)',
+    marginBottom: 12,
+  },
+  actionButtonText: {
+    color: '#ffffff',
+    marginLeft: 12,
+    fontWeight: '600',
+    flex: 1,
+  },
+  logoutButton: {
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.5)',
+  },
+  logoutButtonText: {
+    color: '#ef4444',
+    marginLeft: 12,
     fontWeight: 'bold',
   },
-  // 写真リスト関連のスタイル
-  photosContainer: {
-    padding: 20,
+  tabContent: {
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    padding: 40,
+    justifyContent: 'center',
   },
   loadingText: {
     color: '#94a3b8',
-    fontSize: 16,
-    marginTop: 12,
+    marginTop: 16,
   },
-  emptyState: {
+  photosContent: {
+    paddingHorizontal: 24,
+    paddingBottom: 20,
+  },
+  emptyContainer: {
     flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    padding: 40,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
   },
   emptyIcon: {
-    fontSize: 64,
-    marginBottom: 16,
+    width: 128,
+    height: 128,
+    backgroundColor: 'rgba(30, 41, 59, 0.3)',
+    borderRadius: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
   },
   emptyTitle: {
     color: '#ffffff',
@@ -727,253 +809,270 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 8,
   },
-  emptyDescription: {
+  emptyText: {
     color: '#94a3b8',
-    fontSize: 16,
     textAlign: 'center',
-    lineHeight: 24,
     marginBottom: 24,
   },
-  cameraButton: {
-    backgroundColor: '#3282b8',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
+  primaryButton: {
+    backgroundColor: '#3b82f6',
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 12,
   },
-  cameraButtonText: {
+  primaryButtonText: {
     color: '#ffffff',
-    fontSize: 16,
     fontWeight: 'bold',
   },
-  photoCard: {
-    backgroundColor: '#1a1a2e',
-    borderRadius: 12,
+  achievementCard: {
+    backgroundColor: 'rgba(30, 41, 59, 0.3)',
+    borderRadius: 16,
     padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    marginHorizontal: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(71, 85, 105, 0.5)',
+  },
+  achievementCardLocked: {
+    opacity: 0.6,
+  },
+  achievementIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  achievementContent: {
+    flex: 1,
+  },
+  achievementHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  achievementName: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+    fontSize: 16,
+    marginRight: 8,
+  },
+  achievementDescription: {
+    color: '#94a3b8',
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  progressBar: {
+    backgroundColor: 'rgba(15, 23, 42, 0.5)',
+    borderRadius: 4,
+    height: 8,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: 8,
+    backgroundColor: '#3b82f6',
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#1e293b',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '90%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(71, 85, 105, 0.5)',
+  },
+  modalTitle: {
+    color: '#ffffff',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  modalBody: {
+    padding: 24,
+  },
+  inputGroup: {
+    marginBottom: 24,
+  },
+  inputLabel: {
+    color: '#94a3b8',
+    marginBottom: 8,
+  },
+  textInput: {
+    backgroundColor: '#1e293b',
+    color: '#ffffff',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(71, 85, 105, 0.5)',
+  },
+  textArea: {
+    height: 96,
+  },
+  difficultyOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -4,
+  },
+  difficultyOption: {
+    margin: 4,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: '#1e293b',
+    borderWidth: 1,
+    borderColor: 'rgba(71, 85, 105, 0.5)',
+  },
+  difficultyOptionActive: {
+    backgroundColor: '#3b82f6',
+    borderColor: '#3b82f6',
+  },
+  difficultyOptionText: {
+    fontWeight: '600',
+    color: '#94a3b8',
+  },
+  difficultyOptionTextActive: {
+    color: '#ffffff',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  modalButtonPrimary: {
+    backgroundColor: '#3b82f6',
+  },
+  modalButtonSecondary: {
+    backgroundColor: '#1e293b',
+    borderWidth: 1,
+    borderColor: 'rgba(71, 85, 105, 0.5)',
+  },
+  modalButtonDisabled: {
+    opacity: 0.5,
+  },
+  modalButtonTextPrimary: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+  },
+  modalButtonTextSecondary: {
+    color: '#94a3b8',
+    fontWeight: 'bold',
+  },
+  // PhotoCard styles
+  photoCard: {
+    backgroundColor: 'rgba(30, 41, 59, 0.3)',
+    borderRadius: 16,
+    padding: 20,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(71, 85, 105, 0.5)',
   },
-  photoHeader: {
+  photoCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 12,
   },
-  photoInfo: {
+  photoCardInfo: {
     flex: 1,
     marginRight: 12,
   },
-  photoTitle: {
+  photoCardTitle: {
     color: '#ffffff',
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 4,
   },
-  photoDescription: {
+  photoCardDescription: {
     color: '#94a3b8',
     fontSize: 14,
-    lineHeight: 20,
   },
   difficultyBadge: {
-    backgroundColor: '#3282b8',
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
-  difficultyText: {
-    color: '#ffffff',
+  difficultyBadgeText: {
     fontSize: 12,
     fontWeight: 'bold',
   },
-  photoMeta: {
+  photoCardMeta: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 12,
+    marginBottom: 16,
   },
-  metaText: {
-    color: '#94a3b8',
-    fontSize: 12,
-  },
-  hintSection: {
-    backgroundColor: '#0f1117',
-    padding: 12,
-    borderRadius: 8,
+  photoCardMetaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 16,
     marginBottom: 8,
   },
-  hintLabel: {
-    color: '#64748b',
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  hintText: {
+  photoCardMetaText: {
     color: '#94a3b8',
     fontSize: 14,
-    lineHeight: 20,
+    marginLeft: 4,
   },
-  tagsSection: {
-    backgroundColor: '#0f1117',
+  photoCardHint: {
+    backgroundColor: 'rgba(15, 23, 42, 0.5)',
+    borderRadius: 12,
     padding: 12,
-    borderRadius: 8,
     marginBottom: 12,
   },
-  tagsLabel: {
+  photoCardHintLabel: {
     color: '#64748b',
     fontSize: 12,
     marginBottom: 4,
   },
-  tagsText: {
-    color: '#94a3b8',
+  photoCardHintText: {
+    color: '#cbd5e1',
     fontSize: 14,
   },
-  photoActions: {
+  photoCardActions: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 12,
+    gap: 8,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#334155',
+    borderTopColor: 'rgba(71, 85, 105, 0.5)',
   },
-  editButton: {
+  photoCardButton: {
     flex: 1,
-    backgroundColor: '#3282b8',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  editButtonText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  deleteButton: {
-    flex: 1,
-    backgroundColor: '#ff6b6b',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  deleteButtonText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  // 編集モーダル関連のスタイル
-  editModalContainer: {
-    flex: 1,
-    backgroundColor: '#0f1117',
-  },
-  editModalHeader: {
+    paddingVertical: 12,
+    borderRadius: 12,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#1a1a2e',
-    borderBottomWidth: 1,
-    borderBottomColor: '#334155',
+    justifyContent: 'center',
   },
-  editModalTitle: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: 'bold',
+  photoCardButtonEdit: {
+    backgroundColor: 'rgba(59, 130, 246, 0.2)',
   },
-  editModalClose: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+  photoCardButtonDelete: {
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
   },
-  editModalCloseText: {
-    color: '#3282b8',
-    fontSize: 16,
-    fontWeight: 'bold',
+  photoCardButtonTextEdit: {
+    color: '#3b82f6',
+    marginLeft: 8,
+    fontWeight: '600',
   },
-  editModalContent: {
-    flex: 1,
-    padding: 20,
-  },
-  editFormGroup: {
-    marginBottom: 20,
-  },
-  editLabel: {
-    color: '#94a3b8',
-    fontSize: 14,
-    marginBottom: 8,
-  },
-  editInput: {
-    backgroundColor: '#1e293b',
-    borderColor: '#334155',
-    borderWidth: 1,
-    borderRadius: 8,
-    color: '#ffffff',
-    fontSize: 16,
-    padding: 12,
-  },
-  editTextArea: {
-    height: 80,
-    textAlignVertical: 'top',
-  },
-  difficultyButtons: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  difficultyButton: {
-    backgroundColor: '#1e293b',
-    borderColor: '#334155',
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    minWidth: 80,
-    alignItems: 'center',
-  },
-  difficultyButtonActive: {
-    backgroundColor: '#3282b8',
-    borderColor: '#3282b8',
-  },
-  difficultyButtonText: {
-    color: '#94a3b8',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  difficultyButtonTextActive: {
-    color: '#ffffff',
-    fontWeight: 'bold',
-  },
-  editModalActions: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 20,
-    paddingBottom: 20,
-  },
-  editSaveButton: {
-    flex: 1,
-    backgroundColor: '#3282b8',
-    paddingVertical: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  editSaveButtonDisabled: {
-    opacity: 0.6,
-  },
-  editSaveButtonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  editCancelButton: {
-    flex: 1,
-    backgroundColor: '#1e293b',
-    borderColor: '#334155',
-    borderWidth: 1,
-    paddingVertical: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  editCancelButtonText: {
-    color: '#94a3b8',
-    fontSize: 16,
-    fontWeight: 'bold',
+  photoCardButtonTextDelete: {
+    color: '#ef4444',
+    marginLeft: 8,
+    fontWeight: '600',
   },
 });

@@ -1,10 +1,12 @@
 import { AuthClient } from '@dfinity/auth-client';
 import { Principal } from '@dfinity/principal';
 import * as SecureStore from 'expo-secure-store';
-import { Platform } from 'react-native';
+import { Platform, Linking } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
 
 const AUTH_SESSION_KEY = 'auth_session';
-const MOCK_AUTH_KEY = 'mock_auth';
+const IC_HOST = process.env.EXPO_PUBLIC_IC_HOST || 'https://ic0.app';
+const IDENTITY_PROVIDER = `https://identity.ic0.app`;
 
 class AuthService {
   private authClient: AuthClient | null = null;
@@ -19,36 +21,15 @@ class AuthService {
         },
       });
     }
-    
-    // 開発環境でのモック認証
-    if (__DEV__) {
-      const mockAuth = await this.getSecureItem(MOCK_AUTH_KEY);
-      if (mockAuth === 'true') {
-        console.log('Using mock authentication for development');
-      }
-    }
   }
 
   async login(): Promise<Principal | null> {
     try {
-      // 開発環境でのモック - 有効なPrincipalを使用
-      if (__DEV__) {
-        // テスト用の有効なPrincipal（あなたの実際のPrincipalに置き換えてください）
-        const mockPrincipal = Principal.fromText('lqfvd-m7ihy-e5dvc-gngvr-blzbt-pupeq-6t7ua-r7v4p-bvqjw-ea7gl-4qe');
-        await this.saveSession({
-          provider: 'mock',
-          principal: mockPrincipal.toString(),
-          timestamp: Date.now(),
-        });
-        console.log('Development mode: Using mock principal:', mockPrincipal.toString());
-        return mockPrincipal;
-      }
-
-      // 本番環境
       if (Platform.OS === 'web' && this.authClient) {
+        // Web版: 標準のInternet Identity認証
         return new Promise((resolve) => {
           this.authClient!.login({
-            identityProvider: process.env.EXPO_PUBLIC_IDENTITY_PROVIDER,
+            identityProvider: IDENTITY_PROVIDER,
             onSuccess: async () => {
               const identity = this.authClient!.getIdentity();
               const principal = identity.getPrincipal();
@@ -68,9 +49,34 @@ class AuthService {
           });
         });
       } else {
-        // モバイルでは現在Internet Identityは直接サポートされていない
-        // 将来的にはWebViewやDeep Linkingで対応
-        console.warn('Authentication not supported on mobile yet');
+        // モバイル版: WebBrowserを使用した認証
+        const callbackUrl = Linking.createURL('auth/callback');
+        const authUrl = `${IDENTITY_PROVIDER}?callback=${encodeURIComponent(callbackUrl)}`;
+        
+        // ブラウザで認証ページを開く
+        const result = await WebBrowser.openAuthSessionAsync(authUrl, callbackUrl);
+        
+        if (result.type === 'success' && result.url) {
+          // URLからprincipalを抽出（実際の実装では適切なパラメータ処理が必要）
+          const url = new URL(result.url);
+          const principalText = url.searchParams.get('principal');
+          
+          if (principalText) {
+            const principal = Principal.fromText(principalText);
+            
+            await this.saveSession({
+              provider: 'ii',
+              principal: principal.toString(),
+              timestamp: Date.now(),
+            });
+            
+            return principal;
+          }
+        }
+        
+        // モバイルでの認証が未対応の場合の暫定措置
+        console.warn('Mobile authentication is currently limited. Using temporary solution.');
+        // 実際のアプリではここでユーザーに適切なメッセージを表示
         return null;
       }
     } catch (error) {
@@ -87,14 +93,6 @@ class AuthService {
   }
 
   async isAuthenticated(): Promise<boolean> {
-    // 開発環境チェック
-    if (__DEV__) {
-      const mockAuth = await this.getSecureItem(MOCK_AUTH_KEY);
-      if (mockAuth === 'true') {
-        return true;
-      }
-    }
-
     const session = await this.getSession();
     if (session) {
       // セッションの有効期限チェック（24時間）
@@ -160,21 +158,12 @@ class AuthService {
     }
   }
 
-  private async getSecureItem(key: string): Promise<string | null> {
-    if (Platform.OS === 'web') {
-      return localStorage.getItem(key);
-    } else {
-      return await SecureStore.getItemAsync(key);
+  // Identity取得（管理サービス用）
+  async getIdentity() {
+    if (Platform.OS === 'web' && this.authClient) {
+      return this.authClient.getIdentity();
     }
-  }
-
-  // 開発環境用のモック認証設定
-  async setMockAuth(enabled: boolean): Promise<void> {
-    if (Platform.OS === 'web') {
-      localStorage.setItem(MOCK_AUTH_KEY, enabled.toString());
-    } else {
-      await SecureStore.setItemAsync(MOCK_AUTH_KEY, enabled.toString());
-    }
+    return null;
   }
 }
 

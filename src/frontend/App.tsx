@@ -1,4 +1,5 @@
 import 'react-native-gesture-handler';
+// import './src/global.css';
 import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
