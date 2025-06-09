@@ -33,6 +33,38 @@ export default function GuessMapScreen() {
 
   const [guess, setGuess] = useState<{ latitude: number; longitude: number } | null>(initialGuess || null);
 
+  // Calculate distance using Haversine formula (in meters)
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371000; // Earth's radius in meters
+    const dLat = (lat2 - lat1) * (Math.PI / 180);
+    const dLon = (lon2 - lon1) * (Math.PI / 180);
+    const a = 
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  // Calculate score based on new criteria (Classic Mode)
+  const calculateScore = (distanceInMeters: number): number => {
+    const MAX_SCORE = 5000;
+    const PERFECT_DISTANCE = 10; // meters
+
+    if (distanceInMeters <= PERFECT_DISTANCE) {
+      // Perfect score for distances <= 10 meters
+      return MAX_SCORE;
+    } else {
+      // Exponential decay formula
+      const distanceInKm = distanceInMeters / 1000;
+      const k = 0.15; // Decay constant calibrated for the scoring table
+      const score = MAX_SCORE * Math.exp(-k * distanceInKm);
+      
+      // Ensure minimum score is 0
+      return Math.max(0, Math.round(score));
+    }
+  };
+
   const handleSubmit = () => {
     if (!guess) {
       console.warn('No guess provided');
@@ -46,6 +78,23 @@ export default function GuessMapScreen() {
       // Default location if currentPhoto is undefined (Tokyo)
       const actualLocation = currentPhoto?.actualLocation || { latitude: 35.6762, longitude: 139.6503 };
       
+      // Calculate distance and score
+      const distance = calculateDistance(
+        guess.latitude || 0,
+        guess.longitude || 0,
+        actualLocation.latitude || 0,
+        actualLocation.longitude || 0
+      );
+      const score = calculateScore(distance);
+      
+      console.log('Distance and score calculation:', {
+        guess: { lat: guess.latitude, lon: guess.longitude },
+        actual: { lat: actualLocation.latitude, lon: actualLocation.longitude },
+        distanceMeters: distance,
+        distanceKm: distance / 1000,
+        score: score,
+      });
+      
       // Ensure all required parameters are defined
       const resultParams = {
         guess: {
@@ -56,7 +105,7 @@ export default function GuessMapScreen() {
           latitude: actualLocation.latitude || 35.6762,
           longitude: actualLocation.longitude || 139.6503,
         },
-        score: 85, // TODO: Calculate actual score
+        score: score,
         timeUsed: Math.max(0, 180 - (timeLeft || 180)),
         difficulty: difficulty || 'NORMAL',
         photoUrl: photoUrl || 'https://picsum.photos/800/600',

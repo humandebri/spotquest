@@ -124,6 +124,18 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     }
   }, []);
   
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      // Clean up timer when component unmounts
+      isNavigatingAway.current = true;
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, []);
+  
   // 画像のアスペクト比を取得
   useEffect(() => {
     if (currentPhoto?.url) {
@@ -286,17 +298,30 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   ).current;
   
   // タイマー
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const isNavigatingAway = useRef(false);
+  
   useEffect(() => {
-    if (timeLeft <= 0) {
+    // Don't run timer if navigating away or time is already up
+    if (isNavigatingAway.current || timeLeft <= 0) {
+      return;
+    }
+    
+    // Handle timeout only if still on this screen
+    if (timeLeft === 0 && !isNavigatingAway.current) {
       handleTimeout();
       return;
     }
     
-    const timer = setTimeout(() => {
-      setTimeLeft(timeLeft - 1);
+    timerRef.current = setTimeout(() => {
+      setTimeLeft(prev => prev - 1);
     }, 1000);
     
-    return () => clearTimeout(timer);
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+    };
   }, [timeLeft]);
   
   const handleTimeout = () => {
@@ -305,16 +330,36 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     ]);
   };
   
-  const calculatePotentialScore = () => {
-    if (!currentGuess) return { min: 0, max: 100 };
-    
-    const difficultyMultiplier = DifficultySettings[difficulty].scoreMultiplier;
-    const baseScore = 100 - (confidenceRadius / 100);
-    
-    return {
-      min: Math.max(0, Math.floor((baseScore - 20) * difficultyMultiplier)),
-      max: Math.min(100, Math.floor((baseScore + 10) * difficultyMultiplier)),
-    };
+  // Calculate distance using Haversine formula (in meters)
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371000; // Earth's radius in meters
+    const dLat = (lat2 - lat1) * (Math.PI / 180);
+    const dLon = (lon2 - lon1) * (Math.PI / 180);
+    const a = 
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  // Calculate score based on new criteria (Classic Mode)
+  const calculateScore = (distanceInMeters: number): number => {
+    const MAX_SCORE = 5000;
+    const PERFECT_DISTANCE = 10; // meters
+
+    if (distanceInMeters <= PERFECT_DISTANCE) {
+      // Perfect score for distances <= 10 meters
+      return MAX_SCORE;
+    } else {
+      // Exponential decay formula
+      const distanceInKm = distanceInMeters / 1000;
+      const k = 0.15; // Decay constant calibrated for the scoring table
+      const score = MAX_SCORE * Math.exp(-k * distanceInKm);
+      
+      // Ensure minimum score is 0
+      return Math.max(0, Math.round(score));
+    }
   };
   
   const submitGuess = async (isTimeout = false) => {
@@ -328,11 +373,35 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
       longitude: (Math.random() - 0.5) * 360,
     };
     
+    // Stop timer before navigating
+    isNavigatingAway.current = true;
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    
+    // Calculate actual score based on distance
+    const distance = calculateDistance(
+      finalGuess.latitude,
+      finalGuess.longitude,
+      currentPhoto!.actualLocation.latitude,
+      currentPhoto!.actualLocation.longitude
+    );
+    const score = calculateScore(distance);
+    
+    console.log('Distance calculation:', {
+      guess: finalGuess,
+      actual: currentPhoto!.actualLocation,
+      distanceMeters: distance,
+      distanceKm: distance / 1000,
+      score: score,
+    });
+    
     // TODO: ICPに推測を送信
     navigation.navigate('GameResult', {
       guess: finalGuess,
       actualLocation: currentPhoto!.actualLocation,
-      score: calculatePotentialScore().max,
+      score: score,
       timeUsed: DifficultySettings[difficulty].timeLimit - timeLeft,
       difficulty: difficulty,
       photoUrl: currentPhoto!.url,

@@ -57,13 +57,10 @@ actor GameEngine {
     private stable var ROUND_DURATION : Time.Time = 300_000_000_000; // 5 minutes in nanoseconds
     private stable var MIN_QUALITY_FOR_GAME : Float = 0.3;
     
-    // Scoring parameters
-    private stable var R_FULL : Float = 25.0; // meters for full score
-    private stable var R_ZERO : Float = 1000.0; // meters for zero score
-    private stable var THETA_MAX : Float = 30.0; // degrees for azimuth error
-    private stable var GAMMA : Float = 1.3; // distance score exponent
-    private stable var DELTA : Float = 0.7; // azimuth score exponent
-    private stable var S_MAX : Float = 100.0; // maximum score
+    // Scoring parameters - Classic Mode
+    private stable var MAX_SCORE_PER_ROUND : Float = 5000.0; // Maximum score per round
+    private stable var PERFECT_DISTANCE : Float = 10.0; // meters for perfect score
+    private stable var SCORE_DECAY_FACTOR : Float = 1.2; // Score decay exponential factor
     
     // Reward parameters
     private stable var BASE_REWARD_MULTIPLIER : Float = 0.02; // 2% of score as base reward
@@ -207,27 +204,36 @@ actor GameEngine {
         diff;
     };
     
-    // Calculate score based on distance and azimuth error
+    // Calculate score based on distance (Classic Mode)
     private func calculateScore(distance: Float, azimuthError: Float) : Nat {
-        // Distance score component
-        let Sd = if (distance <= R_FULL) {
-            1.0;
-        } else if (distance >= R_ZERO) {
-            0.0;
-        } else {
-            1.0 - (distance - R_FULL) / (R_ZERO - R_FULL);
-        };
+        // Classic Mode: Distance-based scoring only
+        // 0-10m = 5000 points (perfect)
+        // Distance decay follows exponential curve
         
-        // Azimuth score component
-        let Sphi = if (azimuthError >= THETA_MAX) {
-            0.0;
+        if (distance <= PERFECT_DISTANCE) {
+            // Perfect score for distances <= 10 meters
+            Int.abs(Float.toInt(MAX_SCORE_PER_ROUND));
         } else {
-            1.0 - azimuthError / THETA_MAX;
+            // Exponential decay formula
+            // Score = MAX_SCORE * e^(-k * distance)
+            // where k is calibrated so that:
+            // - 100m ≈ 4900-4999 points
+            // - 1km ≈ 4000 points
+            // - 10-50km ≈ 2000-3000 points
+            // - 100km+ ≈ few hundred points
+            // - 500km+ ≈ close to 0
+            
+            let distanceInKm = distance / 1000.0;
+            let k = 0.15; // Decay constant calibrated for the scoring table
+            let score = MAX_SCORE_PER_ROUND * Float.exp(-k * distanceInKm);
+            
+            // Ensure minimum score is 0
+            if (score < 1.0) {
+                0;
+            } else {
+                Int.abs(Float.toInt(score));
+            };
         };
-        
-        // Combined score
-        let score = S_MAX * (Sd ** GAMMA) * (Sphi ** DELTA);
-        Int.abs(Float.toInt(score));
     };
     
     // Calculate reward with decay factor

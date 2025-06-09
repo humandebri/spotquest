@@ -101,7 +101,10 @@ export default function AppNavigator() {
           <Stack.Screen
             name="GameResult"
             component={GameResultScreen}
-            options={{ title: 'Game Result' }}
+            options={{ 
+              headerShown: false,
+              gestureEnabled: false,
+            }}
           />
           <Stack.Screen
             name="Camera"

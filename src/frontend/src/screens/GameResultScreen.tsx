@@ -18,6 +18,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { BlurView } from 'expo-blur';
 import { useGameStore } from '../store/gameStore';
+import Svg, { Circle, Path } from 'react-native-svg';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -28,9 +29,18 @@ export default function GameResultScreen() {
   const navigation = useNavigation<GameResultScreenNavigationProp>();
   const route = useRoute<GameResultScreenRouteProp>();
   const { resetGame } = useGameStore();
+  const mapRef = useRef<MapView>(null);
+  const [mapReady, setMapReady] = useState(false);
+  const [dashPattern, setDashPattern] = useState([20, 20]);
   
-  // Safe parameter extraction with defaults
-  const params = route?.params || {};
+  // Error handling from GameResultScreenSimple
+  let params = {};
+  try {
+    params = route?.params || {};
+  } catch (error) {
+    console.error('Error getting params:', error);
+  }
+  
   console.log('GameResult route params:', params);
   
   // Ensure all values have defaults
@@ -48,10 +58,11 @@ export default function GameResultScreen() {
   const slideAnim = useRef(new Animated.Value(50)).current;
   const scaleAnim = useRef(new Animated.Value(0)).current;
   const scoreAnim = useRef(new Animated.Value(0)).current;
+  const markerScaleAnim = useRef(new Animated.Value(0)).current;
 
-  // Calculate distance using Haversine formula
+  // Calculate distance using Haversine formula (in meters)
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-    const R = 6371; // Earth's radius in km
+    const R = 6371000; // Earth's radius in meters
     const dLat = (lat2 - lat1) * (Math.PI / 180);
     const dLon = (lon2 - lon1) * (Math.PI / 180);
     const a = 
@@ -78,21 +89,10 @@ export default function GameResultScreen() {
   const azimuthError = Math.abs((azimuthGuess || 0) - (actualAzimuth || 0));
   const normalizedAzimuthError = Math.min(azimuthError, 360 - azimuthError);
 
-  // Rewards calculation
-  const baseReward = 1.0; // 1.00 SPOT
-  const earnedReward = ((score || 0) / 100) * baseReward;
+  // Rewards calculation (based on 5000 point max)
+  const baseReward = 1.0; // 1.00 SPOT for perfect score
+  const earnedReward = ((score || 0) / 5000) * baseReward;
 
-  // Performance evaluation
-  const getPerformanceRating = () => {
-    const safeScore = score || 0;
-    if (safeScore >= 95) return { text: 'PERFECT!', color: '#FFD700', icon: 'trophy' };
-    if (safeScore >= 85) return { text: 'EXCELLENT!', color: '#4CAF50', icon: 'star' };
-    if (safeScore >= 70) return { text: 'GREAT!', color: '#2196F3', icon: 'thumbs-up' };
-    if (safeScore >= 50) return { text: 'GOOD!', color: '#FF9800', icon: 'happy' };
-    return { text: 'NICE TRY!', color: '#9C27B0', icon: 'heart' };
-  };
-
-  const performance = getPerformanceRating();
 
   // Difficulty multiplier function
   const getDifficultyMultiplier = (diff: string) => {
@@ -136,10 +136,38 @@ export default function GameResultScreen() {
     }).start();
   }, []);
 
+  // Map zoom animation
+  useEffect(() => {
+    if (mapReady && mapRef.current) {
+      // Start with zoomed in view on actual location
+      const startRegion = {
+        latitude: actualLocation.latitude,
+        longitude: actualLocation.longitude,
+        latitudeDelta: 0.002, // Very zoomed in
+        longitudeDelta: 0.002,
+      };
+      
+      // Animate to final region after a delay
+      setTimeout(() => {
+        const finalRegion = getMapRegion();
+        mapRef.current?.animateToRegion(finalRegion, 2000);
+        calculateDashPattern(finalRegion);
+        
+        // Animate markers appearing
+        Animated.spring(markerScaleAnim, {
+          toValue: 1,
+          friction: 4,
+          tension: 40,
+          useNativeDriver: true,
+        }).start();
+      }, 500);
+    }
+  }, [mapReady]);
+
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `I scored ${score || 0} points in Guess the Spot! 🌍\nMy guess was ${(distance || 0).toFixed(1)}km away from the actual location.\nCan you beat my score?`,
+        message: `I scored ${score || 0} points in Guess the Spot! 🌍\nMy guess was ${distance < 1000 ? `${Math.round(distance || 0)}m` : `${((distance || 0) / 1000).toFixed(1)}km`} away from the actual location.\nCan you beat my score?`,
         title: 'Guess the Spot Score',
       });
     } catch (error) {
@@ -149,11 +177,22 @@ export default function GameResultScreen() {
 
   const handlePlayAgain = () => {
     resetGame();
-    navigation.navigate('Game');
+    // Reset navigation stack to prevent going back
+    navigation.reset({
+      index: 1,
+      routes: [
+        { name: 'Home' },
+        { name: 'Game' },
+      ],
+    });
   };
 
   const handleBackToMenu = () => {
-    navigation.navigate('Home');
+    // Reset navigation stack to home
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'Home' }],
+    });
   };
 
   // Map region that includes both markers
@@ -186,232 +225,202 @@ export default function GameResultScreen() {
     };
   };
 
+  // Calculate dash pattern based on map zoom level
+  const calculateDashPattern = (region: any) => {
+    const delta = region.latitudeDelta || 0.1;
+    // Smaller delta = more zoomed in = smaller dash pattern
+    // Larger delta = more zoomed out = larger dash pattern
+    const basePattern = Math.max(8, Math.min(40, delta * 200));
+    setDashPattern([basePattern, basePattern]);
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom'] as readonly ['left', 'right', 'bottom']}>
-      <ScrollView 
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Performance Header */}
-        <Animated.View 
-          style={[
-            styles.performanceHeader,
-            {
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }],
-            },
-          ]}
-        >
-          <Animated.View
+      {/* Gradient Mesh Background */}
+      <LinearGradient
+        colors={['#1a0033', '#220044', '#1a0033']}
+        style={styles.gradientBackground}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      />
+      
+      {/* Mesh Pattern Overlay */}
+      <View style={styles.meshOverlay} pointerEvents="none">
+        {Array.from({ length: 20 }).map((_, i) => (
+          <View
+            key={`h-${i}`}
             style={[
-              styles.performanceIcon,
+              styles.meshLine,
               {
-                transform: [{ scale: scaleAnim }],
+                top: `${i * 5}%`,
+                width: '100%',
+                height: 1,
+                opacity: 0.1,
               },
             ]}
+          />
+        ))}
+        {Array.from({ length: 20 }).map((_, i) => (
+          <View
+            key={`v-${i}`}
+            style={[
+              styles.meshLine,
+              {
+                left: `${i * 5}%`,
+                height: '100%',
+                width: 1,
+                opacity: 0.1,
+              },
+            ]}
+          />
+        ))}
+      </View>
+      
+      {/* Map Section - Full Width */}
+      <View style={styles.mapContainer}>
+        {guess && actualLocation && guess.latitude != null && guess.longitude != null && 
+         actualLocation.latitude != null && actualLocation.longitude != null ? (
+          <MapView
+            ref={mapRef}
+            style={styles.fullMap}
+            provider={PROVIDER_GOOGLE}
+            initialRegion={{
+              latitude: actualLocation.latitude,
+              longitude: actualLocation.longitude,
+              latitudeDelta: 0.002,
+              longitudeDelta: 0.002,
+            }}
+            onMapReady={() => {
+              setMapReady(true);
+              calculateDashPattern({ latitudeDelta: 0.002 });
+            }}
+            onRegionChangeComplete={(region) => {
+              calculateDashPattern(region);
+            }}
+            scrollEnabled={true}
+            zoomEnabled={true}
+            rotateEnabled={false}
+            pitchEnabled={false}
           >
-            <Ionicons name={performance.icon as any} size={60} color={performance.color} />
-          </Animated.View>
-          <Text style={[styles.performanceText, { color: performance.color }]}>
-            {performance.text}
+            {/* Your guess marker - Purple circle */}
+            <Marker
+              coordinate={{
+                latitude: Number(guess.latitude),
+                longitude: Number(guess.longitude),
+              }}
+              anchor={{ x: 0.5, y: 0.5 }}
+            >
+              <Animated.View style={[
+                styles.circleMarker,
+                styles.guessCircle,
+                {
+                  transform: [{ scale: markerScaleAnim }],
+                }
+              ]} />
+            </Marker>
+            
+            {/* Actual location marker - Flag icon with circle */}
+            <Marker
+              coordinate={{
+                latitude: Number(actualLocation.latitude),
+                longitude: Number(actualLocation.longitude),
+              }}
+              anchor={{ x: 0.5, y: 0.5 }}
+            >
+              <Animated.View style={[
+                {
+                  transform: [{ scale: markerScaleAnim }],
+                }
+              ]}>
+                <Svg width="30" height="30" viewBox="0 0 30 30">
+                  {/* Black circle background with white border */}
+                  <Circle cx="15" cy="15" r="13" fill="#000000" stroke="#FFFFFF" strokeWidth="2" />
+                  {/* White flag icon centered */}
+                  <Path
+                    d="M 13.5 20 V 10 L 20.5 8 C 20.8 7.9 21 7.6 21 7.3 S 20.8 6.9 20.5 6.8 L 12.5 4 C 12.2 3.9 11.9 3.9 11.7 4.1 C 11.5 4.2 11.4 4.5 11.4 4.8 V 20 H 13.5 Z"
+                    fill="#FFFFFF"
+                  />
+                </Svg>
+              </Animated.View>
+            </Marker>
+            
+            {/* Black dotted line */}
+            <Polyline
+              coordinates={[
+                {
+                  latitude: Number(guess.latitude),
+                  longitude: Number(guess.longitude),
+                },
+                {
+                  latitude: Number(actualLocation.latitude),
+                  longitude: Number(actualLocation.longitude),
+                },
+              ]}
+              strokeColor="#000000"
+              strokeWidth={2}
+              lineDashPattern={dashPattern}
+              lineJoin="round"
+              lineCap="round"
+            />
+          </MapView>
+        ) : null}
+      </View>
+
+      {/* Bottom Section with Results */}
+      <LinearGradient
+        colors={['#1a0033', '#220044', '#2d1b69']}
+        style={styles.resultsSection}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+      >
+        <View style={styles.roundIndicator}>
+          <Ionicons name="location-outline" size={24} color="#fff" />
+          <Text style={styles.roundText}>ROUND 1</Text>
+        </View>
+
+        <Animated.Text style={[styles.pointsText, { opacity: fadeAnim }]}>
+          {score || 0} points
+        </Animated.Text>
+
+        {/* Progress Bar */}
+        <View style={styles.progressBarContainer}>
+          <View style={styles.progressBar}>
+            <View 
+              style={[
+                styles.progressFill, 
+                { 
+                  width: `${Math.min((score / 5000) * 100, 100)}%` 
+                }
+              ]} 
+            />
+          </View>
+        </View>
+
+        {/* Token Rewards */}
+        <View style={styles.rewardContainer}>
+          <Text style={styles.rewardText}>
+            You earned: +{earnedReward.toFixed(2)} SPOT
           </Text>
-        </Animated.View>
-
-        {/* Score Display */}
-        <Animated.View style={[styles.scoreSection, { opacity: fadeAnim }]}>
-          <View style={styles.scoreCircle}>
-            <Text style={styles.scoreValue}>
-              {score || 0}
-            </Text>
-            <Text style={styles.scoreLabel}>POINTS</Text>
-          </View>
-          
-          <View style={styles.rewardInfo}>
-            <View style={styles.rewardRow}>
-              <Text style={styles.rewardLabel}>Earned:</Text>
-              <Text style={styles.rewardValue}>+{earnedReward.toFixed(2)} SPOT</Text>
-            </View>
-            <View style={styles.rewardRow}>
-              <Text style={styles.rewardLabel}>Uploader:</Text>
-              <Text style={styles.rewardValue}>+{(earnedReward * 0.3).toFixed(2)} SPOT</Text>
-            </View>
-          </View>
-        </Animated.View>
-
-        {/* Statistics */}
-        <View style={styles.statsSection}>
-          <View style={styles.statCard}>
-            <Ionicons name="navigate" size={24} color="#3282b8" />
-            <Text style={styles.statValue}>{(distance || 0).toFixed(1)} km</Text>
-            <Text style={styles.statLabel}>Distance Error</Text>
-          </View>
-          
-          <View style={styles.statCard}>
-            <Ionicons name="compass" size={24} color="#3282b8" />
-            <Text style={styles.statValue}>{(normalizedAzimuthError || 0).toFixed(0)}°</Text>
-            <Text style={styles.statLabel}>Azimuth Error</Text>
-          </View>
-          
-          <View style={styles.statCard}>
-            <Ionicons name="timer" size={24} color="#3282b8" />
-            <Text style={styles.statValue}>
-              {Math.floor((timeUsed || 0) / 60)}:{((timeUsed || 0) % 60).toString().padStart(2, '0')}
-            </Text>
-            <Text style={styles.statLabel}>Time Used</Text>
-          </View>
+          <Text style={styles.uploaderRewardText}>
+            Photo uploader earned: +{(earnedReward * 0.3).toFixed(2)} SPOT
+          </Text>
         </View>
 
-        {/* Map Comparison */}
-        <View style={styles.mapSection}>
-          <Text style={styles.sectionTitle}>Location Comparison</Text>
-          <View style={styles.mapContainer}>
-            {guess && actualLocation && guess.latitude != null && guess.longitude != null && 
-             actualLocation.latitude != null && actualLocation.longitude != null ? (
-              <MapView
-                style={styles.map}
-                provider={PROVIDER_GOOGLE}
-                region={getMapRegion()}
-                scrollEnabled={true}
-                zoomEnabled={true}
-                rotateEnabled={false}
-                pitchEnabled={false}
-              >
-                {/* Your guess marker */}
-                <Marker
-                  coordinate={{
-                    latitude: Number(guess.latitude),
-                    longitude: Number(guess.longitude),
-                  }}
-                  title="Your Guess"
-                  description={`Lat: ${guess.latitude.toFixed(4)}, Lon: ${guess.longitude.toFixed(4)}`}
-                >
-                  <View style={styles.guessMarker}>
-                    <Ionicons name="location" size={40} color="#FF0000" />
-                  </View>
-                </Marker>
-                
-                {/* Actual location marker */}
-                <Marker
-                  coordinate={{
-                    latitude: Number(actualLocation.latitude),
-                    longitude: Number(actualLocation.longitude),
-                  }}
-                  title="Actual Location"
-                  description={`Lat: ${actualLocation.latitude.toFixed(4)}, Lon: ${actualLocation.longitude.toFixed(4)}`}
-                >
-                  <View style={styles.actualMarker}>
-                    <Ionicons name="flag" size={40} color="#4CAF50" />
-                  </View>
-                </Marker>
-                
-                {/* Connection line */}
-                <Polyline
-                  coordinates={[
-                    {
-                      latitude: Number(guess.latitude),
-                      longitude: Number(guess.longitude),
-                    },
-                    {
-                      latitude: Number(actualLocation.latitude),
-                      longitude: Number(actualLocation.longitude),
-                    },
-                  ]}
-                  strokeColor="#FF0000"
-                  strokeWidth={3}
-                />
-              </MapView>
-            ) : null}
-            
-            {/* Distance overlay */}
-            <View style={styles.distanceOverlay}>
-              <Text style={styles.distanceText}>
-                Distance: {(distance || 0).toFixed(1)} km
-              </Text>
-            </View>
-            
-            {/* Map Legend */}
-            <View style={styles.mapLegend}>
-              <View style={styles.legendItem}>
-                <Ionicons name="location" size={20} color="#FF0000" />
-                <Text style={styles.legendText}>Your Guess</Text>
-              </View>
-              <View style={styles.legendItem}>
-                <Ionicons name="flag" size={20} color="#4CAF50" />
-                <Text style={styles.legendText}>Actual Location</Text>
-              </View>
-            </View>
-          </View>
-        </View>
+        <Text style={styles.distanceMessage}>
+          You guessed {distance < 1000 
+            ? `${Math.round(distance || 0)} m` 
+            : `${((distance || 0) / 1000).toFixed(1)} km`
+          } from the correct location
+        </Text>
 
-        {/* Score Breakdown */}
-        <View style={styles.breakdownSection}>
-          <Text style={styles.sectionTitle}>Score Breakdown</Text>
-          <View style={styles.breakdownList}>
-            <BreakdownItem
-              label="Base Score"
-              value={100}
-              percentage={100}
-            />
-            <BreakdownItem
-              label="Distance Penalty"
-              value={-Math.round(((distance || 0) / 10))}
-              percentage={Math.max(0, 100 - ((distance || 0) / 10))}
-              negative
-            />
-            <BreakdownItem
-              label="Azimuth Penalty"
-              value={-Math.round((normalizedAzimuthError || 0) / 10)}
-              percentage={Math.max(0, 100 - ((normalizedAzimuthError || 0) / 10))}
-              negative
-            />
-            <BreakdownItem
-              label="Time Bonus"
-              value={Math.round(Math.max(0, 180 - (timeUsed || 0)) / 10)}
-              percentage={Math.max(0, (180 - (timeUsed || 0)) / 1.8)}
-            />
-            <BreakdownItem
-              label={`${difficulty || 'NORMAL'} Multiplier`}
-              value={`x${getDifficultyMultiplier(difficulty || 'NORMAL')}`}
-              percentage={100}
-              multiplier
-            />
-          </View>
-        </View>
-
-        {/* Action Buttons */}
-        <View style={styles.actions}>
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={handlePlayAgain}
-          >
-            <LinearGradient
-              colors={['#4CAF50', '#45A049']}
-              style={styles.buttonGradient}
-            >
-              <Ionicons name="play" size={24} color="#fff" />
-              <Text style={styles.primaryButtonText}>Play Again</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-          
-          <View style={styles.secondaryActions}>
-            <TouchableOpacity
-              style={styles.secondaryButton}
-              onPress={handleShare}
-            >
-              <Ionicons name="share-social" size={20} color="#3282b8" />
-              <Text style={styles.secondaryButtonText}>Share</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={styles.secondaryButton}
-              onPress={handleBackToMenu}
-            >
-              <Ionicons name="home" size={20} color="#3282b8" />
-              <Text style={styles.secondaryButtonText}>Menu</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </ScrollView>
+        <TouchableOpacity
+          style={styles.nextButton}
+          onPress={handlePlayAgain}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.nextButtonText}>NEXT ROUND</Text>
+        </TouchableOpacity>
+      </LinearGradient>
     </SafeAreaView>
   );
 }
@@ -470,236 +479,122 @@ const getDifficultyMultiplier = (difficulty: string): number => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f1117',
+    backgroundColor: '#0a0014',
   },
-  scrollContent: {
-    paddingBottom: 30,
+  gradientBackground: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
   },
-  performanceHeader: {
-    alignItems: 'center',
-    paddingVertical: 30,
+  meshOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
   },
-  performanceIcon: {
-    marginBottom: 10,
-  },
-  performanceText: {
-    fontSize: 32,
-    fontWeight: 'bold',
-  },
-  scoreSection: {
-    alignItems: 'center',
-    marginBottom: 30,
-  },
-  scoreCircle: {
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    backgroundColor: '#1a1a2e',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 4,
-    borderColor: '#3282b8',
-    marginBottom: 20,
-  },
-  scoreValue: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  scoreLabel: {
-    fontSize: 14,
-    color: '#94a3b8',
-    marginTop: 5,
-  },
-  rewardInfo: {
-    backgroundColor: '#1a1a2e',
-    padding: 15,
-    borderRadius: 12,
-    width: '80%',
-  },
-  rewardRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginVertical: 5,
-  },
-  rewardLabel: {
-    color: '#94a3b8',
-    fontSize: 14,
-  },
-  rewardValue: {
-    color: '#4CAF50',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  statsSection: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingHorizontal: 20,
-    marginBottom: 30,
-  },
-  statCard: {
-    alignItems: 'center',
-    backgroundColor: '#1a1a2e',
-    padding: 15,
-    borderRadius: 12,
-    minWidth: 100,
-  },
-  statValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginVertical: 5,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#94a3b8',
-  },
-  mapSection: {
-    paddingHorizontal: 20,
-    marginBottom: 30,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 15,
+  meshLine: {
+    position: 'absolute',
+    backgroundColor: '#9333EA',
   },
   mapContainer: {
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: '#1a1a2e',
-  },
-  map: {
-    height: 300,
-  },
-  guessMarker: {
-    alignItems: 'center',
-  },
-  actualMarker: {
-    alignItems: 'center',
-  },
-  mapLegend: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    backgroundColor: 'rgba(26, 26, 46, 0.95)',
-    padding: 15,
-  },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  legendText: {
-    color: '#fff',
-    fontSize: 12,
-  },
-  distanceOverlay: {
-    position: 'absolute',
-    top: 15,
-    left: 15,
-    right: 15,
-    backgroundColor: 'rgba(26, 26, 46, 0.95)',
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  distanceText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  breakdownSection: {
-    paddingHorizontal: 20,
-    marginBottom: 30,
-  },
-  breakdownList: {
-    backgroundColor: '#1a1a2e',
-    borderRadius: 12,
-    padding: 15,
-  },
-  breakdownItem: {
-    marginBottom: 15,
-  },
-  breakdownHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  breakdownLabel: {
-    color: '#94a3b8',
-    fontSize: 14,
-  },
-  breakdownValue: {
-    color: '#4CAF50',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  negativeValue: {
-    color: '#FF6B6B',
-  },
-  multiplierValue: {
-    color: '#FFD700',
-  },
-  breakdownBar: {
-    height: 4,
-    backgroundColor: '#0f1117',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  breakdownBarFill: {
-    height: '100%',
-    borderRadius: 2,
-  },
-  actions: {
-    paddingHorizontal: 20,
-  },
-  primaryButton: {
-    marginBottom: 15,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  buttonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 18,
-    gap: 10,
-  },
-  primaryButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  secondaryActions: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  secondaryButton: {
     flex: 1,
+    backgroundColor: '#87CEEB', // Light blue background like the screenshot
+  },
+  fullMap: {
+    flex: 1,
+  },
+  circleMarker: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+  },
+  guessCircle: {
+    backgroundColor: '#8B4F9F', // Purple color
+  },
+  actualCircle: {
+    backgroundColor: '#000000', // Black center
+    borderWidth: 3,
+    borderColor: '#FFD700', // Yellow border
+  },
+  resultsSection: {
+    height: SCREEN_HEIGHT * 0.40, // 40% of screen height
+    paddingHorizontal: 20,
+    paddingTop: 25,
+    paddingBottom: 20,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  roundIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#1a1a2e',
-    padding: 15,
-    borderRadius: 12,
     gap: 8,
   },
-  secondaryButtonText: {
-    color: '#3282b8',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  loadingText: {
-    color: '#94a3b8',
-    marginTop: 10,
-    marginBottom: 20,
+  roundText: {
+    color: '#fff',
     fontSize: 16,
+    fontWeight: '500',
+    letterSpacing: 1,
+  },
+  pointsText: {
+    color: '#FFD700',
+    fontSize: 32,
+    fontWeight: '700',
+    fontStyle: 'italic',
+  },
+  progressBarContainer: {
+    width: '100%',
+    paddingHorizontal: 20,
+  },
+  progressBar: {
+    height: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#FFD700',
+    borderRadius: 4,
+  },
+  rewardContainer: {
+    backgroundColor: 'rgba(76, 175, 80, 0.2)',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(76, 175, 80, 0.4)',
+    alignItems: 'center',
+    gap: 4,
+  },
+  rewardText: {
+    color: '#4CAF50',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  uploaderRewardText: {
+    color: '#4CAF50',
+    fontSize: 12,
+    fontWeight: '500',
+    opacity: 0.8,
+  },
+  distanceMessage: {
+    color: '#fff',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  nextButton: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 50,
+    paddingVertical: 15,
+    borderRadius: 30,
+  },
+  nextButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: 1,
   },
 });

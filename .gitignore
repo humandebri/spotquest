@@ -104,3 +104,10 @@ e2e/screenshots/
 # Misc
 *.orig
 .cache/
+
+# Screenshots for Claude
+screenshots/
+*.png
+*.jpg
+*.jpeg
+*.gif
