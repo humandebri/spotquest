@@ -2,8 +2,8 @@ import { Actor, HttpAgent, Identity } from '@dfinity/agent';
 import { Principal } from '@dfinity/principal';
 import { authService } from './auth';
 
-// Canister ID設定
-const UNIFIED_CANISTER_ID = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || 'ryjl3-tyaaa-aaaaa-aaaba-cai';
+// メインネット統合Canister ID設定
+const UNIFIED_CANISTER_ID = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || '77fv5-oiaaa-aaaal-qsoea-cai';
 
 // 写真データ型定義
 export interface PhotoUploadData {

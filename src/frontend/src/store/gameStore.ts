@@ -13,6 +13,16 @@ interface GamePhoto {
   difficulty: string;
 }
 
+interface HintInfo {
+  id: string;
+  type: 'BasicRadius' | 'PremiumRadius' | 'DirectionHint';
+  cost: number;
+  title: string;
+  content?: string;
+  unlocked: boolean;
+  data?: any;
+}
+
 interface GameStore {
   // Current game state
   currentPhoto: GamePhoto | null;
@@ -21,10 +31,24 @@ interface GameStore {
   timeLeft: number;
   difficulty: string;
   
+  // Session management
+  sessionId: string | null;
+  roundNumber: number;
+  
+  // Token balance
+  tokenBalance: bigint;
+  
+  // Hints
+  purchasedHints: HintInfo[];
+  
   // Actions
   setCurrentPhoto: (photo: GamePhoto) => void;
   setGuess: (guess: { latitude: number; longitude: number }, radius: number) => void;
   setTimeLeft: (time: number) => void;
+  setSessionId: (id: string | null) => void;
+  setRoundNumber: (round: number) => void;
+  setTokenBalance: (balance: bigint) => void;
+  addPurchasedHint: (hint: HintInfo) => void;
   resetGame: () => void;
 }
 
@@ -34,6 +58,10 @@ export const useGameStore = create<GameStore>((set) => ({
   confidenceRadius: 1000,
   timeLeft: 180,
   difficulty: 'NORMAL',
+  sessionId: null,
+  roundNumber: 1,
+  tokenBalance: BigInt(0),
+  purchasedHints: [],
   
   setCurrentPhoto: (photo) => set({ currentPhoto: photo }),
   
@@ -44,10 +72,21 @@ export const useGameStore = create<GameStore>((set) => ({
   
   setTimeLeft: (time) => set({ timeLeft: time }),
   
+  setSessionId: (id) => set({ sessionId: id }),
+  
+  setRoundNumber: (round) => set({ roundNumber: round }),
+  
+  setTokenBalance: (balance) => set({ tokenBalance: balance }),
+  
+  addPurchasedHint: (hint) => set((state) => ({
+    purchasedHints: [...state.purchasedHints, hint]
+  })),
+  
   resetGame: () => set({
     currentPhoto: null,
     currentGuess: null,
     confidenceRadius: 1000,
     timeLeft: 180,
+    purchasedHints: [],
   }),
 }));

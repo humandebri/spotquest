@@ -7,20 +7,14 @@ import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { View, Text, ActivityIndicator } from 'react-native';
-import { useAuthStore } from './src/store/authStore';
-import AppNavigator from './src/navigation/AppNavigator';
+import { IIAuthProvider } from './src/contexts/IIAuthContext';
+import { useIIAuthStore } from './src/store/iiAuthStore';
+import AppNavigatorII from './src/navigation/AppNavigatorII';
 
-export default function App() {
-  const { isLoading, checkAuth, isAuthenticated } = useAuthStore();
-  const [isReady, setIsReady] = React.useState(false);
-
-  useEffect(() => {
-    const init = async () => {
-      await checkAuth();
-      setIsReady(true);
-    };
-    init();
-  }, []);
+// App content component that uses II auth
+function AppContent() {
+  const { isLoading } = useIIAuthStore();
+  const [isReady, setIsReady] = React.useState(true);
 
   if (!isReady || isLoading) {
     return (
@@ -32,11 +26,20 @@ export default function App() {
   }
 
   return (
+    <NavigationContainer>
+      <StatusBar style="light" />
+      <AppNavigatorII />
+    </NavigationContainer>
+  );
+}
+
+// Main App component with II Auth Provider
+export default function App() {
+  return (
     <SafeAreaProvider>
-      <NavigationContainer>
-        <StatusBar style="light" />
-        <AppNavigator />
-      </NavigationContainer>
+      <IIAuthProvider>
+        <AppContent />
+      </IIAuthProvider>
     </SafeAreaProvider>
   );
 }

@@ -40,6 +40,10 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "scheme": "guessthespot",
+    "linking": {
+      "prefixes": ["guessthespot://", "https://guess-the-spot.app"]
+    },
     "plugins": [
       [
         "expo-location",

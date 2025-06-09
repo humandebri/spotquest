@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import { Buffer } from 'buffer';
 import process from 'process';
 import 'react-native-url-polyfill/auto';
+import * as Crypto from 'expo-crypto-universal';
 
 // TextEncoder/TextDecoder polyfill
 // Use react-native's built-in TextEncoder/TextDecoder if available,

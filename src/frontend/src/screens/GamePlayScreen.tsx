@@ -22,6 +22,8 @@ import { useNavigation, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useGameStore } from '../store/gameStore';
+import { useAuthStore } from '../store/authStore';
+import { gameService, HintType as ServiceHintType, HintData, HintContent } from '../services/game';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -79,11 +81,12 @@ interface GamePhoto {
 
 interface Hint {
   id: string;
-  type: 'region' | 'climate' | 'landmark' | 'culture' | 'vegetation' | 'timezone';
+  type: 'BasicRadius' | 'PremiumRadius' | 'DirectionHint';
   cost: number;
   title: string;
-  content: string;
+  content?: string;
   unlocked: boolean;
+  data?: HintContent;
 }
 
 interface GamePlayScreenProps {
@@ -100,29 +103,59 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     currentPhoto, 
     currentGuess,
     confidenceRadius,
+    sessionId,
+    tokenBalance,
+    purchasedHints,
     setCurrentPhoto,
     setGuess: setGameGuess,
     setTimeLeft: setGameTimeLeft,
+    setSessionId,
+    setTokenBalance,
+    addPurchasedHint,
   } = useGameStore();
+  
+  // Auth store
+  const { principal } = useAuthStore();
   
   // ゲーム状態
   const [azimuthGuess, setAzimuthGuess] = useState(0);
   const [timeLeft, setTimeLeft] = useState(DifficultySettings[difficulty].timeLimit);
   
-  // Initialize photo if not set
+  // Initialize session and photo
   useEffect(() => {
-    if (!currentPhoto) {
-      setCurrentPhoto({
-        id: '1',
-        url: 'https://picsum.photos/800/600',
-        actualLocation: { latitude: 35.6762, longitude: 139.6503 }, // 東京
-        azimuth: 45,
-        timestamp: Date.now(),
-        uploader: '2vxsx-fae',
-        difficulty,
-      });
-    }
-  }, []);
+    const initializeGame = async () => {
+      // Create session if not exists
+      if (!sessionId) {
+        const result = await gameService.createSession();
+        if (result.ok) {
+          setSessionId(result.ok);
+          
+          // Get first round
+          const roundResult = await gameService.getNextRound(result.ok);
+          if (roundResult.ok) {
+            // TODO: Set actual photo from round data
+            setCurrentPhoto({
+              id: roundResult.ok.photoId.toString(),
+              url: 'https://picsum.photos/800/600', // TODO: Get from photo canister
+              actualLocation: { latitude: 35.6762, longitude: 139.6503 }, // TODO: Get from round
+              azimuth: 45,
+              timestamp: Date.now(),
+              uploader: '2vxsx-fae',
+              difficulty,
+            });
+          }
+        }
+      }
+      
+      // Update token balance
+      if (principal) {
+        const balance = await gameService.getTokenBalance(principal);
+        setTokenBalance(balance);
+      }
+    };
+    
+    initializeGame();
+  }, [sessionId, principal]);
   
   // Cleanup on unmount
   useEffect(() => {
@@ -156,12 +189,9 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     }
   }, [currentPhoto]);
   const [hints, setHints] = useState<Hint[]>([
-    { id: '1', type: 'region', cost: 5, title: '地域', content: '', unlocked: false },
-    { id: '2', type: 'climate', cost: 10, title: '気候', content: '', unlocked: false },
-    { id: '3', type: 'landmark', cost: 15, title: 'ランドマーク', content: '', unlocked: false },
-    { id: '4', type: 'culture', cost: 20, title: '文化', content: '', unlocked: false },
-    { id: '5', type: 'vegetation', cost: 25, title: '植生', content: '', unlocked: false },
-    { id: '6', type: 'timezone', cost: 30, title: 'タイムゾーン', content: '', unlocked: false },
+    { id: '1', type: 'BasicRadius', cost: 100, title: '基本範囲ヒント', unlocked: false },
+    { id: '2', type: 'PremiumRadius', cost: 300, title: 'プレミアム範囲ヒント', unlocked: false },
+    { id: '3', type: 'DirectionHint', cost: 100, title: '方向ヒント', unlocked: false },
   ]);
   
   // UI状態
@@ -408,27 +438,100 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     });
   };
   
-  const purchaseHint = (hint: Hint) => {
-    // TODO: SPOTトークンを消費
-    const updatedHints = hints.map(h => 
-      h.id === hint.id 
-        ? { ...h, unlocked: true, content: generateHintContent(h.type) }
-        : h
+  const purchaseHint = async (hint: Hint) => {
+    if (!sessionId) {
+      Alert.alert('エラー', 'ゲームセッションが開始されていません');
+      return;
+    }
+    
+    // Check token balance
+    const costInSPOT = hint.cost / 100; // Convert from units to SPOT
+    if (tokenBalance < BigInt(hint.cost)) {
+      Alert.alert(
+        'SPOTトークンが不足しています',
+        `このヒントの購入には ${costInSPOT} SPOT が必要です。\n現在の残高: ${Number(tokenBalance) / 100} SPOT`,
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
+    // Show purchase confirmation
+    Alert.alert(
+      'ヒントを購入しますか？',
+      `${hint.title}\n費用: ${costInSPOT} SPOT\n残高: ${Number(tokenBalance) / 100} SPOT`,
+      [
+        { text: 'キャンセル', style: 'cancel' },
+        {
+          text: '購入',
+          onPress: async () => {
+            try {
+              // Map hint type to service type
+              const hintTypeMap: Record<string, ServiceHintType> = {
+                'BasicRadius': { BasicRadius: null },
+                'PremiumRadius': { PremiumRadius: null },
+                'DirectionHint': { DirectionHint: null },
+              };
+              
+              const result = await gameService.purchaseHint(sessionId, hintTypeMap[hint.type]);
+              
+              if (result.ok) {
+                // Update hints with the returned data
+                const updatedHints = hints.map(h => 
+                  h.id === hint.id 
+                    ? { 
+                        ...h, 
+                        unlocked: true, 
+                        data: result.ok!.data,
+                        content: formatHintContent(result.ok!.data)
+                      }
+                    : h
+                );
+                setHints(updatedHints);
+                
+                // Add to purchased hints in store
+                addPurchasedHint({
+                  ...hint,
+                  unlocked: true,
+                  data: result.ok!.data,
+                  content: formatHintContent(result.ok!.data)
+                });
+                
+                // Update token balance
+                const newBalance = await gameService.getTokenBalance(principal!);
+                setTokenBalance(newBalance);
+                
+                Alert.alert('成功', 'ヒントを購入しました！');
+              } else {
+                Alert.alert('エラー', result.err || 'ヒントの購入に失敗しました');
+              }
+            } catch (error) {
+              console.error('Failed to purchase hint:', error);
+              Alert.alert('エラー', 'ヒントの購入に失敗しました');
+            }
+          },
+        },
+      ]
     );
-    setHints(updatedHints);
   };
   
-  const generateHintContent = (type: string): string => {
-    // 実際のゲームではサーバーから取得
-    const hintContents = {
-      region: 'この写真は東アジアで撮影されました',
-      climate: '温帯気候の地域です',
-      landmark: '近くに有名な電波塔があります',
-      culture: '主要言語は日本語です',
-      vegetation: '桜の木が多い地域です',
-      timezone: 'UTC+9のタイムゾーンです',
-    };
-    return hintContents[type] || '';
+  const formatHintContent = (data: HintContent): string => {
+    if ('RadiusHint' in data && data.RadiusHint) {
+      const { centerLat, centerLon, radius } = data.RadiusHint;
+      return `緯度 ${centerLat.toFixed(4)}°, 経度 ${centerLon.toFixed(4)}° から半径 ${radius}m 以内`;
+    } else if ('DirectionHint' in data && data.DirectionHint) {
+      const directionMap: Record<string, string> = {
+        'North': '北',
+        'Northeast': '北東',
+        'East': '東',
+        'Southeast': '南東',
+        'South': '南',
+        'Southwest': '南西',
+        'West': '西',
+        'Northwest': '北西',
+      };
+      return `撮影方向: ${directionMap[data.DirectionHint] || data.DirectionHint}`;
+    }
+    return '';
   };
   
   if (!currentPhoto) {
@@ -520,6 +623,15 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
                 <Text style={styles.difficultyText}>{difficulty}</Text>
                 <Text style={styles.multiplierText}>
                   x{DifficultySettings[difficulty].scoreMultiplier}
+                </Text>
+              </View>
+            </View>
+            
+            <View style={styles.statusItem} pointerEvents="auto">
+              <View style={styles.tokenBalance}>
+                <Ionicons name="logo-bitcoin" size={16} color="#FFD700" />
+                <Text style={styles.tokenText}>
+                  {(Number(tokenBalance) / 100).toFixed(2)} SPOT
                 </Text>
               </View>
             </View>
@@ -666,11 +778,20 @@ const CompassIndicator = ({ azimuth }: { azimuth: number }) => {
 
 // ヒントモーダル
 const HintModal = ({ visible, hints, onPurchase, onClose, costMultiplier }) => {
+  const { tokenBalance } = useGameStore();
+  
   return (
     <Modal visible={visible} animationType="slide" transparent>
       <BlurView style={styles.modalContainer} intensity={100}>
         <View style={styles.hintModal}>
           <Text style={styles.modalTitle}>ヒントショップ</Text>
+          
+          <View style={styles.modalTokenBalance}>
+            <Ionicons name="logo-bitcoin" size={20} color="#FFD700" />
+            <Text style={styles.modalTokenText}>
+              残高: {(Number(tokenBalance) / 100).toFixed(2)} SPOT
+            </Text>
+          </View>
           
           <ScrollView style={styles.hintList}>
             {hints.map((hint) => (
@@ -682,8 +803,10 @@ const HintModal = ({ visible, hints, onPurchase, onClose, costMultiplier }) => {
               >
                 <View style={styles.hintHeader}>
                   <Text style={styles.hintTitle}>{hint.title}</Text>
-                  <Text style={styles.hintCost}>
-                    {hint.unlocked ? '購入済み' : `${Math.round(hint.cost * costMultiplier)} SPOT`}
+                  <Text style={[styles.hintCost, 
+                    tokenBalance < BigInt(hint.cost) && !hint.unlocked && styles.hintCostInsufficient
+                  ]}>
+                    {hint.unlocked ? '購入済み' : `${(hint.cost / 100).toFixed(2)} SPOT`}
                   </Text>
                 </View>
                 {hint.unlocked && (
@@ -723,7 +846,7 @@ const PhotoAnalysisModal = ({ visible, photo, onClose }) => {
             {Object.entries(analysis).map(([key, value]) => (
               <View key={key} style={styles.analysisItem}>
                 <Ionicons 
-                  name={getAnalysisIcon(key)} 
+                  name={getAnalysisIcon(key) as any} 
                   size={24} 
                   color="#3282b8" 
                 />
@@ -915,6 +1038,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
   },
+  tokenBalance: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  tokenText: {
+    color: '#FFD700',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
   modalContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -931,8 +1064,24 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: 20,
+    marginBottom: 10,
     textAlign: 'center',
+  },
+  modalTokenBalance: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 20,
+    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  modalTokenText: {
+    color: '#FFD700',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   hintList: {
     maxHeight: 400,
@@ -959,6 +1108,9 @@ const styles = StyleSheet.create({
   hintCost: {
     color: '#FFD700',
     fontSize: 14,
+  },
+  hintCostInsufficient: {
+    color: '#FF6B6B',
   },
   hintContent: {
     color: '#94a3b8',

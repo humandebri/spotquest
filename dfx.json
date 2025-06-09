@@ -5,6 +5,10 @@
       "type": "motoko",
       "main": "src/backend/unified/main.mo"
     },
+    "ii_integration": {
+      "type": "motoko",
+      "main": "src/backend/ii_integration/main.mo"
+    },
     "frontend": {
       "type": "assets",
       "source": ["src/frontend-vite-backup/dist"],

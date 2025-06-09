@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,38 +11,129 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons, Feather } from '@expo/vector-icons';
-import { useAuthStore } from '../store/authStore';
+import { useIIIntegrationContext } from 'expo-ii-integration';
+import { useIIAuthStore } from '../store/iiAuthStore';
+import { Principal } from '@dfinity/principal';
 
-export default function LoginScreen() {
-  const { login, isLoading, error, clearError } = useAuthStore();
+export default function LoginScreenII() {
+  const { 
+    login, 
+    logout, 
+    isAuthenticated, 
+    isAuthReady, 
+    getIdentity, 
+    authError, 
+    clearAuthError 
+  } = useIIIntegrationContext();
+  
+  const { 
+    setAuthenticated, 
+    setUnauthenticated, 
+    setLoading, 
+    setError,
+    error: storeError 
+  } = useIIAuthStore();
+  
   const [isConnecting, setIsConnecting] = useState(false);
+
+  // Sync authentication state with store
+  useEffect(() => {
+    const syncAuthState = async () => {
+      if (isAuthenticated) {
+        try {
+          const identity = await getIdentity();
+          if (identity) {
+            const principal = identity.getPrincipal();
+            setAuthenticated(principal, identity);
+          }
+        } catch (error) {
+          console.error('Failed to get identity:', error);
+          setError('Failed to retrieve identity');
+        }
+      } else {
+        setUnauthenticated();
+      }
+    };
+
+    if (isAuthReady) {
+      syncAuthState();
+    }
+  }, [isAuthenticated, isAuthReady]);
+
+  // Handle auth errors
+  useEffect(() => {
+    if (authError) {
+      const errorMessage = authError instanceof Error ? authError.message : 'Authentication failed';
+      setError(errorMessage);
+      
+      // Show alert for auth errors
+      Alert.alert(
+        'Authentication Error',
+        errorMessage,
+        [{ text: 'OK', onPress: clearAuthError }]
+      );
+    }
+  }, [authError]);
 
   const handleLogin = async () => {
     setIsConnecting(true);
-    clearError(); // Clear any previous errors
+    setLoading(true);
     
     try {
-      const success = await login({
-        identityProvider: 'https://identity.ic0.app',
-        maxTimeToLive: BigInt(7 * 24 * 60 * 60 * 1000 * 1000 * 1000), // 7 days
+      await login({
+        // Additional login parameters if needed
+        windowOpenerFeatures: Platform.OS === 'web' 
+          ? 'toolbar=0,location=0,menubar=0,width=500,height=600,left=100,top=100' 
+          : undefined,
       });
-      
-      if (success) {
-        console.log('Login successful');
-      } else {
-        console.log('Login failed');
-      }
     } catch (err) {
       console.error('Login error:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Login failed';
+      setError(errorMessage);
+      
       Alert.alert(
-        'Authentication Error',
-        err instanceof Error ? err.message : 'Login failed. Please try again.',
+        'Login Failed',
+        errorMessage,
         [{ text: 'OK' }]
       );
     } finally {
       setIsConnecting(false);
+      setLoading(false);
     }
   };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setUnauthenticated();
+    } catch (err) {
+      console.error('Logout error:', err);
+      Alert.alert(
+        'Logout Failed',
+        'Failed to logout. Please try again.',
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
+  // Show loading screen while auth is initializing
+  if (!isAuthReady) {
+    return (
+      <LinearGradient
+        colors={['#0f172a', '#1e293b', '#0f172a']}
+        style={styles.container}
+      >
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#3b82f6" />
+          <Text style={styles.loadingText}>Initializing authentication...</Text>
+        </View>
+      </LinearGradient>
+    );
+  }
+
+  const displayError = authError ? 
+    (authError instanceof Error ? authError.message : 'Authentication error') : 
+    storeError;
 
   return (
     <LinearGradient
@@ -67,34 +158,46 @@ export default function LoginScreen() {
               Connect your Internet Identity to continue your journey
             </Text>
 
-            {error && (
+            {displayError && (
               <View style={styles.errorContainer}>
-                <Text style={styles.errorText}>{error}</Text>
+                <Text style={styles.errorText}>{displayError}</Text>
               </View>
             )}
 
             <TouchableOpacity
               style={[styles.loginButton, isConnecting && styles.loginButtonDisabled]}
-              onPress={handleLogin}
-              disabled={isConnecting || isLoading}
+              onPress={isAuthenticated ? handleLogout : handleLogin}
+              disabled={isConnecting}
             >
               {isConnecting ? (
                 <ActivityIndicator color="#ffffff" />
               ) : (
                 <>
-                  <MaterialCommunityIcons name="shield-account" size={24} color="#ffffff" />
+                  <MaterialCommunityIcons 
+                    name={isAuthenticated ? "logout" : "shield-account"} 
+                    size={24} 
+                    color="#ffffff" 
+                  />
                   <Text style={styles.loginButtonText}>
-                    Connect with Internet Identity
+                    {isAuthenticated ? 'Logout' : 'Connect with Internet Identity'}
                   </Text>
                 </>
               )}
             </TouchableOpacity>
 
-            {Platform.OS !== 'web' && (
+            {Platform.OS !== 'web' && !isAuthenticated && (
               <View style={styles.mobileInfo}>
                 <Feather name="info" size={16} color="#94a3b8" />
                 <Text style={styles.mobileInfoText}>
                   Mobile authentication will open a browser window
+                </Text>
+              </View>
+            )}
+
+            {__DEV__ && (
+              <View style={styles.devInfo}>
+                <Text style={styles.devInfoText}>
+                  Development Mode - Using {Platform.OS} platform
                 </Text>
               </View>
             )}
@@ -116,6 +219,16 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 24,
     justifyContent: 'space-between',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#94a3b8',
+    fontSize: 16,
+    marginTop: 16,
   },
   logoSection: {
     alignItems: 'center',
@@ -205,5 +318,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginLeft: 8,
     flex: 1,
+  },
+  devInfo: {
+    marginTop: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  devInfoText: {
+    color: '#64748b',
+    fontSize: 12,
+    textAlign: 'center',
   },
 });

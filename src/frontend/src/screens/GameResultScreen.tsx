@@ -230,7 +230,7 @@ export default function GameResultScreen() {
     const delta = region.latitudeDelta || 0.1;
     // Smaller delta = more zoomed in = smaller dash pattern
     // Larger delta = more zoomed out = larger dash pattern
-    const basePattern = Math.max(8, Math.min(40, delta * 200));
+    const basePattern = Math.max(20, Math.min(100, delta * 500));
     setDashPattern([basePattern, basePattern]);
   };
 
@@ -302,7 +302,7 @@ export default function GameResultScreen() {
             rotateEnabled={false}
             pitchEnabled={false}
           >
-            {/* Your guess marker - Purple circle */}
+            {/* Your guess marker - Google Maps style current location */}
             <Marker
               coordinate={{
                 latitude: Number(guess.latitude),
@@ -311,12 +311,17 @@ export default function GameResultScreen() {
               anchor={{ x: 0.5, y: 0.5 }}
             >
               <Animated.View style={[
-                styles.circleMarker,
-                styles.guessCircle,
                 {
                   transform: [{ scale: markerScaleAnim }],
                 }
-              ]} />
+              ]}>
+                <Svg width="30" height="30" viewBox="0 0 30 30">
+                  {/* White outer circle with shadow effect */}
+                  <Circle cx="15" cy="15" r="14" fill="#FFFFFF" stroke="#00000020" strokeWidth="1" />
+                  {/* Blue inner circle - larger */}
+                  <Circle cx="15" cy="15" r="10" fill="#4285F4" />
+                </Svg>
+              </Animated.View>
             </Marker>
             
             {/* Actual location marker - Flag icon with circle */}
