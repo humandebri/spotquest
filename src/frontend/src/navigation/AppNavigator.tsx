@@ -1,6 +1,6 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { useAuthStore } from '../store/authStore';
+import { useAuth } from '../hooks/useAuth';
 
 // スクリーンのインポート
 import HomeScreen from '../screens/HomeScreen';
@@ -57,7 +57,7 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function AppNavigator() {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated } = useAuth();
 
   return (
     <Stack.Navigator

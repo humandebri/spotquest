@@ -25,6 +25,11 @@ import GameEngineModule "modules/GameEngineModule";
 import GuessHistoryModule "modules/GuessHistoryModule";
 import PhotoModule "modules/PhotoModule";
 import ReputationModule "modules/ReputationModule";
+import IIIntegrationModule "modules/IIIntegrationModule";
+
+// HTTP types
+import Blob "mo:base/Blob";
+import Map "mo:base/HashMap";
 
 actor GameUnified {
     // ======================================
@@ -50,6 +55,20 @@ actor GameUnified {
         #DirectionHint: Text; // Cardinal direction
     };
     
+    // HTTP types for II Integration
+    public type HttpRequest = {
+        url: Text;
+        method: Text;
+        body: Blob;
+        headers: [(Text, Text)];
+    };
+    
+    public type HttpResponse = {
+        body: Blob;
+        headers: [(Text, Text)];
+        status_code: Nat16;
+    };
+    
     // ======================================
     // SYSTEM CONFIGURATION
     // ======================================
@@ -65,6 +84,7 @@ actor GameUnified {
     private var guessHistoryManager = GuessHistoryModule.GuessHistoryManager();
     private var photoManager = PhotoModule.PhotoManager();
     private var reputationManager = ReputationModule.ReputationManager();
+    private var iiIntegrationManager = IIIntegrationModule.IIIntegrationManager();
     
     // Timers
     private var cleanupTimer : ?Timer.TimerId = null;
@@ -122,6 +142,8 @@ actor GameUnified {
         userReferralCodes: [(Principal, Text)];
         bannedUsers: [(Principal, Time.Time)];
     } = null;
+    
+    private stable var iiIntegrationStable : ?[(Text, IIIntegrationModule.SessionData)] = null;
     
     // ======================================
     // INITIALIZATION
@@ -617,6 +639,510 @@ actor GameUnified {
     };
     
     // ======================================
+    // II INTEGRATION HTTP ENDPOINTS
+    // ======================================
+    // Helper function to create JSON response
+    private func jsonResponse(json: Text, statusCode: Nat16) : HttpResponse {
+        {
+            body = Text.encodeUtf8(json);
+            headers = [
+                ("Content-Type", "application/json"),
+                ("Access-Control-Allow-Origin", "*"),
+                ("Access-Control-Allow-Methods", "GET, POST, OPTIONS"),
+                ("Access-Control-Allow-Headers", "Content-Type")
+            ];
+            status_code = statusCode;
+        }
+    };
+    
+    // Helper function to create HTML response
+    private func htmlResponse(html: Text, statusCode: Nat16) : HttpResponse {
+        {
+            body = Text.encodeUtf8(html);
+            headers = [
+                ("Content-Type", "text/html; charset=utf-8"),
+                ("Access-Control-Allow-Origin", "*"),
+                ("Access-Control-Allow-Methods", "GET, POST, OPTIONS"),
+                ("Access-Control-Allow-Headers", "Content-Type")
+            ];
+            status_code = statusCode;
+        }
+    };
+    
+    // Get request body as text
+    private func getBodyText(body: Blob) : Text {
+        switch (Text.decodeUtf8(body)) {
+            case null { "" };
+            case (?text) { text };
+        }
+    };
+    
+    public query func http_request(req: HttpRequest) : async HttpResponse {
+        // Parse URL path - remove query parameters
+        let fullPath = req.url;
+        let path = switch (Text.split(fullPath, #char '?').next()) {
+            case null { fullPath };
+            case (?p) { p };
+        };
+        
+        // Handle OPTIONS requests for CORS
+        if (req.method == "OPTIONS") {
+            return {
+                body = Blob.fromArray([]);
+                headers = [
+                    ("Access-Control-Allow-Origin", "*"),
+                    ("Access-Control-Allow-Methods", "GET, POST, OPTIONS"),
+                    ("Access-Control-Allow-Headers", "Content-Type")
+                ];
+                status_code = 204;
+            };
+        };
+        
+        // Handle POST /api/session/new - Create new session
+        if (req.method == "POST" and path == "/api/session/new") {
+            let bodyText = getBodyText(req.body);
+            
+            // Parse JSON body to get public key and redirect URI
+            var publicKey = "";
+            var redirectUri = "";
+            
+            // Parse publicKey
+            if (Text.contains(bodyText, #text "\"publicKey\"")) {
+                let parts = Text.split(bodyText, #text "\"publicKey\"");
+                switch (parts.next()) {
+                    case null { };
+                    case (?_) {
+                        switch (parts.next()) {
+                            case null { };
+                            case (?part) {
+                                let valueParts = Text.split(part, #text "\"");
+                                switch (valueParts.next()) {
+                                    case null { };
+                                    case (?_) {
+                                        switch (valueParts.next()) {
+                                            case null { };
+                                            case (?_) {
+                                                switch (valueParts.next()) {
+                                                    case null { };
+                                                    case (?value) { publicKey := value; };
+                                                };
+                                            };
+                                        };
+                                    };
+                                };
+                            };
+                        };
+                    };
+                };
+            };
+            
+            // Parse redirectUri
+            if (Text.contains(bodyText, #text "\"redirectUri\"")) {
+                let parts = Text.split(bodyText, #text "\"redirectUri\"");
+                switch (parts.next()) {
+                    case null { };
+                    case (?_) {
+                        switch (parts.next()) {
+                            case null { };
+                            case (?part) {
+                                let valueParts = Text.split(part, #text "\"");
+                                switch (valueParts.next()) {
+                                    case null { };
+                                    case (?_) {
+                                        switch (valueParts.next()) {
+                                            case null { };
+                                            case (?_) {
+                                                switch (valueParts.next()) {
+                                                    case null { };
+                                                    case (?value) { redirectUri := value; };
+                                                };
+                                            };
+                                        };
+                                    };
+                                };
+                            };
+                        };
+                    };
+                };
+            };
+            
+            if (publicKey == "") {
+                publicKey := "placeholder_public_key"; // Fallback
+            };
+            
+            // Get canister origin
+            let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io";
+            
+            // Create new session
+            let response = iiIntegrationManager.newSession(publicKey, canisterOrigin);
+            
+            // Build callback URL with redirect URI parameter
+            var callbackUrl = canisterOrigin # "/callback";
+            if (redirectUri != "") {
+                callbackUrl #= "?redirect-uri=" # redirectUri;
+            };
+            
+            // Build authorize URL with our callback
+            let authorizeUrl = "https://identity.ic0.app/#authorize?" #
+                "client_id=" # canisterOrigin # "&" #
+                "redirect_uri=" # callbackUrl # "&" #
+                "state=" # response.sessionId # "&" #
+                "response_type=id_token&" #
+                "scope=openid&" #
+                "nonce=" # response.sessionId;
+            
+            let json = "{\"sessionId\":\"" # response.sessionId # "\",\"authorizeUrl\":\"" # authorizeUrl # "\"}";
+            return jsonResponse(json, 200);
+        };
+        
+        // Handle POST /api/session/:id/delegate - Save delegation
+        if (req.method == "POST" and Text.startsWith(path, #text "/api/session/") and Text.endsWith(path, #text "/delegate")) {
+            // Extract session ID
+            let pathWithoutPrefix = switch (Text.stripStart(path, #text "/api/session/")) {
+                case null { "" };
+                case (?p) { p };
+            };
+            let sessionId = switch (Text.stripEnd(pathWithoutPrefix, #text "/delegate")) {
+                case null { "" };
+                case (?id) { id };
+            };
+            
+            if (sessionId != "") {
+                let bodyText = getBodyText(req.body);
+                
+                // Extract fields from JSON body - simple parsing
+                var delegation = "";
+                var userPublicKey = "";
+                var delegationPubkey = "";
+                
+                // Parse delegation
+                if (Text.contains(bodyText, #text "\"delegation\"")) {
+                    let parts = Text.split(bodyText, #text "\"delegation\"");
+                    switch (parts.next()) {
+                        case null { };
+                        case (?_) {
+                            switch (parts.next()) {
+                                case null { };
+                                case (?part) {
+                                    let valueParts = Text.split(part, #text "\"");
+                                    switch (valueParts.next()) {
+                                        case null { };
+                                        case (?_) {
+                                            switch (valueParts.next()) {
+                                                case null { };
+                                                case (?_) {
+                                                    switch (valueParts.next()) {
+                                                        case null { };
+                                                        case (?value) { delegation := value; };
+                                                    };
+                                                };
+                                            };
+                                        };
+                                    };
+                                };
+                            };
+                        };
+                    };
+                };
+                
+                // Parse userPublicKey
+                if (Text.contains(bodyText, #text "\"userPublicKey\"")) {
+                    let parts = Text.split(bodyText, #text "\"userPublicKey\"");
+                    switch (parts.next()) {
+                        case null { };
+                        case (?_) {
+                            switch (parts.next()) {
+                                case null { };
+                                case (?part) {
+                                    let valueParts = Text.split(part, #text "\"");
+                                    switch (valueParts.next()) {
+                                        case null { };
+                                        case (?_) {
+                                            switch (valueParts.next()) {
+                                                case null { };
+                                                case (?_) {
+                                                    switch (valueParts.next()) {
+                                                        case null { };
+                                                        case (?value) { userPublicKey := value; };
+                                                    };
+                                                };
+                                            };
+                                        };
+                                    };
+                                };
+                            };
+                        };
+                    };
+                };
+                
+                // Parse delegationPubkey
+                if (Text.contains(bodyText, #text "\"delegationPubkey\"")) {
+                    let parts = Text.split(bodyText, #text "\"delegationPubkey\"");
+                    switch (parts.next()) {
+                        case null { };
+                        case (?_) {
+                            switch (parts.next()) {
+                                case null { };
+                                case (?part) {
+                                    let valueParts = Text.split(part, #text "\"");
+                                    switch (valueParts.next()) {
+                                        case null { };
+                                        case (?_) {
+                                            switch (valueParts.next()) {
+                                                case null { };
+                                                case (?_) {
+                                                    switch (valueParts.next()) {
+                                                        case null { };
+                                                        case (?value) { delegationPubkey := value; };
+                                                    };
+                                                };
+                                            };
+                                        };
+                                    };
+                                };
+                            };
+                        };
+                    };
+                };
+                
+                let response = iiIntegrationManager.saveDelegate(sessionId, delegation, userPublicKey, delegationPubkey);
+                let json = if (response.success) {
+                    "{\"success\":true}"
+                } else {
+                    switch (response.error) {
+                        case null { "{\"success\":false,\"error\":\"Unknown error\"}" };
+                        case (?err) { "{\"success\":false,\"error\":\"" # err # "\"}" };
+                    }
+                };
+                return jsonResponse(json, if (response.success) { 200 } else { 400 });
+            };
+        };
+        
+        // Handle POST /api/session/:id/close - Close session
+        if (req.method == "POST" and Text.startsWith(path, #text "/api/session/") and Text.endsWith(path, #text "/close")) {
+            // Extract session ID
+            let pathWithoutPrefix = switch (Text.stripStart(path, #text "/api/session/")) {
+                case null { "" };
+                case (?p) { p };
+            };
+            let sessionId = switch (Text.stripEnd(pathWithoutPrefix, #text "/close")) {
+                case null { "" };
+                case (?id) { id };
+            };
+            
+            if (sessionId != "") {
+                let success = iiIntegrationManager.closeSession(sessionId);
+                let json = "{\"success\":" # (if (success) { "true" } else { "false" }) # "}";
+                return jsonResponse(json, if (success) { 200 } else { 400 });
+            };
+        };
+        
+        // Handle GET /callback - II callback page
+        if (req.method == "GET" and path == "/callback") {
+            // Callback page that handles II response and redirects to Expo
+            let html = "<!DOCTYPE html>" #
+                      "<html>" #
+                      "<head>" #
+                      "<title>Authentication Callback</title>" #
+                      "<meta charset='utf-8'>" #
+                      "<meta name='viewport' content='width=device-width, initial-scale=1'>" #
+                      "</head>" #
+                      "<body>" #
+                      "<h2>Authentication Complete</h2>" #
+                      "<p>Redirecting back to app...</p>" #
+                      "<script>" #
+                      "(async function() {" #
+                      "  console.log('Callback page loaded');" #
+                      "  const params = new URLSearchParams(window.location.search);" #
+                      "  const fragment = new URLSearchParams(window.location.hash.slice(1));" #
+                      "  " #
+                      "  // Get data from II response" #
+                      "  const delegation = fragment.get('delegation') || params.get('delegation');" #
+                      "  const userPublicKey = fragment.get('user_public_key') || params.get('user_public_key');" #
+                      "  const delegationPubkey = fragment.get('delegation_pubkey') || params.get('delegation_pubkey');" #
+                      "  const state = fragment.get('state') || params.get('state');" #
+                      "  const error = fragment.get('error') || params.get('error');" #
+                      "  " #
+                      "  console.log('Callback data:', { delegation: !!delegation, userPublicKey: !!userPublicKey, delegationPubkey: !!delegationPubkey, state, error });" #
+                      "  " #
+                      "  if (error) {" #
+                      "    document.body.innerHTML = '<h2>Authentication Error</h2><p>' + error + '</p>';" #
+                      "    return;" #
+                      "  }" #
+                      "  " #
+                      "  if (!delegation || !userPublicKey || !delegationPubkey || !state) {" #
+                      "    document.body.innerHTML = '<h2>Missing authentication data</h2><p>No authentication data received.</p>';" #
+                      "    return;" #
+                      "  }" #
+                      "  " #
+                      "  // Save delegation first" #
+                      "  try {" #
+                      "    const response = await fetch('/api/session/' + state + '/delegate', {" #
+                      "      method: 'POST'," #
+                      "      headers: { 'Content-Type': 'application/json' }," #
+                      "      body: JSON.stringify({ delegation, userPublicKey, delegationPubkey })" #
+                      "    });" #
+                      "    const data = await response.json();" #
+                      "    console.log('Delegation saved:', data);" #
+                      "    " #
+                      "    if (data.success) {" #
+                      "      // Close the session to mark it as ready" #
+                      "      await fetch('/api/session/' + state + '/close', {" #
+                      "        method: 'POST'" #
+                      "      });" #
+                      "      " #
+                      "      // Get redirect URI from query params" #
+                      "      const urlParams = new URLSearchParams(window.location.search);" #
+                      "      const redirectUri = urlParams.get('redirect-uri');" #
+                      "      " #
+                      "      if (redirectUri) {" #
+                      "        // Add session ID to the redirect URI" #
+                      "        const finalRedirectUrl = redirectUri + '&ii_session_id=' + state;" #
+                      "        console.log('Redirecting to:', finalRedirectUrl);" #
+                      "        window.location.replace(finalRedirectUrl);" #
+                      "      } else {" #
+                      "        // Fallback if no redirect URI" #
+                      "        console.error('No redirect URI found');" #
+                      "        document.body.innerHTML = '<h2>Authentication Complete</h2><p>But no redirect URI was provided. You can close this window.</p>';" #
+                      "      }" #
+                      "    } else {" #
+                      "      document.body.innerHTML = '<h2>Failed to save authentication</h2><p>' + (data.error || 'Unknown error') + '</p>';" #
+                      "    }" #
+                      "  } catch (err) {" #
+                      "    console.error('Failed to save delegation:', err);" #
+                      "    document.body.innerHTML = '<h2>Error</h2><p>Failed to complete authentication: ' + err.message + '</p>';" #
+                      "  }" #
+                      "})();" #
+                      "</script>" #
+                      "</body>" #
+                      "</html>";
+            
+            return htmlResponse(html, 200);
+        };
+        
+        // Handle GET /api/session/:id - Get delegation for closed session
+        if (req.method == "GET" and Text.startsWith(path, #text "/api/session/")) {
+            // Extract session ID from path
+            let sessionId = switch (Text.stripStart(path, #text "/api/session/")) {
+                case null { "" };
+                case (?id) { id };
+            };
+            
+            if (sessionId != "") {
+                switch (iiIntegrationManager.getDelegation(sessionId)) {
+                    case null {
+                        return jsonResponse("{\"error\":\"Delegation not found\"}", 404);
+                    };
+                    case (?data) {
+                        let json = "{\"delegation\":\"" # data.delegation # "\"," #
+                                  "\"userPublicKey\":\"" # data.userPublicKey # "\"," #
+                                  "\"delegationPubkey\":\"" # data.delegationPubkey # "\"}";
+                        return jsonResponse(json, 200);
+                    };
+                };
+            };
+        };
+        
+        // Handle GET / - Check session-id parameter and redirect appropriately
+        if (req.method == "GET" and (path == "/" or path == "")) {
+            // Parse query parameters
+            let urlParts = Text.split(fullPath, #text "?");
+            var publicKey = "";
+            var sessionId = "";
+            var deepLinkType = "";
+            var fullQueryString = "";
+            
+            switch (urlParts.next()) {
+                case null { };
+                case (?_) {
+                    switch (urlParts.next()) {
+                        case null { };
+                        case (?queryString) {
+                            fullQueryString := queryString;
+                            let params = Text.split(queryString, #text "&");
+                            
+                            for (param in params) {
+                                let parts = Text.split(param, #text "=");
+                                switch (parts.next()) {
+                                    case null { };
+                                    case (?key) {
+                                        switch (parts.next()) {
+                                            case null { };
+                                            case (?value) {
+                                                if (key == "pubkey") {
+                                                    publicKey := value;
+                                                } else if (key == "session-id") {
+                                                    sessionId := value;
+                                                } else if (key == "deep-link-type") {
+                                                    deepLinkType := value;
+                                                };
+                                            };
+                                        };
+                                    };
+                                };
+                            };
+                        };
+                    };
+                };
+            };
+            
+            // If publicKey exists, this is the initial request - redirect to II
+            if (publicKey != "") {
+                // Create a new session synchronously
+                let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io";
+                let response = iiIntegrationManager.newSession(publicKey, canisterOrigin);
+                
+                // Build callback URL with original query parameters
+                let callbackUrl = canisterOrigin # "/callback?" # fullQueryString;
+                
+                // Build authorize URL for II
+                let authorizeUrl = "https://identity.ic0.app/#authorize?" #
+                    "client_id=" # canisterOrigin # "&" #
+                    "redirect_uri=" # callbackUrl # "&" #
+                    "state=" # response.sessionId # "&" #
+                    "response_type=id_token&" #
+                    "scope=openid&" #
+                    "nonce=" # response.sessionId;
+                
+                // Redirect to II immediately
+                let redirectHtml = "<!DOCTYPE html>" #
+                          "<html>" #
+                          "<head>" #
+                          "<title>Redirecting...</title>" #
+                          "<meta charset='utf-8'>" #
+                          "<script>" #
+                          "window.location.href = '" # authorizeUrl # "';" #
+                          "</script>" #
+                          "</head>" #
+                          "<body>" #
+                          "<h2>Redirecting to Internet Identity...</h2>" #
+                          "</body>" #
+                          "</html>";
+                
+                return htmlResponse(redirectHtml, 200);
+            };
+            
+            // Default response if no parameters
+            return htmlResponse("<h1>II Integration Canister</h1>", 200);
+        };
+        
+        // Default response - more helpful for debugging
+        {
+            body = Text.encodeUtf8("Not Found - Path: " # path # ", Full URL: " # fullPath);
+            headers = [
+                ("Content-Type", "text/plain"),
+                ("Access-Control-Allow-Origin", "*")
+            ];
+            status_code = 404;
+        }
+    };
+    
+    public func http_request_update(req: HttpRequest) : async HttpResponse {
+        // All HTTP requests are now handled in http_request for compatibility with raw URLs
+        await http_request(req)
+    };
+    
+    // ======================================
     // UPGRADE HOOKS
     // ======================================
     system func preupgrade() {
@@ -626,6 +1152,7 @@ actor GameUnified {
         guessHistoryStable := ?guessHistoryManager.toStable();
         photoStable := ?photoManager.toStable();
         reputationStable := ?reputationManager.toStable();
+        iiIntegrationStable := ?iiIntegrationManager.preupgrade();
     };
     
     system func postupgrade() {
@@ -680,6 +1207,15 @@ actor GameUnified {
             case (?stableData) {
                 reputationManager.fromStable(stableData);
                 reputationStable := null;
+            };
+        };
+        
+        // Restore II Integration manager
+        switch(iiIntegrationStable) {
+            case null { };
+            case (?entries) {
+                iiIntegrationManager.postupgrade(entries);
+                iiIntegrationStable := null;
             };
         };
         

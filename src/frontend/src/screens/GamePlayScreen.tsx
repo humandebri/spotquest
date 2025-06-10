@@ -22,7 +22,7 @@ import { useNavigation, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useGameStore } from '../store/gameStore';
-import { useAuthStore } from '../store/authStore';
+import { useAuth } from '../hooks/useAuth';
 import { gameService, HintType as ServiceHintType, HintData, HintContent } from '../services/game';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -115,15 +115,24 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   } = useGameStore();
   
   // Auth store
-  const { principal } = useAuthStore();
+  const { principal, identity } = useAuth();
   
   // ゲーム状態
   const [azimuthGuess, setAzimuthGuess] = useState(0);
   const [timeLeft, setTimeLeft] = useState(DifficultySettings[difficulty].timeLimit);
   
+  // Initialize gameService with identity
+  useEffect(() => {
+    if (identity) {
+      gameService.init(identity).catch(console.error);
+    }
+  }, [identity]);
+  
   // Initialize session and photo
   useEffect(() => {
     const initializeGame = async () => {
+      // Wait for gameService to be initialized
+      if (!identity) return;
       // Create session if not exists
       if (!sessionId) {
         const result = await gameService.createSession();

@@ -18,7 +18,7 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import MapView, { Marker, Circle, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
-import { useAuthStore } from '../store/authStore';
+import { useAuth } from '../hooks/useAuth';
 import photoService, { PhotoUploadData, imageUriToBase64, reverseGeocode } from '../services/photo';
 
 type PhotoUploadScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'PhotoUpload'>;
@@ -35,7 +35,7 @@ try {
 export default function PhotoUploadScreen() {
   const navigation = useNavigation<PhotoUploadScreenNavigationProp>();
   const route = useRoute<PhotoUploadScreenRouteProp>();
-  const { principal } = useAuthStore();
+  const { principal, identity } = useAuth();
   const mapRef = useRef<MapView>(null);
 
   const { photoUri, latitude, longitude, azimuth, timestamp } = route.params;
@@ -163,7 +163,7 @@ export default function PhotoUploadScreen() {
       };
 
       // Canisterに送信
-      const result = await photoService.uploadPhoto(photoData);
+      const result = await photoService.uploadPhoto(photoData, identity);
 
       if (result.err) {
         throw new Error(result.err);
@@ -175,7 +175,7 @@ export default function PhotoUploadScreen() {
       if (uploadDelay === 0 && photoId) {
         // 即時投稿の場合、保存状況を確認
         try {
-          const savedPhotoMetadata = await photoService.getPhotoMetadata(photoId);
+          const savedPhotoMetadata = await photoService.getPhotoMetadata(photoId, identity);
           
           if (savedPhotoMetadata) {
             Alert.alert(

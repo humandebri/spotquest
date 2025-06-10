@@ -18,7 +18,7 @@ import {
   FontAwesome5,
   MaterialCommunityIcons,
 } from '@expo/vector-icons';
-import { useAuthStore } from '../store/authStore';
+import { useAuth } from '../hooks/useAuth';
 import { LinearGradient } from 'expo-linear-gradient';
 import { adminService } from '../services/admin';
 
@@ -32,7 +32,7 @@ const TABS = [
 ];
 
 export default function AdminScreen({ navigation }: any) {
-  const { principal, isAdmin } = useAuthStore();
+  const { principal, isAdmin, identity } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -64,7 +64,7 @@ export default function AdminScreen({ navigation }: any) {
   const loadDashboardData = async () => {
     setLoading(true);
     try {
-      const data = await adminService.getDashboardStats();
+      const data = await adminService.getDashboardStats(identity);
       setStats({
         totalUsers: data.totalUsers,
         activeGames: data.activeGames,
@@ -90,13 +90,13 @@ export default function AdminScreen({ navigation }: any) {
       case 'dashboard':
         return <DashboardTab stats={stats} />;
       case 'games':
-        return <GamesTab />;
+        return <GamesTab identity={identity} />;
       case 'photos':
-        return <PhotosTab />;
+        return <PhotosTab identity={identity} />;
       case 'users':
-        return <UsersTab />;
+        return <UsersTab identity={identity} />;
       case 'settings':
-        return <SettingsTab />;
+        return <SettingsTab identity={identity} />;
       default:
         return null;
     }
@@ -323,7 +323,7 @@ const UsersTab = () => {
 };
 
 // 設定タブ
-const SettingsTab = () => {
+const SettingsTab = ({ identity }: { identity?: any }) => {
   const [playFee, setPlayFee] = useState('10');
   const [baseReward, setBaseReward] = useState('100');
   const [uploaderRatio, setUploaderRatio] = useState('30');
@@ -342,7 +342,7 @@ const SettingsTab = () => {
                 playFee: parseInt(playFee),
                 baseReward: parseInt(baseReward),
                 uploaderRewardRatio: parseFloat(uploaderRatio),
-              });
+              }, identity);
               Alert.alert('Success', 'Settings saved successfully');
             } catch (error) {
               Alert.alert('Error', 'Failed to save settings');

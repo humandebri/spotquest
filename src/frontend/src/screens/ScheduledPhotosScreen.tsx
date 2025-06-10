@@ -14,14 +14,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
-import { useAuthStore } from '../store/authStore';
+import { useAuth } from '../hooks/useAuth';
 import photoService, { ScheduledPhoto } from '../services/photo';
 
 type ScheduledPhotosScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'ScheduledPhotos'>;
 
 export default function ScheduledPhotosScreen() {
   const navigation = useNavigation<ScheduledPhotosScreenNavigationProp>();
-  const { principal } = useAuthStore();
+  const { principal, identity } = useAuth();
   
   const [scheduledPhotos, setScheduledPhotos] = useState<ScheduledPhoto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -37,7 +37,7 @@ export default function ScheduledPhotosScreen() {
     }
 
     try {
-      const photos = await photoService.getUserScheduledPhotos();
+      const photos = await photoService.getUserScheduledPhotos(identity);
       // ステータスが pending のものだけフィルタリング
       const pendingPhotos = photos.filter(photo => 
         photo.status.pending !== undefined
@@ -97,7 +97,7 @@ export default function ScheduledPhotosScreen() {
             setCancellingIds(prev => new Set(prev).add(photo.id));
             
             try {
-              const result = await photoService.cancelScheduledPhoto(photo.id);
+              const result = await photoService.cancelScheduledPhoto(photo.id, identity);
               
               if (result.err) {
                 throw new Error(result.err);

@@ -1,24 +1,27 @@
-import * as Crypto from 'expo-crypto-universal';
-import { CryptoModule } from 'expo-ii-integration';
+import { Platform } from 'react-native';
+import { CryptoModule } from 'expo-crypto-universal';
 
-export const cryptoModule: CryptoModule = {
-  // Generate a random session ID using expo-crypto-universal
-  async generateSessionId(): Promise<string> {
-    try {
-      // Generate a random UUID
-      const sessionId = await Crypto.digestStringAsync(
-        Crypto.CryptoDigestAlgorithm.SHA256,
-        `${Date.now()}_${Math.random()}_session`,
-        { encoding: Crypto.CryptoEncoding.HEX }
-      );
-      
-      // Take first 32 characters for a reasonable session ID
-      return sessionId.substring(0, 32);
-    } catch (error) {
-      console.error('Failed to generate session ID:', error);
-      // Fallback to Math.random if crypto fails
-      return Math.random().toString(36).substring(2, 15) + 
-             Math.random().toString(36).substring(2, 15);
+// Complete implementation that satisfies expo-crypto-universal's CryptoModule interface
+// and adds extra methods needed by expo-ii-integration
+class CryptoModuleImpl implements CryptoModule {
+  getRandomValues(values: Uint8Array): Uint8Array {
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
+      window.crypto.getRandomValues(values);
+    } else {
+      // Fallback for non-secure contexts or native
+      for (let i = 0; i < values.length; i++) {
+        values[i] = Math.floor(Math.random() * 256);
+      }
     }
-  },
-};
+    return values;
+  }
+
+  getRandomBytes(size?: number): Uint8Array {
+    const length = size || 32;
+    const bytes = new Uint8Array(length);
+    return this.getRandomValues(bytes);
+  }
+}
+
+// Export the crypto module instance
+export const cryptoModule = new CryptoModuleImpl();

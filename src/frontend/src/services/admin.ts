@@ -1,6 +1,5 @@
-import { Actor, HttpAgent } from '@dfinity/agent';
+import { Actor, HttpAgent, Identity } from '@dfinity/agent';
 import { Principal } from '@dfinity/principal';
-import { authService } from './auth';
 
 // 管理用のIDL定義（実際のIDLに合わせて更新が必要）
 const adminIdlFactory = ({ IDL }: any) => {
@@ -100,14 +99,21 @@ const adminIdlFactory = ({ IDL }: any) => {
 class AdminService {
   private actor: any;
   private agent: HttpAgent | null = null;
+  private identity: Identity | null = null;
 
-  async init() {
+  // Initialize with identity from expo-ii-integration
+  async init(identity: Identity) {
     try {
-      const identity = await authService.getIdentity();
       if (!identity) {
-        throw new Error('No identity found');
+        throw new Error('No identity provided');
       }
 
+      // Reuse existing actor if identity hasn't changed
+      if (this.identity === identity && this.actor) {
+        return;
+      }
+
+      this.identity = identity;
       this.agent = new HttpAgent({
         identity,
         host: process.env.EXPO_PUBLIC_IC_HOST || 'https://ic0.app',
@@ -134,9 +140,9 @@ class AdminService {
   }
 
   // 統計情報の取得
-  async getDashboardStats() {
+  async getDashboardStats(identity?: Identity) {
     try {
-      if (!this.actor) await this.init();
+      if (!this.actor && identity) await this.init(identity);
       const stats = await this.actor.getSystemStats();
       return {
         totalUsers: Number(stats.totalUsers),
@@ -165,9 +171,9 @@ class AdminService {
   }
 
   // ユーザー管理
-  async getAllUsers() {
+  async getAllUsers(identity?: Identity) {
     try {
-      if (!this.actor) await this.init();
+      if (!this.actor && identity) await this.init(identity);
       const users = await this.actor.getAllUsers();
       return users.map((user: any) => ({
         principal: user.user.toString(),
@@ -184,9 +190,9 @@ class AdminService {
     }
   }
 
-  async banUser(principal: string, reason: string) {
+  async banUser(principal: string, reason: string, identity?: Identity) {
     try {
-      if (!this.actor) await this.init();
+      if (!this.actor && identity) await this.init(identity);
       const result = await this.actor.banUser(Principal.fromText(principal), reason);
       if ('err' in result) {
         throw new Error(result.err);
@@ -198,9 +204,9 @@ class AdminService {
     }
   }
 
-  async unbanUser(principal: string) {
+  async unbanUser(principal: string, identity?: Identity) {
     try {
-      if (!this.actor) await this.init();
+      if (!this.actor && identity) await this.init(identity);
       const result = await this.actor.unbanUser(Principal.fromText(principal));
       if ('err' in result) {
         throw new Error(result.err);
@@ -213,9 +219,9 @@ class AdminService {
   }
 
   // ゲーム管理
-  async getActiveGames() {
+  async getActiveGames(identity?: Identity) {
     try {
-      if (!this.actor) await this.init();
+      if (!this.actor && identity) await this.init(identity);
       const games = await this.actor.getActiveRounds();
       return games.map((game: any) => ({
         id: Number(game.id),
@@ -231,9 +237,9 @@ class AdminService {
     }
   }
 
-  async endGameRound(gameId: number) {
+  async endGameRound(gameId: number, identity?: Identity) {
     try {
-      if (!this.actor) await this.init();
+      if (!this.actor && identity) await this.init(identity);
       const result = await this.actor.endGameRound(gameId);
       if ('err' in result) {
         throw new Error(result.err);
@@ -246,9 +252,9 @@ class AdminService {
   }
 
   // 写真管理
-  async getAllPhotos() {
+  async getAllPhotos(identity?: Identity) {
     try {
-      if (!this.actor) await this.init();
+      if (!this.actor && identity) await this.init(identity);
       const photos = await this.actor.getAllPhotos();
       return photos.map((photo: any) => ({
         id: Number(photo.id),
@@ -265,9 +271,9 @@ class AdminService {
     }
   }
 
-  async deletePhoto(photoId: number) {
+  async deletePhoto(photoId: number, identity?: Identity) {
     try {
-      if (!this.actor) await this.init();
+      if (!this.actor && identity) await this.init(identity);
       const result = await this.actor.deletePhoto(photoId);
       if ('err' in result) {
         throw new Error(result.err);
@@ -284,9 +290,9 @@ class AdminService {
     playFee?: number;
     baseReward?: number;
     uploaderRewardRatio?: number;
-  }) {
+  }, identity?: Identity) {
     try {
-      if (!this.actor) await this.init();
+      if (!this.actor && identity) await this.init(identity);
       
       const results = await Promise.all([
         settings.playFee !== undefined ? this.actor.setPlayFee(settings.playFee) : null,

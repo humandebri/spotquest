@@ -2,6 +2,7 @@
   "expo": {
     "name": "Guess the Spot",
     "slug": "guess-the-spot",
+    "owner": "hude",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -19,7 +20,8 @@
         "NSCameraUsageDescription": "This app needs access to camera to take photos for the game.",
         "NSPhotoLibraryUsageDescription": "This app needs access to photo library to select photos for the game.",
         "NSLocationWhenInUseUsageDescription": "This app needs location access to tag photos with GPS coordinates.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs location access to tag photos with GPS coordinates."
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs location access to tag photos with GPS coordinates.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -30,11 +32,12 @@
       "edgeToEdgeEnabled": true,
       "package": "com.guessthespot.app",
       "permissions": [
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
-        "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -42,7 +45,16 @@
     },
     "scheme": "guessthespot",
     "linking": {
-      "prefixes": ["guessthespot://", "https://guess-the-spot.app"]
+      "prefixes": [
+        "guessthespot://",
+        "https://guess-the-spot.app",
+        "https://auth.expo.io/@hude/guess-the-spot"
+      ],
+      "config": {
+        "screens": {
+          "auth": "auth"
+        }
+      }
     },
     "plugins": [
       [
@@ -64,6 +76,11 @@
         }
       ],
       "expo-secure-store"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "5f5f5d57-00c4-4284-a0ad-e3bff76f1ae4"
+      }
+    }
   }
 }

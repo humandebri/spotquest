@@ -30,10 +30,43 @@ export class WebSecureStorage implements Storage {
       throw error;
     }
   }
+
+  async find(prefix: string): Promise<string[]> {
+    try {
+      const keys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(prefix)) {
+          keys.push(key);
+        }
+      }
+      return keys;
+    } catch (error) {
+      console.error('WebSecureStorage find error:', error);
+      return [];
+    }
+  }
+
+  // Alias for setItem (used by expo-ii-integration)
+  async save(key: string, value: string): Promise<void> {
+    return this.setItem(key, value);
+  }
+
+  // Alias for getItem (used by expo-ii-integration)
+  async load(key: string): Promise<string | null> {
+    return this.getItem(key);
+  }
+
+  // Alias for removeItem (used by expo-ii-integration)
+  async remove(key: string): Promise<void> {
+    return this.removeItem(key);
+  }
 }
 
 // Native Secure Storage implementation
 export class NativeSecureStorage implements Storage {
+  private keyIndexKey = '__storage_keys_index__';
+
   async getItem(key: string): Promise<string | null> {
     try {
       return await SecureStore.getItemAsync(key);
@@ -46,6 +79,8 @@ export class NativeSecureStorage implements Storage {
   async setItem(key: string, value: string): Promise<void> {
     try {
       await SecureStore.setItemAsync(key, value);
+      // Update key index
+      await this.updateKeyIndex(key, 'add');
     } catch (error) {
       console.error('NativeSecureStorage setItem error:', error);
       throw error;
@@ -55,10 +90,57 @@ export class NativeSecureStorage implements Storage {
   async removeItem(key: string): Promise<void> {
     try {
       await SecureStore.deleteItemAsync(key);
+      // Update key index
+      await this.updateKeyIndex(key, 'remove');
     } catch (error) {
       console.error('NativeSecureStorage removeItem error:', error);
       throw error;
     }
+  }
+
+  async find(prefix: string): Promise<string[]> {
+    try {
+      const indexStr = await SecureStore.getItemAsync(this.keyIndexKey);
+      if (!indexStr) return [];
+      
+      const allKeys = JSON.parse(indexStr) as string[];
+      return allKeys.filter(key => key.startsWith(prefix));
+    } catch (error) {
+      console.error('NativeSecureStorage find error:', error);
+      return [];
+    }
+  }
+
+  private async updateKeyIndex(key: string, action: 'add' | 'remove'): Promise<void> {
+    try {
+      const indexStr = await SecureStore.getItemAsync(this.keyIndexKey);
+      let keys: string[] = indexStr ? JSON.parse(indexStr) : [];
+      
+      if (action === 'add' && !keys.includes(key)) {
+        keys.push(key);
+      } else if (action === 'remove') {
+        keys = keys.filter(k => k !== key);
+      }
+      
+      await SecureStore.setItemAsync(this.keyIndexKey, JSON.stringify(keys));
+    } catch (error) {
+      console.error('NativeSecureStorage updateKeyIndex error:', error);
+    }
+  }
+
+  // Alias for setItem (used by expo-ii-integration)
+  async save(key: string, value: string): Promise<void> {
+    return this.setItem(key, value);
+  }
+
+  // Alias for getItem (used by expo-ii-integration)
+  async load(key: string): Promise<string | null> {
+    return this.getItem(key);
+  }
+
+  // Alias for removeItem (used by expo-ii-integration)
+  async remove(key: string): Promise<void> {
+    return this.removeItem(key);
   }
 }
 
@@ -90,10 +172,45 @@ export class WebRegularStorage implements Storage {
       throw error;
     }
   }
+
+  async find(prefix: string): Promise<string[]> {
+    try {
+      const keys: string[] = [];
+      const searchPrefix = `regular_${prefix}`;
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(searchPrefix)) {
+          // Remove the 'regular_' prefix from the returned keys
+          keys.push(key.substring(8));
+        }
+      }
+      return keys;
+    } catch (error) {
+      console.error('WebRegularStorage find error:', error);
+      return [];
+    }
+  }
+
+  // Alias for setItem (used by expo-ii-integration)
+  async save(key: string, value: string): Promise<void> {
+    return this.setItem(key, value);
+  }
+
+  // Alias for getItem (used by expo-ii-integration)
+  async load(key: string): Promise<string | null> {
+    return this.getItem(key);
+  }
+
+  // Alias for removeItem (used by expo-ii-integration)
+  async remove(key: string): Promise<void> {
+    return this.removeItem(key);
+  }
 }
 
 // Native Regular Storage implementation
 export class NativeRegularStorage implements Storage {
+  private keyIndexKey = '__regular_storage_keys_index__';
+
   async getItem(key: string): Promise<string | null> {
     try {
       // Use SecureStore for native regular storage as well
@@ -108,6 +225,8 @@ export class NativeRegularStorage implements Storage {
   async setItem(key: string, value: string): Promise<void> {
     try {
       await SecureStore.setItemAsync(`regular_${key}`, value);
+      // Update key index
+      await this.updateKeyIndex(key, 'add');
     } catch (error) {
       console.error('NativeRegularStorage setItem error:', error);
       throw error;
@@ -117,10 +236,57 @@ export class NativeRegularStorage implements Storage {
   async removeItem(key: string): Promise<void> {
     try {
       await SecureStore.deleteItemAsync(`regular_${key}`);
+      // Update key index
+      await this.updateKeyIndex(key, 'remove');
     } catch (error) {
       console.error('NativeRegularStorage removeItem error:', error);
       throw error;
     }
+  }
+
+  async find(prefix: string): Promise<string[]> {
+    try {
+      const indexStr = await SecureStore.getItemAsync(this.keyIndexKey);
+      if (!indexStr) return [];
+      
+      const allKeys = JSON.parse(indexStr) as string[];
+      return allKeys.filter(key => key.startsWith(prefix));
+    } catch (error) {
+      console.error('NativeRegularStorage find error:', error);
+      return [];
+    }
+  }
+
+  private async updateKeyIndex(key: string, action: 'add' | 'remove'): Promise<void> {
+    try {
+      const indexStr = await SecureStore.getItemAsync(this.keyIndexKey);
+      let keys: string[] = indexStr ? JSON.parse(indexStr) : [];
+      
+      if (action === 'add' && !keys.includes(key)) {
+        keys.push(key);
+      } else if (action === 'remove') {
+        keys = keys.filter(k => k !== key);
+      }
+      
+      await SecureStore.setItemAsync(this.keyIndexKey, JSON.stringify(keys));
+    } catch (error) {
+      console.error('NativeRegularStorage updateKeyIndex error:', error);
+    }
+  }
+
+  // Alias for setItem (used by expo-ii-integration)
+  async save(key: string, value: string): Promise<void> {
+    return this.setItem(key, value);
+  }
+
+  // Alias for getItem (used by expo-ii-integration)
+  async load(key: string): Promise<string | null> {
+    return this.getItem(key);
+  }
+
+  // Alias for removeItem (used by expo-ii-integration)
+  async remove(key: string): Promise<void> {
+    return this.removeItem(key);
   }
 }
 

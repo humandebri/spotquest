@@ -20,7 +20,7 @@ import {
   Feather,
   Foundation
 } from '@expo/vector-icons';
-import { useAuthStore } from '../store/authStore';
+import { useAuth } from '../hooks/useAuth';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
@@ -41,7 +41,7 @@ interface UserStats {
 
 export default function ProfileScreen() {
   const navigation = useNavigation<NavigationProp>();
-  const { principal, logout } = useAuthStore();
+  const { principal, logout } = useAuth();
   const [currentTab, setCurrentTab] = useState<'stats' | 'photos' | 'achievements'>('stats');
   
   const [stats] = useState<UserStats>({

@@ -11,27 +11,19 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons, Feather } from '@expo/vector-icons';
-import { useAuthStore } from '../store/authStore';
+import { useAuth } from '../hooks/useAuth';
 
 export default function LoginScreen() {
-  const { login, isLoading, error, clearError } = useAuthStore();
+  const { login, isLoading, error, clearError } = useAuth();
   const [isConnecting, setIsConnecting] = useState(false);
 
   const handleLogin = async () => {
     setIsConnecting(true);
-    clearError(); // Clear any previous errors
+    if (clearError) clearError(); // Clear any previous errors
     
     try {
-      const success = await login({
-        identityProvider: 'https://identity.ic0.app',
-        maxTimeToLive: BigInt(7 * 24 * 60 * 60 * 1000 * 1000 * 1000), // 7 days
-      });
-      
-      if (success) {
-        console.log('Login successful');
-      } else {
-        console.log('Login failed');
-      }
+      await login();
+      // Login success will be handled by the auth context and navigation will happen automatically
     } catch (err) {
       console.error('Login error:', err);
       Alert.alert(
@@ -69,7 +61,9 @@ export default function LoginScreen() {
 
             {error && (
               <View style={styles.errorContainer}>
-                <Text style={styles.errorText}>{error}</Text>
+                <Text style={styles.errorText}>
+                  {typeof error === 'string' ? error : error.message || 'Authentication failed'}
+                </Text>
               </View>
             )}
 

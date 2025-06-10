@@ -1,6 +1,5 @@
 import { Actor, HttpAgent, Identity } from '@dfinity/agent';
 import { Principal } from '@dfinity/principal';
-import { authService } from './auth';
 
 // メインネット統合Canister ID設定
 const UNIFIED_CANISTER_ID = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || '77fv5-oiaaa-aaaal-qsoea-cai';
@@ -148,22 +147,34 @@ const idlFactory = ({ IDL }: any) => {
 class PhotoService {
   private agent: HttpAgent | null = null;
   private actor: any = null;
+  private identity: Identity | null = null;
 
-  async init() {
+  async init(identity: Identity) {
     try {
+      if (!identity) {
+        throw new Error('No identity provided');
+      }
+
+      // Reuse existing actor if identity hasn't changed
+      if (this.identity === identity && this.actor) {
+        return;
+      }
+
+      this.identity = identity;
       const host = process.env.EXPO_PUBLIC_IC_HOST || 'https://ic0.app';
       const canisterId = UNIFIED_CANISTER_ID;
       
       console.log('Initializing photo service:', { host, canisterId });
       
       this.agent = new HttpAgent({
+        identity,
         host: host,
       });
 
-      // メインネットに接続する場合、fetchRootKeyは不要
-      // if (__DEV__) {
-      //   await this.agent.fetchRootKey();
-      // }
+      // 開発環境でのみfetchRootKeyを実行
+      if (process.env.NODE_ENV === 'development') {
+        await this.agent.fetchRootKey();
+      }
 
       this.actor = Actor.createActor(idlFactory, {
         agent: this.agent,
@@ -177,9 +188,9 @@ class PhotoService {
     }
   }
 
-  async uploadPhoto(data: PhotoUploadData): Promise<{ ok?: bigint; err?: string }> {
-    if (!this.actor) {
-      await this.init();
+  async uploadPhoto(data: PhotoUploadData, identity?: Identity): Promise<{ ok?: bigint; err?: string }> {
+    if (!this.actor && identity) {
+      await this.init(identity);
     }
 
     try {
@@ -230,9 +241,9 @@ class PhotoService {
     }
   }
 
-  async cancelScheduledPhoto(photoId: bigint): Promise<{ ok?: null; err?: string }> {
-    if (!this.actor) {
-      await this.init();
+  async cancelScheduledPhoto(photoId: bigint, identity?: Identity): Promise<{ ok?: null; err?: string }> {
+    if (!this.actor && identity) {
+      await this.init(identity);
     }
 
     try {
@@ -244,9 +255,9 @@ class PhotoService {
     }
   }
 
-  async getUserScheduledPhotos(): Promise<ScheduledPhoto[]> {
-    if (!this.actor) {
-      await this.init();
+  async getUserScheduledPhotos(identity?: Identity): Promise<ScheduledPhoto[]> {
+    if (!this.actor && identity) {
+      await this.init(identity);
     }
 
     try {
@@ -258,9 +269,9 @@ class PhotoService {
     }
   }
 
-  async getPhotoMetadata(photoId: bigint): Promise<PhotoMetadata | null> {
-    if (!this.actor) {
-      await this.init();
+  async getPhotoMetadata(photoId: bigint, identity?: Identity): Promise<PhotoMetadata | null> {
+    if (!this.actor && identity) {
+      await this.init(identity);
     }
 
     try {
@@ -272,9 +283,9 @@ class PhotoService {
     }
   }
 
-  async getUserPhotos(): Promise<PhotoMetadata[]> {
-    if (!this.actor) {
-      await this.init();
+  async getUserPhotos(identity?: Identity): Promise<PhotoMetadata[]> {
+    if (!this.actor && identity) {
+      await this.init(identity);
     }
 
     try {
@@ -286,9 +297,9 @@ class PhotoService {
     }
   }
 
-  async updatePhotoInfo(photoId: bigint, updateInfo: PhotoUpdateInfo): Promise<{ ok?: null; err?: string }> {
-    if (!this.actor) {
-      await this.init();
+  async updatePhotoInfo(photoId: bigint, updateInfo: PhotoUpdateInfo, identity?: Identity): Promise<{ ok?: null; err?: string }> {
+    if (!this.actor && identity) {
+      await this.init(identity);
     }
 
     try {
@@ -306,9 +317,9 @@ class PhotoService {
     }
   }
 
-  async deletePhoto(photoId: bigint): Promise<{ ok?: null; err?: string }> {
-    if (!this.actor) {
-      await this.init();
+  async deletePhoto(photoId: bigint, identity?: Identity): Promise<{ ok?: null; err?: string }> {
+    if (!this.actor && identity) {
+      await this.init(identity);
     }
 
     try {

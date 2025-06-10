@@ -1,4 +1,4 @@
-import { Actor, HttpAgent } from '@dfinity/agent';
+import { Actor, HttpAgent, Identity } from '@dfinity/agent';
 import { Principal } from '@dfinity/principal';
 
 // Import IDL from unified canister (we'll create this)
@@ -36,18 +36,39 @@ export interface SessionResult {
 
 class GameService {
   private actor: any;
+  private identity: Identity | null = null;
+  private initialized = false;
   
   constructor() {
-    this.initializeActor();
+    // Constructor no longer initializes actor
   }
 
-  private async initializeActor() {
+  async init(identity: Identity) {
+    if (!identity) {
+      throw new Error('No identity provided');
+    }
+
+    // Reuse existing actor if identity hasn't changed
+    if (this.identity === identity && this.actor) {
+      return;
+    }
+
+    this.identity = identity;
+    await this.initializeActor(identity);
+    this.initialized = true;
+  }
+
+  private async initializeActor(identity: Identity) {
     // メインネット環境のみを使用
     const agent = new HttpAgent({
-      host: 'https://ic0.app',
+      identity,
+      host: process.env.EXPO_PUBLIC_IC_HOST || 'https://ic0.app',
     });
 
-    // メインネット環境では証明書検証をスキップしない（本番環境）
+    // 開発環境でのみfetchRootKeyを実行
+    if (process.env.NODE_ENV === 'development') {
+      await agent.fetchRootKey();
+    }
 
     // メインネットの統合canister IDを使用
     const canisterId = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || '77fv5-oiaaa-aaaal-qsoea-cai';
@@ -163,6 +184,9 @@ class GameService {
   }
 
   async createSession(): Promise<{ ok?: string; err?: string }> {
+    if (!this.initialized || !this.actor) {
+      return { err: 'Service not initialized. Please login first.' };
+    }
     try {
       const result = await this.actor.createSession();
       return result;
@@ -173,6 +197,9 @@ class GameService {
   }
 
   async getNextRound(sessionId: string): Promise<any> {
+    if (!this.initialized || !this.actor) {
+      return { err: 'Service not initialized. Please login first.' };
+    }
     try {
       const result = await this.actor.getNextRound(sessionId);
       return result;
@@ -189,6 +216,9 @@ class GameService {
     guessAzimuth: number | null,
     confidenceRadius: number
   ): Promise<any> {
+    if (!this.initialized || !this.actor) {
+      return { err: 'Service not initialized. Please login first.' };
+    }
     try {
       const result = await this.actor.submitGuess(
         sessionId,
@@ -205,6 +235,9 @@ class GameService {
   }
 
   async purchaseHint(sessionId: string, hintType: HintType): Promise<{ ok?: HintData; err?: string }> {
+    if (!this.initialized || !this.actor) {
+      return { err: 'Service not initialized. Please login first.' };
+    }
     try {
       const result = await this.actor.purchaseHint(sessionId, hintType);
       return result;
@@ -215,6 +248,9 @@ class GameService {
   }
 
   async finalizeSession(sessionId: string): Promise<{ ok?: SessionResult; err?: string }> {
+    if (!this.initialized || !this.actor) {
+      return { err: 'Service not initialized. Please login first.' };
+    }
     try {
       const result = await this.actor.finalizeSession(sessionId);
       return result;
@@ -225,6 +261,9 @@ class GameService {
   }
 
   async getTokenBalance(principal: Principal): Promise<bigint> {
+    if (!this.initialized || !this.actor) {
+      return BigInt(0);
+    }
     try {
       const balance = await this.actor.icrc1_balance_of({ 
         owner: principal,

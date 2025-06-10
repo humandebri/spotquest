@@ -14,13 +14,13 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { RootStackParamList } from '../navigation/AppNavigator';
-import { useAuthStore } from '../store/authStore';
+import { useAuth } from '../hooks/useAuth';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 
 export default function HomeScreen() {
   const navigation = useNavigation<NavigationProp>();
-  const { principal, isAdmin } = useAuthStore();
+  const { principal, isAdmin } = useAuth();
   const [refreshing, setRefreshing] = React.useState(false);
 
   const onRefresh = React.useCallback(() => {

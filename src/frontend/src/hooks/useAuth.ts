@@ -1,34 +1,42 @@
-// Auth hook wrapper to easily switch between different auth implementations
-import { useIIAuthStore } from '../store/iiAuthStore';
+// Auth hook using expo-ii-integration directly
+import React from 'react';
 import { useIIIntegrationContext } from 'expo-ii-integration';
+import { ADMIN_PRINCIPALS } from '../constants';
 
 export function useAuth() {
-  const store = useIIAuthStore();
-  const iiContext = useIIIntegrationContext();
+  const iiIntegration = useIIIntegrationContext();
+  
+  // Calculate isAdmin based on principal
+  const isAdmin = React.useMemo(() => {
+    if (!iiIntegration.isAuthenticated || !iiIntegration.principal) {
+      return false;
+    }
+    return ADMIN_PRINCIPALS.includes(iiIntegration.principal.toString());
+  }, [iiIntegration.isAuthenticated, iiIntegration.principal]);
+
+  // Wrap login function to provide default parameters
+  const login = React.useCallback(async () => {
+    return iiIntegration.login({
+      redirectPath: 'auth',  // Add the missing redirectPath parameter
+    });
+  }, [iiIntegration.login]);
 
   return {
-    // State from store
-    isAuthenticated: store.isAuthenticated,
-    principal: store.principal,
-    identity: store.identity,
-    isLoading: store.isLoading || !iiContext.isAuthReady,
-    error: store.error || iiContext.authError,
-    isAdmin: store.isAdmin,
+    // State from expo-ii-integration
+    isAuthenticated: iiIntegration.isAuthenticated,
+    principal: iiIntegration.principal,
+    identity: iiIntegration.identity,
+    isLoading: !iiIntegration.isAuthReady,
+    error: iiIntegration.authError ? String(iiIntegration.authError) : null,
+    isAdmin,
     
-    // Methods
-    login: iiContext.login,
-    logout: iiContext.logout,
+    // Methods from expo-ii-integration
+    login,
+    logout: iiIntegration.logout,
     checkAuth: async () => {
-      // For II integration, auth state is automatically managed
-      // This is kept for compatibility
+      // expo-ii-integration manages auth state automatically
     },
-    checkIsAdmin: store.checkIsAdmin,
-    clearError: () => {
-      store.setError(null);
-      iiContext.clearAuthError();
-    },
+    checkIsAdmin: () => isAdmin,
+    clearError: iiIntegration.clearAuthError || (() => {}),
   };
 }
-
-// Export the store for direct access if needed
-export { useIIAuthStore as useAuthStore } from '../store/iiAuthStore';
