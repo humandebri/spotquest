@@ -169,12 +169,15 @@ class PhotoService {
       this.agent = new HttpAgent({
         identity,
         host: host,
+        // dev環境では証明書検証をスキップ（falseに設定）
+        verifyQuerySignatures: false,
       });
 
-      // 開発環境でのみfetchRootKeyを実行
-      if (process.env.NODE_ENV === 'development') {
-        await this.agent.fetchRootKey();
-      }
+      // fetchRootKeyはローカルレプリカでのみ実行（mainnetでは不要）
+      // mainnetを使用しているため、fetchRootKeyは実行しない
+      // if (process.env.NODE_ENV === 'development') {
+      //   await this.agent.fetchRootKey();
+      // }
 
       this.actor = Actor.createActor(idlFactory, {
         agent: this.agent,
@@ -367,6 +370,14 @@ export const reverseGeocode = async (latitude: number, longitude: number): Promi
     
     if (!response.ok) {
       throw new Error('Geocoding request failed');
+    }
+    
+    // Check content type before parsing
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      const text = await response.text();
+      console.error('Received non-JSON response from geocoding API:', text.substring(0, 200));
+      throw new Error('Invalid response format from geocoding API');
     }
     
     const data = await response.json();

@@ -125,9 +125,16 @@ export default function GuessMapScreen() {
 
   return (
     <View style={styles.container}>
-      {/* 上部のヘッダー */}
-      <SafeAreaView style={styles.header}>
+      {/* Overlay header - clickable to go back */}
+      <TouchableOpacity 
+        style={styles.overlayHeader}
+        onPress={() => navigation.goBack()}
+        activeOpacity={0.8}
+      >
         <View style={styles.headerContent}>
+          <View style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </View>
           <View style={styles.photoContainer}>
             <Image 
               source={{ uri: photoUrl }} 
@@ -145,11 +152,11 @@ export default function GuessMapScreen() {
             </View>
           </View>
         </View>
-      </SafeAreaView>
+      </TouchableOpacity>
 
       {/* 地図 */}
       <MapView
-        style={styles.map}
+        style={styles.fullMap}
         provider={PROVIDER_GOOGLE}
         mapType="standard"
         initialRegion={{
@@ -199,10 +206,16 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0f1117',
   },
-  header: {
-    backgroundColor: '#1a1a2e',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  overlayHeader: {
+    position: 'absolute',
+    top: 40,
+    left: 12,
+    right: 12,
+    zIndex: 1000,
+    backgroundColor: 'rgba(26, 26, 46, 0.9)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   headerContent: {
     flexDirection: 'row',
@@ -242,8 +255,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-  map: {
+  fullMap: {
     flex: 1,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   guessMarker: {
     alignItems: 'center',

@@ -7,28 +7,131 @@ import {
   StyleSheet,
   RefreshControl,
   Platform,
+  StatusBar,
+  Alert,
+  Clipboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useAuth } from '../hooks/useAuth';
+import { gameService } from '../services/game';
+import { useGameStore } from '../store/gameStore';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 
 export default function HomeScreen() {
   const navigation = useNavigation<NavigationProp>();
-  const { principal, isAdmin } = useAuth();
+  const { principal, isAdmin, identity } = useAuth();
+  const { tokenBalance: storeBalance, setTokenBalance: setStoreBalance } = useGameStore();
   const [refreshing, setRefreshing] = React.useState(false);
+  const [isLoadingBalance, setIsLoadingBalance] = React.useState(false);
+  const [isServiceInitialized, setIsServiceInitialized] = React.useState(false);
+  const [playerStats, setPlayerStats] = React.useState<any>(null);
+  const [isLoadingStats, setIsLoadingStats] = React.useState(false);
+  
+  // Convert bigint balance to display string
+  const displayBalance = React.useMemo(() => {
+    const balance = Number(storeBalance) / 100;
+    return balance.toFixed(2);
+  }, [storeBalance]);
 
-  const onRefresh = React.useCallback(() => {
+  const fetchTokenBalance = React.useCallback(async () => {
+    if (!principal) return;
+    
+    setIsLoadingBalance(true);
+    try {
+      // Always fetch from backend, regardless of mode
+      const balance = await gameService.getTokenBalance(principal);
+      setStoreBalance(balance);
+    } catch (error) {
+      console.error('Failed to fetch token balance:', error);
+    } finally {
+      setIsLoadingBalance(false);
+    }
+  }, [principal, setStoreBalance]);
+
+  const fetchPlayerStats = React.useCallback(async () => {
+    if (!principal) return;
+    
+    setIsLoadingStats(true);
+    try {
+      const stats = await gameService.getPlayerStats(principal);
+      setPlayerStats(stats);
+    } catch (error) {
+      console.error('Failed to fetch player stats:', error);
+    } finally {
+      setIsLoadingStats(false);
+    }
+  }, [principal]);
+
+  // Initialize game service with identity
+  React.useEffect(() => {
+    const initService = async () => {
+      if (identity && !isServiceInitialized) {
+        try {
+          await gameService.init(identity);
+          setIsServiceInitialized(true);
+        } catch (error) {
+          console.error('Failed to initialize game service:', error);
+        }
+      }
+    };
+    initService();
+  }, [identity, isServiceInitialized]);
+
+  React.useEffect(() => {
+    if (isServiceInitialized) {
+      fetchTokenBalance();
+      fetchPlayerStats();
+      
+      // Dev mode: disabled auto-minting per user request
+    }
+  }, [fetchTokenBalance, fetchPlayerStats, isServiceInitialized, identity, principal]);
+
+  // Fetch data when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      if (isServiceInitialized && principal) {
+        fetchTokenBalance();
+        fetchPlayerStats();
+      }
+    }, [isServiceInitialized, principal, fetchTokenBalance, fetchPlayerStats])
+  );
+
+  const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
+    await Promise.all([
+      fetchTokenBalance(),
+      fetchPlayerStats()
+    ]);
     setTimeout(() => {
       setRefreshing(false);
     }, 2000);
-  }, []);
+  }, [fetchTokenBalance, fetchPlayerStats]);
+
+  const copyPrincipalToClipboard = () => {
+    if (principal) {
+      try {
+        Clipboard.setString(principal.toString());
+        Alert.alert(
+          'Copied!',
+          'Principal ID has been copied to clipboard',
+          [{ text: 'OK' }]
+        );
+      } catch (error) {
+        console.error('Failed to copy to clipboard:', error);
+        Alert.alert(
+          'Error',
+          'Failed to copy principal ID',
+          [{ text: 'OK' }]
+        );
+      }
+    }
+  };
 
   const menuItems = [
     {
@@ -69,11 +172,13 @@ export default function HomeScreen() {
   ];
 
   return (
-    <LinearGradient
-      colors={['#0f172a', '#1e293b']}
-      style={styles.container}
-    >
-      <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
+    <>
+      <StatusBar hidden={true} />
+      <LinearGradient
+        colors={['#0f172a', '#1e293b']}
+        style={styles.container}
+      >
+      <View style={styles.safeArea}>
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           refreshControl={
@@ -83,14 +188,23 @@ export default function HomeScreen() {
         >
           {/* Header */}
           <View style={styles.header}>
-            <View>
+            <View style={styles.headerInfo}>
               <Text style={styles.welcomeText}>Welcome back,</Text>
-              <Text style={styles.principalText}>
-                {principal ? `${principal.toString().slice(0, 8)}...` : 'Explorer'}
-              </Text>
+              <TouchableOpacity 
+                style={styles.principalContainer}
+                onPress={copyPrincipalToClipboard}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.principalText}>
+                  {principal ? principal.toString().slice(0, 12) : 'Explorer'}
+                </Text>
+                {principal && (
+                  <Ionicons name="copy-outline" size={16} color="#64748b" style={styles.copyIcon} />
+                )}
+              </TouchableOpacity>
             </View>
             <TouchableOpacity style={styles.notificationButton}>
-              <Ionicons name="notifications-outline" size={24} color="#94a3b8" />
+              <Ionicons name="notifications-outline" size={24} color="#64748b" />
             </TouchableOpacity>
           </View>
 
@@ -103,18 +217,38 @@ export default function HomeScreen() {
               <View style={styles.statsHeader}>
                 <View>
                   <Text style={styles.statsLabel}>Total Balance</Text>
-                  <Text style={styles.statsValue}>0 SPOT</Text>
+                  <Text style={styles.statsValue}>
+                    {isLoadingBalance ? '...' : `${displayBalance} SPOT`}
+                  </Text>
                 </View>
                 <View style={styles.statsBadge}>
-                  <Text style={styles.statsBadgeText}>+0%</Text>
+                  <Text style={styles.statsBadgeText}>
+                    {isLoadingStats ? "..." : (playerStats && Number(playerStats.bestScore) > 0 ? `Best: ${Number(playerStats.bestScore)}` : "Best: nodata")}
+                  </Text>
                 </View>
               </View>
               
               <View style={styles.statsGrid}>
-                <StatItem icon="game-controller-outline" value="0" label="Games" />
-                <StatItem icon="camera-outline" value="0" label="Photos" />
-                <StatItem icon="medal" value="#0" label="Rank" />
-                <StatItem icon="trophy-outline" value="0" label="Wins" />
+                <StatItem 
+                  icon="game-controller-outline" 
+                  value={isLoadingStats ? "..." : (playerStats && Number(playerStats.totalGamesPlayed) > 0 ? Number(playerStats.totalGamesPlayed).toString() : "nodata")} 
+                  label="Games" 
+                />
+                <StatItem 
+                  icon="camera-outline" 
+                  value={isLoadingStats ? "..." : (playerStats && Number(playerStats.totalPhotosUploaded) > 0 ? Number(playerStats.totalPhotosUploaded).toString() : "nodata")} 
+                  label="Photos" 
+                />
+                <StatItem 
+                  icon="medal" 
+                  value={isLoadingStats ? "..." : "nodata"} 
+                  label="Rank" 
+                />
+                <StatItem 
+                  icon="trophy-outline" 
+                  value={isLoadingStats ? "..." : (playerStats && Number(playerStats.totalGamesPlayed) > 0 ? `${Math.round(playerStats.winRate * 100)}%` : "nodata")} 
+                  label="Win Rate" 
+                />
               </View>
             </LinearGradient>
           </View>
@@ -166,8 +300,9 @@ export default function HomeScreen() {
             </View>
           </View>
         </ScrollView>
-      </SafeAreaView>
-    </LinearGradient>
+      </View>
+      </LinearGradient>
+    </>
   );
 }
 
@@ -200,32 +335,56 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingHorizontal: 24,
-    paddingTop: 16,
-    paddingBottom: 24,
+    paddingTop: 20,
+    paddingBottom: 16,
+  },
+  headerInfo: {
+    flex: 1,
+    marginRight: 16,
   },
   welcomeText: {
-    color: '#94a3b8',
+    color: '#64748b',
     fontSize: 14,
-    marginBottom: 4,
+    marginBottom: 8,
+    fontWeight: '500',
+  },
+  principalContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(51, 65, 85, 0.4)',
+    alignSelf: 'flex-start',
   },
   principalText: {
-    color: '#ffffff',
-    fontSize: 24,
-    fontWeight: 'bold',
+    color: '#e2e8f0',
+    fontSize: 15,
+    fontWeight: '600',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  copyIcon: {
+    marginLeft: 8,
+    opacity: 0.7,
   },
   notificationButton: {
-    width: 48,
-    height: 48,
-    backgroundColor: 'rgba(30, 41, 59, 0.5)',
-    borderRadius: 24,
+    width: 40,
+    height: 40,
+    backgroundColor: 'rgba(30, 41, 59, 0.4)',
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(51, 65, 85, 0.3)',
   },
   statsCard: {
     paddingHorizontal: 24,
-    marginBottom: 32,
+    marginBottom: 28,
+    marginTop: 8,
   },
   statsGradient: {
     borderRadius: 24,
@@ -250,14 +409,17 @@ const styles = StyleSheet.create({
   },
   statsBadge: {
     backgroundColor: 'rgba(34, 197, 94, 0.2)',
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
     paddingVertical: 4,
     borderRadius: 16,
     height: 32,
+    minWidth: 80,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   statsBadgeText: {
     color: '#10b981',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
   },
   statsGrid: {

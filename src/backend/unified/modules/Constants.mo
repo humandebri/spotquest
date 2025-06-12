@@ -22,11 +22,10 @@ module {
     public let BASIC_RADIUS_KM : Nat = 50; // 50km radius for basic hint
     public let PREMIUM_RADIUS_KM : Nat = 20; // 20km radius for premium hint
     
-    // Score calculation constants (fixed point)
-    public let PRECISION : Nat = 1_000_000; // 6 decimal places
-    public let ALPHA : Nat = 13_000_000; // 13 * PRECISION
-    public let BETA : Nat = 1300; // 1.3 * 1000
+    // Score calculation constants
     public let MAX_SCORE : Nat = 5000;
+    public let PERFECT_DISTANCE : Nat = 10; // meters for perfect score
+    public let PRECISION : Nat = 1_000_000; // 6 decimal places (for other calculations)
     
     // ======================================
     // TREASURY CONSTANTS

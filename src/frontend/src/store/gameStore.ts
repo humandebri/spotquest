@@ -23,6 +23,16 @@ interface HintInfo {
   data?: any;
 }
 
+interface RoundResult {
+  roundNumber: number;
+  score: number;
+  guess: { latitude: number; longitude: number };
+  actualLocation: { latitude: number; longitude: number };
+  timeUsed: number;
+  difficulty: string;
+  photoUrl: string;
+}
+
 interface GameStore {
   // Current game state
   currentPhoto: GamePhoto | null;
@@ -34,6 +44,7 @@ interface GameStore {
   // Session management
   sessionId: string | null;
   roundNumber: number;
+  roundResults: RoundResult[];
   
   // Token balance
   tokenBalance: bigint;
@@ -49,6 +60,7 @@ interface GameStore {
   setRoundNumber: (round: number) => void;
   setTokenBalance: (balance: bigint) => void;
   addPurchasedHint: (hint: HintInfo) => void;
+  addRoundResult: (result: RoundResult) => void;
   resetGame: () => void;
 }
 
@@ -60,6 +72,7 @@ export const useGameStore = create<GameStore>((set) => ({
   difficulty: 'NORMAL',
   sessionId: null,
   roundNumber: 1,
+  roundResults: [],
   tokenBalance: BigInt(0),
   purchasedHints: [],
   
@@ -82,11 +95,18 @@ export const useGameStore = create<GameStore>((set) => ({
     purchasedHints: [...state.purchasedHints, hint]
   })),
   
+  addRoundResult: (result) => set((state) => ({
+    roundResults: [...state.roundResults, result]
+  })),
+  
   resetGame: () => set({
     currentPhoto: null,
     currentGuess: null,
     confidenceRadius: 1000,
     timeLeft: 180,
     purchasedHints: [],
+    sessionId: null,
+    roundNumber: 1,
+    roundResults: [],
   }),
 }));

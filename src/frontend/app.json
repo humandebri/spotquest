@@ -21,7 +21,9 @@
         "NSPhotoLibraryUsageDescription": "This app needs access to photo library to select photos for the game.",
         "NSLocationWhenInUseUsageDescription": "This app needs location access to tag photos with GPS coordinates.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs location access to tag photos with GPS coordinates.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIStatusBarHidden": true,
+        "UIViewControllerBasedStatusBarAppearance": false
       }
     },
     "android": {
@@ -31,6 +33,8 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.guessthespot.app",
+      "statusBarHidden": true,
+      "navigationBarHidden": true,
       "permissions": [
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION",

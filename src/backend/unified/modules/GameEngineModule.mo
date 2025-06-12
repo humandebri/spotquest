@@ -387,6 +387,14 @@ module {
             sessions.get(sessionId)
         };
         
+        // Get user sessions
+        public func getUserSessions(userId: Principal) : ?[Text] {
+            switch(userSessions.get(userId)) {
+                case null { null };
+                case (?buffer) { ?Buffer.toArray(buffer) };
+            }
+        };
+        
         // Get metrics
         public func getMetrics() : {
             totalSessions: Nat;

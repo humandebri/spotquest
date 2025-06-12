@@ -98,7 +98,15 @@ class SecureAuthStorage implements AuthStorage {
         return null;
       }
 
-      const parsedData = JSON.parse(data) as SecureAuthData;
+      let parsedData: SecureAuthData;
+      try {
+        parsedData = JSON.parse(data) as SecureAuthData;
+      } catch (parseError) {
+        console.error('Failed to parse auth data, clearing invalid data:', parseError);
+        console.error('Invalid data was:', data.substring(0, 100) + '...');
+        await this.remove(key);
+        return null;
+      }
       
       // Check if data is expired
       if (parsedData.expiry && Date.now() > parsedData.expiry) {

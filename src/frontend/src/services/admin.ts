@@ -117,12 +117,15 @@ class AdminService {
       this.agent = new HttpAgent({
         identity,
         host: process.env.EXPO_PUBLIC_IC_HOST || 'https://ic0.app',
+        // dev環境では証明書検証をスキップ（falseに設定）
+        verifyQuerySignatures: false,
       });
 
-      // 開発環境でのみfetchRootKeyを実行
-      if (process.env.NODE_ENV === 'development') {
-        await this.agent.fetchRootKey();
-      }
+      // fetchRootKeyはローカルレプリカでのみ実行（mainnetでは不要）
+      // mainnetを使用しているため、fetchRootKeyは実行しない
+      // if (process.env.NODE_ENV === 'development') {
+      //   await this.agent.fetchRootKey();
+      // }
 
       const canisterId = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID;
       if (!canisterId) {

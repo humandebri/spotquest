@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { Principal } from '@dfinity/principal';
 import { Identity } from '@dfinity/identity';
-import { ADMIN_PRINCIPALS } from '../constants';
+import { ADMIN_PRINCIPALS } from '../constants/index';
+import { DEBUG_CONFIG, debugLog } from '../utils/debugConfig';
 
 interface IIAuthState {
   isAuthenticated: boolean;
@@ -28,6 +29,11 @@ export const useIIAuthStore = create<IIAuthState>((set, get) => ({
 
   setAuthenticated: (principal: Principal, identity: Identity) => {
     const isAdmin = ADMIN_PRINCIPALS.includes(principal.toString());
+    debugLog('AUTH_FLOW', '🔧 Auth store: Setting authenticated', {
+      principal: principal.toString(),
+      isAdmin,
+      adminPrincipals: ADMIN_PRINCIPALS
+    });
     set({ 
       isAuthenticated: true, 
       principal,

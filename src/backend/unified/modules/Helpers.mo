@@ -33,48 +33,40 @@ module {
         R * c
     };
     
-    // Calculate score based on distance (fixed point arithmetic)
+    // Calculate score using exponential decay (matching frontend)
     public func calculateScoreFixed(distance: Nat) : (Nat, Nat) {
-        if (distance > 2147483647) { // Max safe value for calculations
-            return (0, 0);
-        };
+        let MAX_SCORE = Constants.MAX_SCORE;
+        let PERFECT_DISTANCE = Constants.PERFECT_DISTANCE;
         
-        // Distance is in meters, convert to fixed point
-        let distanceFixed = distance * Constants.PRECISION;
-        
-        // Calculate d^BETA where BETA = 1.3
-        // Using approximation: d^1.3 ≈ d * (d^0.3)
-        // d^0.3 ≈ d^(1/3) * d^(-0.033) ≈ cbrt(d) * 0.93
-        let d3 = distance * distance * distance;
-        var cbrt_d = 1;
-        
-        // Newton's method for cube root
-        if (d3 > 0) {
-            cbrt_d := distance / 2;
-            for (_ in Iter.range(0, 4)) {
-                if (cbrt_d > 0) {
-                    cbrt_d := (2 * cbrt_d + distance * distance / (cbrt_d * cbrt_d)) / 3;
-                };
-            };
-        };
-        
-        // Approximate d^0.3 = cbrt(d) * 0.93
-        let d_03 = cbrt_d * 93 / 100;
-        let dPower = distance * d_03;
-        
-        // Calculate score
-        let maxScoreFixed = Constants.MAX_SCORE * Constants.PRECISION;
-        let reduction = Constants.ALPHA * dPower / Constants.PRECISION;
-        let scoreFixed = if (maxScoreFixed > reduction) { maxScoreFixed - reduction } else { 0 };
-        let displayScore = scoreFixed / Constants.PRECISION;
-        
-        // Ensure score is within bounds
-        let finalScore = Nat.min(Constants.MAX_SCORE, displayScore);
-        
-        // Calculate normalized score
-        let normScore = (finalScore + 49) / 50;
-        
-        (finalScore, normScore)
+        if (distance <= PERFECT_DISTANCE) {
+            // Perfect score for distances <= 10 meters
+            let normScore = (MAX_SCORE + 49) / 50;
+            return (MAX_SCORE, normScore);
+        } else {
+            // Exponential decay formula: 5000 * exp(-0.15 * distanceInKm)
+            // Since Motoko doesn't have exp(), we use approximation
+            let distanceInKm = distance / 1000;
+            let k = 15; // 0.15 * 100 for fixed point
+            let exponent = k * distanceInKm / 100; // -0.15 * distanceInKm
+            
+            // Taylor series approximation for exp(-x): 1 - x + x²/2 - x³/6 + x⁴/24 - ...
+            // For better accuracy with larger x values, we use: e^(-x) ≈ 1/(1 + x + x²/2 + x³/6)
+            let x = exponent;
+            let x2 = x * x;
+            let x3 = x2 * x / 6;
+            let denominator = 1000 + x * 10 + x2 * 5 + x3; // *1000 for precision
+            
+            let expApprox = if (denominator > 0) { 1000000 / denominator } else { 0 }; // *1000 more for precision
+            let scoreFloat = MAX_SCORE * expApprox / 1000; // Adjust back
+            
+            // Ensure minimum score is 0 and within bounds
+            let finalScore = Nat.min(MAX_SCORE, scoreFloat);
+            
+            // Calculate normalized score
+            let normScore = (finalScore + 49) / 50;
+            
+            (finalScore, normScore)
+        }
     };
     
     // ======================================

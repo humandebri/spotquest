@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Animated,
   Share,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
@@ -19,6 +20,8 @@ import { RootStackParamList } from '../navigation/AppNavigator';
 import { BlurView } from 'expo-blur';
 import { useGameStore } from '../store/gameStore';
 import Svg, { Circle, Path } from 'react-native-svg';
+import { gameService } from '../services/game';
+import { useAuth } from '../hooks/useAuth';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -28,10 +31,13 @@ type GameResultScreenNavigationProp = NativeStackNavigationProp<RootStackParamLi
 export default function GameResultScreen() {
   const navigation = useNavigation<GameResultScreenNavigationProp>();
   const route = useRoute<GameResultScreenRouteProp>();
-  const { resetGame } = useGameStore();
+  const { resetGame, sessionId, tokenBalance, setTokenBalance, roundNumber, setRoundNumber, addRoundResult } = useGameStore();
+  const { principal, identity } = useAuth();
   const mapRef = useRef<MapView>(null);
   const [mapReady, setMapReady] = useState(false);
   const [dashPattern, setDashPattern] = useState([20, 20]);
+  const [sessionFinalized, setSessionFinalized] = useState(false);
+  const [actualReward, setActualReward] = useState<number>(0);
   
   // Error handling from GameResultScreenSimple
   let params = {};
@@ -106,6 +112,19 @@ export default function GameResultScreen() {
   };
 
   useEffect(() => {
+    // Save round result when component mounts
+    if (guess && actualLocation && score !== undefined) {
+      addRoundResult({
+        roundNumber,
+        score,
+        guess,
+        actualLocation,
+        timeUsed,
+        difficulty,
+        photoUrl,
+      });
+    }
+
     // Entrance animations
     Animated.parallel([
       Animated.timing(fadeAnim, {
@@ -164,6 +183,8 @@ export default function GameResultScreen() {
     }
   }, [mapReady]);
 
+  // No token minting here - will be done at session completion
+
   const handleShare = async () => {
     try {
       await Share.share({
@@ -176,15 +197,20 @@ export default function GameResultScreen() {
   };
 
   const handlePlayAgain = () => {
-    resetGame();
-    // Reset navigation stack to prevent going back
-    navigation.reset({
-      index: 1,
-      routes: [
-        { name: 'Home' },
-        { name: 'Game' },
-      ],
-    });
+    // Check if this was the last round
+    if (roundNumber >= 5) {
+      // Navigate to session summary
+      navigation.replace('SessionSummary');
+    } else {
+      // Increment round number for next round
+      setRoundNumber(roundNumber + 1);
+      
+      // Navigate directly to GamePlayScreen for next round
+      navigation.replace('GamePlay', {
+        gameMode: 'normal',
+        difficulty: difficulty,
+      });
+    }
   };
 
   const handleBackToMenu = () => {
@@ -235,7 +261,7 @@ export default function GameResultScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom'] as readonly ['left', 'right', 'bottom']}>
+    <View style={styles.container}>
       {/* Gradient Mesh Background */}
       <LinearGradient
         colors={['#1a0033', '#220044', '#1a0033']}
@@ -380,7 +406,7 @@ export default function GameResultScreen() {
       >
         <View style={styles.roundIndicator}>
           <Ionicons name="location-outline" size={24} color="#fff" />
-          <Text style={styles.roundText}>ROUND 1</Text>
+          <Text style={styles.roundText}>ROUND {roundNumber}</Text>
         </View>
 
         <Animated.Text style={[styles.pointsText, { opacity: fadeAnim }]}>
@@ -423,10 +449,12 @@ export default function GameResultScreen() {
           onPress={handlePlayAgain}
           activeOpacity={0.8}
         >
-          <Text style={styles.nextButtonText}>NEXT ROUND</Text>
+          <Text style={styles.nextButtonText}>
+            {roundNumber >= 5 ? 'VIEW RESULTS' : 'NEXT ROUND'}
+          </Text>
         </TouchableOpacity>
       </LinearGradient>
-    </SafeAreaView>
+    </View>
   );
 }
 

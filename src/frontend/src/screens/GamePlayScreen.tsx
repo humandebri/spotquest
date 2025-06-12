@@ -106,11 +106,13 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     sessionId,
     tokenBalance,
     purchasedHints,
+    roundNumber,
     setCurrentPhoto,
     setGuess: setGameGuess,
     setTimeLeft: setGameTimeLeft,
     setSessionId,
     setTokenBalance,
+    setRoundNumber,
     addPurchasedHint,
   } = useGameStore();
   
@@ -120,6 +122,8 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   // ゲーム状態
   const [azimuthGuess, setAzimuthGuess] = useState(0);
   const [timeLeft, setTimeLeft] = useState(DifficultySettings[difficulty].timeLimit);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
   // Initialize gameService with identity
   useEffect(() => {
@@ -132,20 +136,63 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   useEffect(() => {
     const initializeGame = async () => {
       // Wait for gameService to be initialized
-      if (!identity) return;
-      // Create session if not exists
-      if (!sessionId) {
-        const result = await gameService.createSession();
-        if (result.ok) {
-          setSessionId(result.ok);
+      if (!identity) {
+        return;
+      }
+      
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        
+        // Create session if not exists or get next round for existing session
+        if (!sessionId) {
+          const result = await gameService.createSession();
           
-          // Get first round
-          const roundResult = await gameService.getNextRound(result.ok);
+          if (result.err) {
+            throw new Error(result.err);
+          }
+          
+          if (result.ok) {
+            setSessionId(result.ok);
+            
+            // Reset round number for new session
+            setRoundNumber(1);
+            
+            // Get first round
+            const roundResult = await gameService.getNextRound(result.ok);
+            
+            if (roundResult.err) {
+              throw new Error(roundResult.err);
+            }
+            
+            if (roundResult.ok) {
+              // TODO: Set actual photo from round data
+              setCurrentPhoto({
+                id: roundResult.ok.photoId.toString(),
+                url: 'https://picsum.photos/800/600', // TODO: Get from photo canister
+                actualLocation: { latitude: 35.6762, longitude: 139.6503 }, // TODO: Get from round
+                azimuth: 45,
+                timestamp: Date.now(),
+                uploader: '2vxsx-fae',
+                difficulty,
+              });
+            }
+          }
+        } else {
+          // Existing session - get next round
+          const roundResult = await gameService.getNextRound(sessionId);
+          console.log('Get round result:', roundResult);
+          
+          if (roundResult.err) {
+            throw new Error(roundResult.err);
+          }
+          
           if (roundResult.ok) {
             // TODO: Set actual photo from round data
             setCurrentPhoto({
               id: roundResult.ok.photoId.toString(),
-              url: 'https://picsum.photos/800/600', // TODO: Get from photo canister
+              url: 'https://picsum.photos/800/600?' + Date.now(), // TODO: Get from photo canister, add timestamp to force new image
               actualLocation: { latitude: 35.6762, longitude: 139.6503 }, // TODO: Get from round
               azimuth: 45,
               timestamp: Date.now(),
@@ -154,17 +201,32 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
             });
           }
         }
-      }
-      
-      // Update token balance
-      if (principal) {
-        const balance = await gameService.getTokenBalance(principal);
-        setTokenBalance(balance);
+        
+        // Update token balance
+        if (principal) {
+          const balance = await gameService.getTokenBalance(principal);
+          setTokenBalance(balance);
+        }
+        
+        setIsLoading(false);
+      } catch (err) {
+        console.error('Failed to initialize game:', err);
+        setError(err instanceof Error ? err.message : 'Failed to start game');
+        setIsLoading(false);
+        
+        // Show error alert
+        Alert.alert(
+          'Game Error',
+          err instanceof Error ? err.message : 'Failed to start game',
+          [
+            { text: 'Go Back', onPress: () => navigation.goBack() }
+          ]
+        );
       }
     };
     
     initializeGame();
-  }, [sessionId, principal]);
+  }, [sessionId, principal, identity]);
   
   // Cleanup on unmount
   useEffect(() => {
@@ -428,15 +490,30 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     );
     const score = calculateScore(distance);
     
-    console.log('Distance calculation:', {
-      guess: finalGuess,
-      actual: currentPhoto!.actualLocation,
-      distanceMeters: distance,
-      distanceKm: distance / 1000,
-      score: score,
-    });
     
-    // TODO: ICPに推測を送信
+    // Submit guess to backend
+    if (sessionId) {
+      try {
+        const result = await gameService.submitGuess(
+          sessionId,
+          finalGuess.latitude,
+          finalGuess.longitude,
+          azimuthGuess,
+          confidenceRadius
+        );
+        
+        if (result.ok) {
+          // Guess submitted successfully
+        } else {
+          console.error('Failed to submit guess:', result.err);
+          Alert.alert('Error', result.err || 'Failed to submit guess');
+        }
+      } catch (error) {
+        console.error('Error submitting guess:', error);
+      }
+    }
+    
+    // Navigate to result screen
     navigation.navigate('GameResult', {
       guess: finalGuess,
       actualLocation: currentPhoto!.actualLocation,
@@ -542,6 +619,37 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     }
     return '';
   };
+
+  const handleHomeButtonPress = () => {
+    Alert.alert(
+      'ゲームを終了しますか？',
+      'ホーム画面に戻ると、現在のゲームの進行状況が失われます。',
+      [
+        {
+          text: 'キャンセル',
+          style: 'cancel',
+        },
+        {
+          text: 'ホームに戻る',
+          style: 'destructive',
+          onPress: () => {
+            // Stop timer before navigating
+            isNavigatingAway.current = true;
+            if (timerRef.current) {
+              clearTimeout(timerRef.current);
+              timerRef.current = null;
+            }
+            
+            // Reset navigation stack to home
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'Home' }],
+            });
+          },
+        },
+      ]
+    );
+  };
   
   if (!currentPhoto) {
     return (
@@ -551,6 +659,47 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     );
   }
   
+  // Show loading state
+  if (isLoading) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color="#3282b8" />
+        <Text style={styles.loadingText}>Starting game...</Text>
+      </View>
+    );
+  }
+
+  // Show error state
+  if (error) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <Ionicons name="alert-circle" size={64} color="#ff4444" />
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity 
+          style={styles.retryButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Text style={styles.retryButtonText}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // Check if photo is loaded
+  if (!currentPhoto) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <Text style={styles.errorText}>No photo available</Text>
+        <TouchableOpacity 
+          style={styles.retryButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Text style={styles.retryButtonText}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       {/* 写真を画面全体に表示 - ドラッグ可能 */}
@@ -615,15 +764,18 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
       
       {/* UI要素のコンテナ */}
       <View style={styles.uiContainer} pointerEvents="box-none">
-        {/* 画面上部のステータスバー */}
         <SafeAreaView style={styles.topBar} edges={['top']} pointerEvents="box-none">
+          {/* 画面上部のステータスバー */}
           <View style={styles.gameStatusBar} pointerEvents="box-none">
-            <View style={styles.statusItem} pointerEvents="auto">
+            <View style={styles.statusColumn} pointerEvents="auto">
               <View style={styles.timer}>
                 <Ionicons name="timer" size={20} color="#fff" />
                 <Text style={styles.timerText}>
                   {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
                 </Text>
+              </View>
+              <View style={styles.roundInfo}>
+                <Text style={styles.roundText}>Round {roundNumber}</Text>
               </View>
             </View>
             
@@ -645,31 +797,14 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
               </View>
             </View>
           </View>
-        </SafeAreaView>
-        
-        {/* 方位表示 */}
-        {showCompass && (
-          <View style={styles.compassContainer} pointerEvents="auto">
-            <CompassIndicator azimuth={currentPhoto.azimuth} />
-          </View>
-        )}
-        
-        {/* 写真情報オーバーレイ */}
-        <View style={styles.photoInfoContainer} pointerEvents="none">
-          <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.7)']}
-            style={styles.photoOverlay}
-          >
-            <View style={styles.photoInfo}>
-              <Text style={styles.uploadTime}>
-                {new Date(currentPhoto.timestamp).toLocaleDateString()}
-              </Text>
-              <Text style={styles.uploader}>
-                by {currentPhoto.uploader.slice(0, 8)}...
-              </Text>
+
+          {/* 方位表示 */}
+          {showCompass && (
+            <View style={styles.compassBarContainer} pointerEvents="none">
+              <CompassBar azimuth={currentPhoto.azimuth} />
             </View>
-          </LinearGradient>
-        </View>
+          )}
+        </SafeAreaView>
         
         {/* 画面下部のツールバー */}
         <View style={styles.bottomToolbar} pointerEvents="box-none">
@@ -703,6 +838,27 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
               </View>
             )}
           </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.toolButton}
+            onPress={handleHomeButtonPress}
+            pointerEvents="auto"
+          >
+            <Ionicons name="home" size={24} color="#fff" />
+          </TouchableOpacity>
+
+          {/* 写真情報 */}
+          <View style={styles.photoInfoInToolbar} pointerEvents="none">
+            <Text style={styles.uploadTime}>
+              {new Date(currentPhoto.timestamp).toLocaleDateString()}
+            </Text>
+            <Text style={styles.uploader}>
+              by {currentPhoto.uploader.length > 10 
+                ? `${currentPhoto.uploader.slice(0, 5)}...${currentPhoto.uploader.slice(-5)}`
+                : currentPhoto.uploader
+              }
+            </Text>
+          </View>
         </View>
         
         {/* 地図を開くボタン - コンパスの下に配置 */}
@@ -754,34 +910,36 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   );
 }
 
-// コンパス表示コンポーネント
-const CompassIndicator = ({ azimuth }: { azimuth: number }) => {
-  const rotation = new Animated.Value(0);
-  
-  useEffect(() => {
-    Animated.timing(rotation, {
-      toValue: azimuth,
-      duration: 500,
-      useNativeDriver: true,
-    }).start();
-  }, [azimuth]);
-  
+// コンパスバー表示コンパーネント
+const CompassBar = ({ azimuth }: { azimuth: number }) => {
   return (
-    <View style={styles.compass}>
-      <Animated.View
-        style={[
-          styles.compassNeedle,
-          {
-            transform: [{ rotate: `${azimuth}deg` }],
-          },
-        ]}
-      >
-        <View style={styles.compassNorth} />
-        <View style={styles.compassSouth} />
-      </Animated.View>
-      <Text style={styles.compassText}>{Math.round(azimuth)}°</Text>
+    <View style={styles.compassBar}>
+      {/* 中央のインジケーター - 写真の方角のみ表示 */}
+      <View style={styles.compassCenter}>
+        <View style={styles.compassCenterLine} />
+        <Text style={styles.compassDegreeText}>{Math.round(azimuth)}°</Text>
+        <Text style={styles.compassDirectionText}>
+          {getDirectionLabel(azimuth)}
+        </Text>
+      </View>
     </View>
   );
+};
+
+// 方角を文字で表示するヘルパー関数
+const getDirectionLabel = (angle: number): string => {
+  const normalizedAngle = ((angle % 360) + 360) % 360;
+  
+  if (normalizedAngle >= 337.5 || normalizedAngle < 22.5) return 'N';
+  if (normalizedAngle >= 22.5 && normalizedAngle < 67.5) return 'NE';
+  if (normalizedAngle >= 67.5 && normalizedAngle < 112.5) return 'E';
+  if (normalizedAngle >= 112.5 && normalizedAngle < 157.5) return 'SE';
+  if (normalizedAngle >= 157.5 && normalizedAngle < 202.5) return 'S';
+  if (normalizedAngle >= 202.5 && normalizedAngle < 247.5) return 'SW';
+  if (normalizedAngle >= 247.5 && normalizedAngle < 292.5) return 'W';
+  if (normalizedAngle >= 292.5 && normalizedAngle < 337.5) return 'NW';
+  
+  return 'N';
 };
 
 
@@ -930,68 +1088,68 @@ const styles = StyleSheet.create({
     width: SCREEN_WIDTH,
     height: SCREEN_HEIGHT,
   },
-  photoInfoContainer: {
-    position: 'absolute',
-    bottom: 120,
-    left: 0,
-    right: 0,
-  },
-  photoOverlay: {
-    height: 80,
-    justifyContent: 'flex-end',
-    padding: 15,
-  },
-  photoInfo: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
+  photoInfoInToolbar: {
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderRadius: 22,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    minHeight: 60,
+    minWidth: 180,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   uploadTime: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 18,
     opacity: 0.8,
+    textAlign: 'center',
   },
   uploader: {
     color: '#fff',
-    fontSize: 12,
-    opacity: 0.8,
+    fontSize: 20,
+    opacity: 0.9,
+    textAlign: 'center',
+    marginTop: 2,
+    fontFamily: 'monospace',
   },
-  compassContainer: {
-    position: 'absolute',
-    top: 100,
-    right: 15,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    borderRadius: 35,
-    width: 70,
-    height: 70,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  compass: {
-    width: 60,
+  compassBarContainer: {
+    marginTop: 10,
     height: 60,
+  },
+  compassBar: {
+    height: 60,
+    position: 'relative',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  compassNeedle: {
-    position: 'absolute',
-    width: 4,
-    height: 50,
+  compassCenter: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  compassNorth: {
-    width: 4,
-    height: 25,
-    backgroundColor: '#FF0000',
+  compassCenterLine: {
+    width: 2,
+    height: 30,
+    backgroundColor: '#FFD700',
+    marginBottom: 4,
   },
-  compassSouth: {
-    width: 4,
-    height: 25,
-    backgroundColor: '#FFFFFF',
+  compassDegreeText: {
+    color: '#FFD700',
+    fontSize: 14,
+    fontWeight: 'bold',
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    marginBottom: 2,
   },
-  compassText: {
+  compassDirectionText: {
     color: '#fff',
-    fontSize: 10,
-    marginTop: 5,
+    fontSize: 16,
+    fontWeight: 'bold',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
   photoToolbar: {
     position: 'absolute',
@@ -1044,6 +1202,15 @@ const styles = StyleSheet.create({
   },
   multiplierText: {
     color: '#4CAF50',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  roundInfo: {
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  roundText: {
+    color: '#fff',
     fontSize: 14,
     fontWeight: 'bold',
   },
@@ -1198,6 +1365,13 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 20,
   },
+  statusColumn: {
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    alignItems: 'center',
+  },
   bottomToolbar: {
     position: 'absolute',
     bottom: 20,
@@ -1255,4 +1429,33 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   
+  // Loading and error states
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#fff',
+    fontSize: 16,
+    marginTop: 16,
+  },
+  errorText: {
+    color: '#fff',
+    fontSize: 16,
+    marginTop: 16,
+    textAlign: 'center',
+    paddingHorizontal: 32,
+  },
+  retryButton: {
+    marginTop: 24,
+    backgroundColor: '#3282b8',
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
 });

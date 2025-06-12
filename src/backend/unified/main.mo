@@ -460,8 +460,33 @@ actor GameUnified {
         photoManager.getPhotosByOwner(owner)
     };
     
+    // New method for frontend compatibility - gets photos for the caller
+    public shared query(msg) func getUserPhotos() : async [Photo.PhotoMeta] {
+        let photos = photoManager.getPhotosByOwner(msg.caller);
+        Array.map<PhotoModule.Photo, Photo.PhotoMeta>(photos, func(photo: PhotoModule.Photo) : Photo.PhotoMeta {
+            {
+                id = photo.id;
+                owner = photo.owner;
+                lat = photo.latitude;
+                lon = photo.longitude;
+                azim = 0.0; // PhotoModule.Photo doesn't have azimuth field
+                timestamp = photo.uploadTime;
+                quality = photo.qualityScore;
+                uploadTime = photo.uploadTime;
+                chunkCount = 0; // PhotoModule.Photo doesn't track chunks
+                totalSize = 0; // PhotoModule.Photo doesn't track size
+                perceptualHash = null; // PhotoModule.Photo doesn't have hash
+            }
+        })
+    };
+    
     public query func getScheduledPhotos(userId: Principal) : async [Photo.ScheduledPhoto] {
         photoManager.getScheduledPhotos(userId)
+    };
+    
+    // New method for frontend compatibility - gets scheduled photos for the caller
+    public shared query(msg) func getUserScheduledPhotos() : async [Photo.ScheduledPhoto] {
+        photoManager.getScheduledPhotos(msg.caller)
     };
     
     public shared(msg) func cancelScheduledPhoto(scheduledId: Text) : async Result.Result<(), Text> {
@@ -470,6 +495,17 @@ actor GameUnified {
     
     public shared(msg) func deletePhoto(photoId: Nat) : async Result.Result<(), Text> {
         photoManager.deletePhoto(photoId, msg.caller)
+    };
+    
+    // Placeholder updatePhotoInfo method - returns not implemented error for now
+    public shared(msg) func updatePhotoInfo(photoId: Nat, updateInfo: {
+        title: Text;
+        description: Text;
+        difficulty: { #EASY; #NORMAL; #HARD; #EXTREME };
+        hint: Text;
+        tags: [Text];
+    }) : async Result.Result<(), Text> {
+        #err("Photo info update not yet implemented - feature coming soon")
     };
     
     // ======================================
@@ -536,6 +572,13 @@ actor GameUnified {
         #ok() // Play fee is now managed in Constants module
     };
     
+    public shared(msg) func adminMint(to: Principal, amount: Nat) : async Result.Result<Nat, Text> {
+        if (msg.caller != owner) {
+            return #err("Unauthorized: Only owner can mint tokens");
+        };
+        tokenManager.mint(to, amount)
+    };
+    
     // ======================================
     // TREASURY FUNCTIONS
     // ======================================
@@ -549,6 +592,92 @@ actor GameUnified {
     
     public query func getSinkHistory(limit: ?Nat) : async [(Time.Time, Text, Nat)] {
         treasuryManager.getSinkHistory(limit)
+    };
+    
+    // ======================================
+    // PLAYER STATISTICS
+    // ======================================
+    public query func getPlayerStats(player: Principal) : async {
+        totalGamesPlayed: Nat;
+        totalPhotosUploaded: Nat;
+        totalRewardsEarned: Nat;
+        bestScore: Nat;
+        averageScore: Nat;
+        winRate: Float;
+        currentStreak: Nat;
+        longestStreak: Nat;
+        reputation: Float;
+        totalGuesses: Nat;
+    } {
+        // Get user sessions
+        let userSessionBuffer = switch(gameEngineManager.getUserSessions(player)) {
+            case null { [] };
+            case (?buffer) { buffer };
+        };
+        
+        var totalGamesPlayed = 0;
+        var totalScore : Nat = 0;
+        var bestScore : Nat = 0;
+        var completedGames = 0;
+        var totalRewardsEarned : Nat = 0;
+        
+        // Calculate stats from completed sessions
+        for (sessionId in userSessionBuffer.vals()) {
+            switch(gameEngineManager.getSession(sessionId)) {
+                case null { };
+                case (?session) {
+                    if (session.endTime != null) {
+                        totalGamesPlayed += 1;
+                        totalScore += session.totalScore;
+                        
+                        // Check if all rounds completed
+                        let completedRounds = Array.filter<GameV2.RoundState>(
+                            session.rounds,
+                            func(r) = r.status == #Completed
+                        ).size();
+                        
+                        if (completedRounds == session.rounds.size() and completedRounds > 0) {
+                            completedGames += 1;
+                        };
+                        
+                        // Track best score
+                        if (session.totalScore > bestScore) {
+                            bestScore := session.totalScore;
+                        };
+                        
+                        // Calculate rewards (simplified)
+                        totalRewardsEarned += calculatePlayerReward(session);
+                    };
+                };
+            };
+        };
+        
+        // Calculate averages
+        let averageScore = if (totalGamesPlayed > 0) {
+            totalScore / totalGamesPlayed
+        } else { 0 };
+        
+        let winRate = if (totalGamesPlayed > 0) {
+            Float.fromInt(completedGames) / Float.fromInt(totalGamesPlayed)
+        } else { 0.0 };
+        
+        // Get other stats
+        let totalPhotosUploaded = photoManager.getPhotosByOwner(player).size();
+        let reputation = reputationManager.getReputation(player).score;
+        let totalGuesses = guessHistoryManager.getPlayerHistory(player, null).size();
+        
+        {
+            totalGamesPlayed = totalGamesPlayed;
+            totalPhotosUploaded = totalPhotosUploaded;
+            totalRewardsEarned = totalRewardsEarned;
+            bestScore = bestScore;
+            averageScore = averageScore;
+            winRate = winRate;
+            currentStreak = 0; // TODO: Implement streak tracking
+            longestStreak = 0; // TODO: Implement streak tracking
+            reputation = reputation;
+            totalGuesses = totalGuesses;
+        }
     };
     
     // ======================================
@@ -584,6 +713,45 @@ actor GameUnified {
             totalSupply = tokenManager.icrc1_total_supply();
             photoStats = photoStats;
             gameMetrics = gameMetrics;
+        }
+    };
+    
+    // ======================================
+    // DEBUG FUNCTIONS (temporary)
+    // ======================================
+    public query func debugGetUserSessions(player: Principal) : async ?[Text] {
+        gameEngineManager.getUserSessions(player)
+    };
+    
+    public query func debugGetSession(sessionId: Text) : async ?GameV2.GameSession {
+        gameEngineManager.getSession(sessionId)
+    };
+    
+    public query func debugCalculateDistance(lat1: Float, lon1: Float, lat2: Float, lon2: Float) : async Float {
+        Helpers.calculateHaversineDistance(lat1, lon1, lat2, lon2)
+    };
+    
+    public query func debugCalculateScore(distance: Nat) : async (Nat, Nat) {
+        Helpers.calculateScoreFixed(distance)
+    };
+    
+    public query func debugGetTokenInfo() : async {
+        totalSupply: Nat;
+        balanceCount: Nat;
+        firstFiveBalances: [(Principal, Nat)];
+    } {
+        let balances = tokenManager.getBalances();
+        let entries = Iter.toArray(balances.entries());
+        let firstFive = if (entries.size() > 5) {
+            Array.tabulate<(Principal, Nat)>(5, func(i) = entries[i])
+        } else {
+            entries
+        };
+        
+        {
+            totalSupply = tokenManager.getTotalSupply();
+            balanceCount = entries.size();
+            firstFiveBalances = firstFive;
         }
     };
     
@@ -702,6 +870,9 @@ actor GameUnified {
         if (req.method == "POST" and path == "/api/session/new") {
             let bodyText = getBodyText(req.body);
             
+            // Debug: ALWAYS log when this endpoint is called
+            // This will help us understand if expo-ii-integration is calling this endpoint
+            
             // Parse JSON body to get public key and redirect URI
             var publicKey = "";
             var redirectUri = "";
@@ -770,26 +941,41 @@ actor GameUnified {
                 publicKey := "placeholder_public_key"; // Fallback
             };
             
+            // Debug: Check what we received
+            let debugResponse = "Debug - Received publicKey: " # publicKey # ", redirectUri: " # redirectUri # ", body: " # bodyText;
+            
+            // Temporary fallback for testing
+            if (redirectUri == "") {
+                redirectUri := "https://auth.expo.io/@hude/guess-the-spot/auth"; // Test fallback - matches app.json
+            };
+            
             // Get canister origin
             let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io";
             
             // Create new session
             let response = iiIntegrationManager.newSession(publicKey, canisterOrigin);
             
-            // Build callback URL with redirect URI parameter
+            // Build callback URL with redirect-uri parameter (URL encoded)
             var callbackUrl = canisterOrigin # "/callback";
             if (redirectUri != "") {
-                callbackUrl #= "?redirect-uri=" # redirectUri;
+                // URL encoding for redirect-uri parameter
+                var encodedRedirectUri = redirectUri;
+                encodedRedirectUri := Text.replace(encodedRedirectUri, #char ':', "%3A");
+                encodedRedirectUri := Text.replace(encodedRedirectUri, #char '/', "%2F");
+                encodedRedirectUri := Text.replace(encodedRedirectUri, #char '?', "%3F");
+                encodedRedirectUri := Text.replace(encodedRedirectUri, #char '#', "%23");
+                encodedRedirectUri := Text.replace(encodedRedirectUri, #char '&', "%26");
+                encodedRedirectUri := Text.replace(encodedRedirectUri, #char '=', "%3D");
+                encodedRedirectUri := Text.replace(encodedRedirectUri, #char '@', "%40");
+                callbackUrl #= "?redirect-uri=" # encodedRedirectUri;
             };
             
-            // Build authorize URL with our callback
+            // Build authorize URL with our callback - simplified for debugging
             let authorizeUrl = "https://identity.ic0.app/#authorize?" #
                 "client_id=" # canisterOrigin # "&" #
                 "redirect_uri=" # callbackUrl # "&" #
                 "state=" # response.sessionId # "&" #
-                "response_type=id_token&" #
-                "scope=openid&" #
-                "nonce=" # response.sessionId;
+                "response_type=id_token";
             
             let json = "{\"sessionId\":\"" # response.sessionId # "\",\"authorizeUrl\":\"" # authorizeUrl # "\"}";
             return jsonResponse(json, 200);
@@ -953,64 +1139,124 @@ actor GameUnified {
                       "<script>" #
                       "(async function() {" #
                       "  console.log('Callback page loaded');" #
+                      "  console.log('Full URL:', window.location.href);" #
+                      "  console.log('Hash:', window.location.hash);" #
+                      "  console.log('Search:', window.location.search);" #
+                      "  " #
                       "  const params = new URLSearchParams(window.location.search);" #
                       "  const fragment = new URLSearchParams(window.location.hash.slice(1));" #
                       "  " #
+                      "  // Debug" #
+                      "  console.log('URL:', window.location.href);" #
+                      "  " #
                       "  // Get data from II response" #
+                      "  const idToken = fragment.get('id_token') || params.get('id_token');" #
                       "  const delegation = fragment.get('delegation') || params.get('delegation');" #
-                      "  const userPublicKey = fragment.get('user_public_key') || params.get('user_public_key');" #
-                      "  const delegationPubkey = fragment.get('delegation_pubkey') || params.get('delegation_pubkey');" #
+                      "  const publicKey = fragment.get('publicKey') || fragment.get('public_key') || params.get('publicKey');" #
+                      "  const userPublicKey = fragment.get('userPublicKey') || fragment.get('user_public_key') || params.get('userPublicKey');" #
                       "  const state = fragment.get('state') || params.get('state');" #
                       "  const error = fragment.get('error') || params.get('error');" #
-                      "  " #
-                      "  console.log('Callback data:', { delegation: !!delegation, userPublicKey: !!userPublicKey, delegationPubkey: !!delegationPubkey, state, error });" #
                       "  " #
                       "  if (error) {" #
                       "    document.body.innerHTML = '<h2>Authentication Error</h2><p>' + error + '</p>';" #
                       "    return;" #
                       "  }" #
                       "  " #
-                      "  if (!delegation || !userPublicKey || !delegationPubkey || !state) {" #
-                      "    document.body.innerHTML = '<h2>Missing authentication data</h2><p>No authentication data received.</p>';" #
+                      "  // Check if we have required data" #
+                      "  if (!state) {" #
+                      "    document.body.innerHTML = '<h2>Missing state parameter</h2>';" #
                       "    return;" #
                       "  }" #
                       "  " #
-                      "  // Save delegation first" #
-                      "  try {" #
-                      "    const response = await fetch('/api/session/' + state + '/delegate', {" #
-                      "      method: 'POST'," #
-                      "      headers: { 'Content-Type': 'application/json' }," #
-                      "      body: JSON.stringify({ delegation, userPublicKey, delegationPubkey })" #
-                      "    });" #
-                      "    const data = await response.json();" #
-                      "    console.log('Delegation saved:', data);" #
-                      "    " #
-                      "    if (data.success) {" #
-                      "      // Close the session to mark it as ready" #
-                      "      await fetch('/api/session/' + state + '/close', {" #
-                      "        method: 'POST'" #
-                      "      });" #
+                      "  // Parse id_token if we have it" #
+                      "  let parsedDelegation = delegation;" #
+                      "  let parsedUserPublicKey = userPublicKey || publicKey;" #
+                      "  let parsedDelegationPubkey = '';" #
+                      "  " #
+                      "  if (idToken && !delegation) {" #
+                      "    console.log('Parsing id_token:', idToken);" #
+                      "    try {" #
+                      "      // II returns a JWT id_token that contains the delegation" #
+                      "      // For now, we'll use the id_token as the delegation" #
+                      "      parsedDelegation = idToken;" #
                       "      " #
-                      "      // Get redirect URI from query params" #
-                      "      const urlParams = new URLSearchParams(window.location.search);" #
-                      "      const redirectUri = urlParams.get('redirect-uri');" #
-                      "      " #
-                      "      if (redirectUri) {" #
-                      "        // Add session ID to the redirect URI" #
-                      "        const finalRedirectUrl = redirectUri + '&ii_session_id=' + state;" #
-                      "        console.log('Redirecting to:', finalRedirectUrl);" #
-                      "        window.location.replace(finalRedirectUrl);" #
-                      "      } else {" #
-                      "        // Fallback if no redirect URI" #
-                      "        console.error('No redirect URI found');" #
-                      "        document.body.innerHTML = '<h2>Authentication Complete</h2><p>But no redirect URI was provided. You can close this window.</p>';" #
+                      "      // Try to decode the JWT to get more info" #
+                      "      const parts = idToken.split('.');" #
+                      "      if (parts.length === 3) {" #
+                      "        // Decode the payload (base64url)" #
+                      "        const payload = parts[1];" #
+                      "        const decoded = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));" #
+                      "        const jwtData = JSON.parse(decoded);" #
+                      "        console.log('JWT payload:', jwtData);" #
+                      "        " #
+                      "        // Extract delegation data from JWT if available" #
+                      "        if (jwtData.delegations && jwtData.delegations.length > 0) {" #
+                      "          const del = jwtData.delegations[0];" #
+                      "          parsedDelegation = JSON.stringify(del.delegation || del);" #
+                      "          parsedUserPublicKey = del.pubkey || jwtData.sub || parsedUserPublicKey;" #
+                      "        }" #
                       "      }" #
-                      "    } else {" #
-                      "      document.body.innerHTML = '<h2>Failed to save authentication</h2><p>' + (data.error || 'Unknown error') + '</p>';" #
+                      "    } catch (e) {" #
+                      "      console.error('Failed to parse id_token:', e);" #
+                      "      // Use the raw id_token as delegation" #
+                      "      parsedDelegation = idToken;" #
                       "    }" #
-                      "  } catch (err) {" #
-                      "    console.error('Failed to save delegation:', err);" #
-                      "    document.body.innerHTML = '<h2>Error</h2><p>Failed to complete authentication: ' + err.message + '</p>';" #
+                      "  }" #
+                      "  " #
+                      "  // Save delegation data if we have any" #
+                      "  if (parsedDelegation || parsedUserPublicKey) {" #
+                      "    try {" #
+                      "      const payload = {" #
+                      "        delegation: parsedDelegation || ''," #
+                      "        userPublicKey: parsedUserPublicKey || ''," #
+                      "        delegationPubkey: parsedDelegationPubkey || ''" #
+                      "      };" #
+                      "      " #
+                      "      console.log('Saving delegation payload:', payload);" #
+                      "      " #
+                      "      const response = await fetch('/api/session/' + state + '/delegate', {" #
+                      "        method: 'POST'," #
+                      "        headers: { 'Content-Type': 'application/json' }," #
+                      "        body: JSON.stringify(payload)" #
+                      "      });" #
+                      "      const data = await response.json();" #
+                      "      console.log('Delegation saved:', data);" #
+                      "      " #
+                      "      if (data.success) {" #
+                      "        // Debug" #
+                      "        console.log('Auth saved, redirecting...');" #
+                      "        " #
+                      "        // Close the session to mark it as ready" #
+                      "        await fetch('/api/session/' + state + '/close', {" #
+                      "          method: 'POST'" #
+                      "        });" #
+                      "        " #
+                      "        // Get redirect URI from query params (sent by canister)" #
+                      "        const urlParams = new URLSearchParams(window.location.search);" #
+                      "        const redirectUri = urlParams.get('redirect-uri');" #
+                      "        " #
+                      "        if (redirectUri) {" #
+                      "          // AuthSession needs exact match with its redirectUri" #
+                      "          console.log('Redirecting to AuthSession URI:', redirectUri);" #
+                      "          document.body.innerHTML = '<p>Redirecting...</p>';" #
+                      "          " #
+                      "          // Simple redirect" #
+                      "          setTimeout(() => {" #
+                      "            window.location.replace(redirectUri);" #
+                      "          }, 500);" #
+                      "        } else {" #
+                      "          console.error('No redirect URI found');" #
+                      "          document.body.innerHTML = '<h2>Auth Complete</h2><p>Close this window.</p>';" #
+                      "        }" #
+                      "      } else {" #
+                      "        document.body.innerHTML = '<h2>Auth Failed</h2><p>' + (data.error || 'Unknown error') + '</p>';" #
+                      "      }" #
+                      "    } catch (err) {" #
+                      "      console.error('Failed to save delegation:', err);" #
+                      "      document.body.innerHTML = '<h2>Error</h2><p>' + err.message + '</p>';" #
+                      "    }" #
+                      "  } else {" #
+                      "    document.body.innerHTML = '<h2>No auth data</h2><p>Check console.</p>';" #
                       "  }" #
                       "})();" #
                       "</script>" #
@@ -1029,15 +1275,35 @@ actor GameUnified {
             };
             
             if (sessionId != "") {
-                switch (iiIntegrationManager.getDelegation(sessionId)) {
+                // Debug: Log all sessions
+                let debugSessions = iiIntegrationManager.getAllSessionIds();
+                let debugJson = "{\"requestedSession\":\"" # sessionId # "\",\"availableSessions\":" # Nat.toText(debugSessions.size()) # "}";
+                
+                // Check if this is a polling request (session still open)
+                switch (iiIntegrationManager.getSessionStatus(sessionId)) {
                     case null {
-                        return jsonResponse("{\"error\":\"Delegation not found\"}", 404);
+                        return jsonResponse(debugJson, 404);
                     };
-                    case (?data) {
-                        let json = "{\"delegation\":\"" # data.delegation # "\"," #
-                                  "\"userPublicKey\":\"" # data.userPublicKey # "\"," #
-                                  "\"delegationPubkey\":\"" # data.delegationPubkey # "\"}";
-                        return jsonResponse(json, 200);
+                    case (?session) {
+                        // If session is still open or has delegation but not closed, return pending
+                        if (session.status != #Closed) {
+                            return jsonResponse("{\"status\":\"pending\"}", 200);
+                        };
+                        
+                        // Session is closed, return delegation data
+                        switch (iiIntegrationManager.getDelegation(sessionId)) {
+                            case null {
+                                return jsonResponse("{\"error\":\"Delegation not found\"}", 404);
+                            };
+                            case (?data) {
+                                // Return the delegation data in the format expo-ii-integration expects
+                                let json = "{\"status\":\"success\"," #
+                                          "\"delegation\":\"" # data.delegation # "\"," #
+                                          "\"userPublicKey\":\"" # data.userPublicKey # "\"," #
+                                          "\"delegationPubkey\":\"" # data.delegationPubkey # "\"}";
+                                return jsonResponse(json, 200);
+                            };
+                        };
                     };
                 };
             };
@@ -1092,8 +1358,36 @@ actor GameUnified {
                 let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io";
                 let response = iiIntegrationManager.newSession(publicKey, canisterOrigin);
                 
-                // Build callback URL with original query parameters
-                let callbackUrl = canisterOrigin # "/callback?" # fullQueryString;
+                // Build callback URL with redirect-uri from original query if present
+                var callbackUrl = canisterOrigin # "/callback";
+                
+                // Extract redirect-uri parameter from original query
+                var hasRedirectUri = false;
+                if (Text.contains(fullQueryString, #text "redirect-uri=")) {
+                    let parts = Text.split(fullQueryString, #text "&");
+                    for (part in parts) {
+                        if (Text.startsWith(part, #text "redirect-uri=")) {
+                            callbackUrl #= "?" # part;
+                            hasRedirectUri := true;
+                        };
+                    };
+                };
+                
+                // If no redirect-uri was provided, use default for Expo Go
+                if (not hasRedirectUri) {
+                    // Check if this is from a mobile deep link type (likely Expo Go)
+                    if (Text.contains(fullQueryString, #text "deep-link-type=expo-go") or 
+                        Text.contains(fullQueryString, #text "deep-link-type=legacy") or
+                        Text.contains(fullQueryString, #text "deep-link-type=modern")) {
+                        // Use Expo Auth Session proxy URL for mobile
+                        let defaultRedirectUri = "https://auth.expo.io/@hude/guess-the-spot/auth";
+                        var encodedRedirectUri = defaultRedirectUri;
+                        encodedRedirectUri := Text.replace(encodedRedirectUri, #char ':', "%3A");
+                        encodedRedirectUri := Text.replace(encodedRedirectUri, #char '/', "%2F");
+                        encodedRedirectUri := Text.replace(encodedRedirectUri, #char '@', "%40");
+                        callbackUrl #= "?redirect-uri=" # encodedRedirectUri;
+                    };
+                };
                 
                 // Build authorize URL for II
                 let authorizeUrl = "https://identity.ic0.app/#authorize?" #
@@ -1122,19 +1416,12 @@ actor GameUnified {
                 return htmlResponse(redirectHtml, 200);
             };
             
-            // Default response if no parameters
-            return htmlResponse("<h1>II Integration Canister</h1>", 200);
+            // Default response if no parameters - return JSON for expo-ii-integration
+            return jsonResponse("{\"status\":\"ready\",\"canisterId\":\"77fv5-oiaaa-aaaal-qsoea-cai\"}", 200);
         };
         
-        // Default response - more helpful for debugging
-        {
-            body = Text.encodeUtf8("Not Found - Path: " # path # ", Full URL: " # fullPath);
-            headers = [
-                ("Content-Type", "text/plain"),
-                ("Access-Control-Allow-Origin", "*")
-            ];
-            status_code = 404;
-        }
+        // Default response - return JSON for compatibility
+        jsonResponse("{\"error\":\"Not Found\",\"path\":\"" # path # "\"}", 404)
     };
     
     public func http_request_update(req: HttpRequest) : async HttpResponse {

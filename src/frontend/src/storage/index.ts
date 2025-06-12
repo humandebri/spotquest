@@ -103,7 +103,13 @@ export class NativeSecureStorage implements Storage {
       const indexStr = await SecureStore.getItemAsync(this.keyIndexKey);
       if (!indexStr) return [];
       
-      const allKeys = JSON.parse(indexStr) as string[];
+      let allKeys: string[];
+      try {
+        allKeys = JSON.parse(indexStr) as string[];
+      } catch (error) {
+        console.error('Failed to parse key index, resetting:', error);
+        allKeys = [];
+      }
       return allKeys.filter(key => key.startsWith(prefix));
     } catch (error) {
       console.error('NativeSecureStorage find error:', error);
@@ -114,7 +120,15 @@ export class NativeSecureStorage implements Storage {
   private async updateKeyIndex(key: string, action: 'add' | 'remove'): Promise<void> {
     try {
       const indexStr = await SecureStore.getItemAsync(this.keyIndexKey);
-      let keys: string[] = indexStr ? JSON.parse(indexStr) : [];
+      let keys: string[] = [];
+      if (indexStr) {
+        try {
+          keys = JSON.parse(indexStr);
+        } catch (error) {
+          console.error('Failed to parse key index, resetting:', error);
+          keys = [];
+        }
+      }
       
       if (action === 'add' && !keys.includes(key)) {
         keys.push(key);
@@ -249,7 +263,13 @@ export class NativeRegularStorage implements Storage {
       const indexStr = await SecureStore.getItemAsync(this.keyIndexKey);
       if (!indexStr) return [];
       
-      const allKeys = JSON.parse(indexStr) as string[];
+      let allKeys: string[];
+      try {
+        allKeys = JSON.parse(indexStr) as string[];
+      } catch (error) {
+        console.error('Failed to parse regular storage key index, resetting:', error);
+        allKeys = [];
+      }
       return allKeys.filter(key => key.startsWith(prefix));
     } catch (error) {
       console.error('NativeRegularStorage find error:', error);
@@ -260,7 +280,15 @@ export class NativeRegularStorage implements Storage {
   private async updateKeyIndex(key: string, action: 'add' | 'remove'): Promise<void> {
     try {
       const indexStr = await SecureStore.getItemAsync(this.keyIndexKey);
-      let keys: string[] = indexStr ? JSON.parse(indexStr) : [];
+      let keys: string[] = [];
+      if (indexStr) {
+        try {
+          keys = JSON.parse(indexStr);
+        } catch (error) {
+          console.error('Failed to parse key index, resetting:', error);
+          keys = [];
+        }
+      }
       
       if (action === 'add' && !keys.includes(key)) {
         keys.push(key);

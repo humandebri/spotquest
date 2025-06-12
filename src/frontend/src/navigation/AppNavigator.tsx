@@ -1,6 +1,7 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../hooks/useAuth';
+import { DEBUG_CONFIG, debugLog } from '../utils/debugConfig';
 
 // スクリーンのインポート
 import HomeScreen from '../screens/HomeScreen';
@@ -8,6 +9,7 @@ import GameModeScreen from '../screens/GameModeScreen';
 import GamePlayScreen from '../screens/GamePlayScreen';
 import GuessMapScreen from '../screens/GuessMapScreen';
 import GameResultScreen from '../screens/GameResultScreen';
+import SessionSummaryScreen from '../screens/SessionSummaryScreen';
 import CameraScreen from '../screens/CameraScreen';
 import PhotoUploadScreen from '../screens/PhotoUploadScreen';
 import LeaderboardScreen from '../screens/LeaderboardScreen';
@@ -40,6 +42,7 @@ export type RootStackParamList = {
     difficulty?: string;
     photoUrl?: string;
   };
+  SessionSummary: undefined;
   Camera: undefined;
   PhotoUpload: {
     photoUri: string;
@@ -57,7 +60,20 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function AppNavigator() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading, isDevMode } = useAuth();
+  
+  // Debug navigation state
+  debugLog('AUTH_FLOW', '🔍 Navigator state:', { 
+    isAuthenticated, 
+    isLoading, 
+    isDevMode,
+    initialRoute: isAuthenticated ? "Home" : "Login"
+  });
+  
+  // Show loading while auth is initializing (but not in dev mode)
+  if (isLoading && !isDevMode) {
+    return null; // or a loading component
+  }
 
   return (
     <Stack.Navigator
@@ -77,7 +93,7 @@ export default function AppNavigator() {
           <Stack.Screen
             name="Home"
             component={HomeScreen}
-            options={{ title: 'Guess the Spot' }}
+            options={{ headerShown: false }}
           />
           <Stack.Screen
             name="Game"
@@ -87,7 +103,7 @@ export default function AppNavigator() {
           <Stack.Screen
             name="GamePlay"
             component={GamePlayScreen}
-            options={{ title: 'Guess the Location' }}
+            options={{ headerShown: false }}
           />
           <Stack.Screen
             name="GuessMap"
@@ -101,6 +117,14 @@ export default function AppNavigator() {
           <Stack.Screen
             name="GameResult"
             component={GameResultScreen}
+            options={{ 
+              headerShown: false,
+              gestureEnabled: false,
+            }}
+          />
+          <Stack.Screen
+            name="SessionSummary"
+            component={SessionSummaryScreen}
             options={{ 
               headerShown: false,
               gestureEnabled: false,

@@ -300,6 +300,15 @@ module {
             }
         };
 
+        // Get all session IDs for debugging
+        public func getAllSessionIds() : [Text] {
+            let buffer = Buffer.Buffer<Text>(sessions.size());
+            for ((id, _) in sessions.entries()) {
+                buffer.add(id);
+            };
+            Buffer.toArray(buffer)
+        };
+        
         // Get session status
         public func getSessionStatus(sessionId: Text) : ?SessionData {
             sessions.get(sessionId)

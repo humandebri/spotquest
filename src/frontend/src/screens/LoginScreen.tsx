@@ -11,21 +11,101 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons, Feather } from '@expo/vector-icons';
+import * as WebBrowser from 'expo-web-browser';
 import { useAuth } from '../hooks/useAuth';
+import { getSecureStorage, getRegularStorage } from '../storage';
+import { clearAllIIData } from '../utils/clearAllIIData';
+import { AuthPoller } from '../utils/authPoller';
+import { checkAndFixDelegation, createMockDelegation } from '../utils/delegationFix';
+import { useDevAuth } from '../contexts/DevAuthContext';
+import { DEBUG_CONFIG, debugLog, debugError } from '../utils/debugConfig';
 
 export default function LoginScreen() {
-  const { login, isLoading, error, clearError } = useAuth();
+  const { login, isLoading, error, clearError, isAuthenticated } = useAuth();
+  const { loginAsDev, isDevMode } = useDevAuth();
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [isDevLogin, setIsDevLogin] = useState(false);
+  const authPollerRef = React.useRef<AuthPoller | null>(null);
+  
+  // Monitor authentication state changes
+  React.useEffect(() => {
+    debugLog('AUTH_FLOW', '🔍 LoginScreen: isAuthenticated =', isAuthenticated);
+    if (isAuthenticated) {
+      debugLog('AUTH_FLOW', '✅ User authenticated successfully!');
+      setIsConnecting(false);
+      // Stop polling if running
+      if (authPollerRef.current) {
+        authPollerRef.current.stop();
+        authPollerRef.current = null;
+      }
+    }
+  }, [isAuthenticated]);
+  
+  // Cleanup poller on unmount
+  React.useEffect(() => {
+    return () => {
+      if (authPollerRef.current) {
+        authPollerRef.current.stop();
+      }
+    };
+  }, []);
+
+  const handleDevLogin = async () => {
+    setIsDevLogin(true);
+    try {
+      debugLog('AUTH_FLOW', '🔧 Starting dev login...');
+      await loginAsDev();
+      debugLog('AUTH_FLOW', '🔧 Dev login successful!');
+    } catch (error) {
+      debugError('AUTH_FLOW', '🔧 Dev login error:', error);
+      Alert.alert('Dev Login Error', 'Failed to login with dev credentials');
+    } finally {
+      setIsDevLogin(false);
+    }
+  };
 
   const handleLogin = async () => {
     setIsConnecting(true);
     if (clearError) clearError(); // Clear any previous errors
     
     try {
-      await login();
-      // Login success will be handled by the auth context and navigation will happen automatically
+      debugLog('AUTH_FLOW', '🔍 Starting login on physical device...');
+      const result = await login();
+      debugLog('AUTH_FLOW', '🔍 Login result:', result);
+      
+      // For physical devices, the browser will open
+      if (Platform.OS !== 'web') {
+        debugLog('AUTH_FLOW', '🔍 Browser opened for II authentication');
+        debugLog('AUTH_FLOW', '🔍 Waiting for user to complete authentication in browser...');
+        
+        // Start auth polling with delegation fix
+        const poller = new AuthPoller(
+          async () => {
+            // Check if delegation exists in storage
+            const regularStorage = getRegularStorage();
+            
+            // First try to fix missing delegation
+            const fixed = await checkAndFixDelegation(regularStorage);
+            if (fixed) {
+              debugLog('AUTH_FLOW', '✅ Delegation fixed!');
+            }
+            
+            const delegation = await regularStorage.getItem('expo-ii-integration.delegation');
+            return delegation !== null;
+          },
+          () => {
+            debugLog('AUTH_FLOW', '✅ Authentication detected by poller!');
+            // Force a re-render to check auth state
+            setIsConnecting(false);
+          }
+        );
+        
+        authPollerRef.current = poller;
+        poller.start();
+      }
     } catch (err) {
-      console.error('Login error:', err);
+      debugError('AUTH_FLOW', 'Login error:', err);
       Alert.alert(
         'Authentication Error',
         err instanceof Error ? err.message : 'Login failed. Please try again.',
@@ -34,6 +114,42 @@ export default function LoginScreen() {
     } finally {
       setIsConnecting(false);
     }
+  };
+
+  const handleReset = async () => {
+    Alert.alert(
+      'Reset Authentication',
+      'This will clear all stored authentication data. Are you sure?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: async () => {
+            setIsResetting(true);
+            try {
+              const secureStorage = getSecureStorage();
+              const regularStorage = getRegularStorage();
+              await clearAllIIData(secureStorage, regularStorage);
+              
+              if (Platform.OS === 'web') {
+                window.location.reload();
+              } else {
+                Alert.alert('Success', 'Authentication data has been reset.');
+              }
+            } catch (error) {
+              debugError('AUTH_FLOW', 'Reset error:', error);
+              Alert.alert('Error', 'Failed to reset authentication data.');
+            } finally {
+              setIsResetting(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -56,7 +172,10 @@ export default function LoginScreen() {
           <View style={styles.loginSection}>
             <Text style={styles.welcomeText}>Welcome Back!</Text>
             <Text style={styles.instructionText}>
-              Connect your Internet Identity to continue your journey
+              {isDevMode ? 
+                'Development mode - for testing purposes only' :
+                'Connect your Internet Identity to continue your journey'
+              }
             </Text>
 
             {error && (
@@ -84,13 +203,128 @@ export default function LoginScreen() {
               )}
             </TouchableOpacity>
 
+            {/* Dev Login Button */}
+            {__DEV__ && (
+              <TouchableOpacity
+                style={[styles.devLoginButton, isDevLogin && styles.loginButtonDisabled]}
+                onPress={handleDevLogin}
+                disabled={isDevLogin || isLoading}
+              >
+                {isDevLogin ? (
+                  <ActivityIndicator color="#ff6b6b" />
+                ) : (
+                  <>
+                    <Feather name="code" size={20} color="#ff6b6b" />
+                    <Text style={styles.devLoginButtonText}>
+                      Dev Login (Testing)
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
+
             {Platform.OS !== 'web' && (
-              <View style={styles.mobileInfo}>
-                <Feather name="info" size={16} color="#94a3b8" />
-                <Text style={styles.mobileInfoText}>
-                  Mobile authentication will open a browser window
-                </Text>
-              </View>
+              <>
+                <View style={styles.mobileInfo}>
+                  <Feather name="info" size={16} color="#94a3b8" />
+                  <Text style={styles.mobileInfoText}>
+                    Mobile authentication will open a browser window
+                  </Text>
+                </View>
+                
+                {isConnecting && (
+                  <TouchableOpacity
+                    style={styles.returnButton}
+                    onPress={async () => {
+                      console.log('🔗 Manual return button pressed');
+                      
+                      // Stop poller
+                      if (authPollerRef.current) {
+                        authPollerRef.current.stop();
+                        authPollerRef.current = null;
+                      }
+                      
+                      // Try to close the browser
+                      WebBrowser.coolDownAsync();
+                      
+                      // Check if delegation was stored
+                      const regularStorage = getRegularStorage();
+                      const delegation = await regularStorage.getItem('expo-ii-integration.delegation');
+                      
+                      if (delegation) {
+                        console.log('✅ Delegation found! Authentication should be complete.');
+                        // Force a page reload to re-initialize auth
+                        if (Platform.OS === 'web') {
+                          window.location.reload();
+                        } else {
+                          Alert.alert(
+                            'Authentication Complete',
+                            'Please restart the app to complete login.',
+                            [{ text: 'OK' }]
+                          );
+                        }
+                      } else {
+                        console.log('❌ No delegation found yet.');
+                        
+                        // Try delegation fix
+                        const fixed = await checkAndFixDelegation(regularStorage);
+                        if (fixed) {
+                          console.log('✅ Delegation fixed manually!');
+                          Alert.alert(
+                            'Authentication Complete',
+                            'Please restart the app to complete login.',
+                            [{ text: 'OK' }]
+                          );
+                        } else {
+                          // Ask if user wants to use mock delegation for testing
+                          Alert.alert(
+                            'Authentication Issue',
+                            'Could not retrieve authentication data. This is a known issue with Expo Go.',
+                            [
+                              {
+                                text: 'Cancel',
+                                style: 'cancel'
+                              },
+                              {
+                                text: 'Use Test Mode',
+                                onPress: async () => {
+                                  await createMockDelegation(regularStorage);
+                                  Alert.alert('Test Mode', 'Please restart the app to use test authentication.');
+                                }
+                              }
+                            ]
+                          );
+                        }
+                      }
+                      
+                      setIsConnecting(false);
+                    }}
+                  >
+                    <Feather name="arrow-left" size={16} color="#3b82f6" />
+                    <Text style={styles.returnButtonText}>
+                      Tap here after completing login in browser
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            )}
+
+            {/* Debug reset button */}
+            {__DEV__ && (
+              <TouchableOpacity
+                style={styles.resetButton}
+                onPress={handleReset}
+                disabled={isResetting}
+              >
+                {isResetting ? (
+                  <ActivityIndicator color="#ef4444" size="small" />
+                ) : (
+                  <>
+                    <Feather name="refresh-cw" size={16} color="#ef4444" />
+                    <Text style={styles.resetButtonText}>Reset Auth Data</Text>
+                  </>
+                )}
+              </TouchableOpacity>
             )}
           </View>
         </View>
@@ -199,5 +433,53 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginLeft: 8,
     flex: 1,
+  },
+  resetButton: {
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+  },
+  resetButtonText: {
+    color: '#ef4444',
+    fontSize: 14,
+    marginLeft: 8,
+  },
+  returnButton: {
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.3)',
+  },
+  returnButtonText: {
+    color: '#3b82f6',
+    fontSize: 14,
+    marginLeft: 8,
+  },
+  devLoginButton: {
+    width: '100%',
+    backgroundColor: 'rgba(255, 107, 107, 0.2)',
+    borderWidth: 2,
+    borderColor: '#ff6b6b',
+    paddingVertical: 16,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
+  },
+  devLoginButtonText: {
+    color: '#ff6b6b',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
   },
 });

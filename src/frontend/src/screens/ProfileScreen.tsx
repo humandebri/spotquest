@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,8 @@ import {
   TextInput,
   RefreshControl,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Principal } from '@dfinity/principal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { 
@@ -25,6 +27,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import photoService, { PhotoMetadata, PhotoUpdateInfo } from '../services/photo';
+import { gameService } from '../services/game';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Profile'>;
 
@@ -41,18 +44,35 @@ interface UserStats {
 
 export default function ProfileScreen() {
   const navigation = useNavigation<NavigationProp>();
-  const { principal, logout } = useAuth();
+  const { principal, logout, identity } = useAuth();
   const [currentTab, setCurrentTab] = useState<'stats' | 'photos' | 'achievements'>('stats');
+  const [isServiceInitialized, setIsServiceInitialized] = useState(false);
+  const [isLoadingStats, setIsLoadingStats] = useState(false);
   
-  const [stats] = useState<UserStats>({
-    totalGamesPlayed: 42,
-    totalPhotosUploaded: 15,
-    totalRewardsEarned: 156.78,
-    bestScore: 98,
-    averageScore: 76.5,
-    winRate: 0.65,
-    currentStreak: 3,
-    longestStreak: 7,
+  // Username state
+  const [username, setUsername] = useState('Anonymous User');
+  const [showUsernameModal, setShowUsernameModal] = useState(false);
+  const [tempUsername, setTempUsername] = useState('');
+  
+  // Token balance state
+  const [tokenBalance, setTokenBalance] = useState<bigint>(BigInt(0));
+  const [isLoadingBalance, setIsLoadingBalance] = useState(false);
+  
+  // Withdraw modal state
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [withdrawTo, setWithdrawTo] = useState('');
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [isWithdrawing, setIsWithdrawing] = useState(false);
+  
+  const [stats, setStats] = useState<UserStats>({
+    totalGamesPlayed: 0,
+    totalPhotosUploaded: 0,
+    totalRewardsEarned: 0,
+    bestScore: 0,
+    averageScore: 0,
+    winRate: 0,
+    currentStreak: 0,
+    longestStreak: 0,
   });
 
   // Photo management state
@@ -70,6 +90,199 @@ export default function ProfileScreen() {
   });
   const [isUpdating, setIsUpdating] = useState(false);
 
+  // Load username from storage
+  const loadUsername = useCallback(async () => {
+    if (principal) {
+      try {
+        const savedUsername = await AsyncStorage.getItem(`username_${principal.toString()}`);
+        if (savedUsername) {
+          setUsername(savedUsername);
+        }
+      } catch (error) {
+        console.error('Failed to load username:', error);
+      }
+    }
+  }, [principal]);
+  
+  // Save username to storage
+  const saveUsername = useCallback(async (newUsername: string) => {
+    if (principal && newUsername.trim()) {
+      try {
+        await AsyncStorage.setItem(`username_${principal.toString()}`, newUsername.trim());
+        setUsername(newUsername.trim());
+      } catch (error) {
+        console.error('Failed to save username:', error);
+        Alert.alert('Error', 'Failed to save username');
+      }
+    }
+  }, [principal]);
+  
+  // Load token balance
+  const loadTokenBalance = useCallback(async () => {
+    if (!principal || !isServiceInitialized) return;
+    
+    setIsLoadingBalance(true);
+    try {
+      const balance = await gameService.getTokenBalance(principal);
+      setTokenBalance(balance);
+    } catch (error) {
+      console.error('Failed to load token balance:', error);
+    } finally {
+      setIsLoadingBalance(false);
+    }
+  }, [principal, isServiceInitialized]);
+  
+  // Initialize game service
+  React.useEffect(() => {
+    const initService = async () => {
+      if (identity && !isServiceInitialized) {
+        try {
+          await gameService.init(identity);
+          setIsServiceInitialized(true);
+        } catch (error) {
+          console.error('Failed to initialize game service:', error);
+        }
+      }
+    };
+    initService();
+  }, [identity, isServiceInitialized]);
+  
+  // Load username when principal is available
+  React.useEffect(() => {
+    loadUsername();
+  }, [loadUsername]);
+  
+  // Load token balance when service is initialized
+  React.useEffect(() => {
+    if (isServiceInitialized) {
+      loadTokenBalance();
+    }
+  }, [isServiceInitialized, loadTokenBalance]);
+
+  // Load player stats
+  const loadPlayerStats = React.useCallback(async () => {
+    if (!principal || !isServiceInitialized) return;
+    
+    setIsLoadingStats(true);
+    try {
+      const playerStats = await gameService.getPlayerStats(principal);
+      if (playerStats) {
+        setStats({
+          totalGamesPlayed: Number(playerStats.totalGamesPlayed),
+          totalPhotosUploaded: Number(playerStats.totalPhotosUploaded),
+          totalRewardsEarned: Number(playerStats.totalRewardsEarned) / 100, // Convert to SPOT
+          bestScore: Number(playerStats.bestScore),
+          averageScore: Number(playerStats.averageScore), // Backend already calculates correctly
+          winRate: playerStats.winRate,
+          currentStreak: Number(playerStats.currentStreak),
+          longestStreak: Number(playerStats.longestStreak),
+        });
+      } else {
+        // If stats are null, reset to default values
+        console.log('No player stats returned, using default values');
+        setStats({
+          totalGamesPlayed: 0,
+          totalPhotosUploaded: 0,
+          totalRewardsEarned: 0,
+          bestScore: 0,
+          averageScore: 0,
+          winRate: 0,
+          currentStreak: 0,
+          longestStreak: 0,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to load player stats:', error);
+    } finally {
+      setIsLoadingStats(false);
+    }
+  }, [principal, isServiceInitialized]);
+  
+  // Withdraw tokens function
+  const handleWithdraw = async () => {
+    if (!identity || !principal) {
+      Alert.alert('Error', 'Not authenticated');
+      return;
+    }
+    
+    if (!withdrawTo.trim()) {
+      Alert.alert('Error', 'Please enter a destination principal');
+      return;
+    }
+    
+    if (!withdrawAmount.trim() || isNaN(Number(withdrawAmount)) || Number(withdrawAmount) <= 0) {
+      Alert.alert('Error', 'Please enter a valid amount');
+      return;
+    }
+    
+    const amountUnits = BigInt(Math.floor(Number(withdrawAmount) * 100)); // Convert to units
+    const transferFee = BigInt(1); // 1 unit transfer fee
+    
+    if (amountUnits + transferFee > tokenBalance) {
+      Alert.alert('Error', 'Insufficient balance (including transfer fee)');
+      return;
+    }
+    
+    try {
+      const toPrincipal = Principal.fromText(withdrawTo.trim());
+      
+      setIsWithdrawing(true);
+      
+      // Add icrc1_transfer method to game service temporarily
+      const transferArgs = {
+        to: { owner: toPrincipal, subaccount: [] },
+        amount: amountUnits,
+        fee: [transferFee],
+        memo: [],
+        from_subaccount: [],
+        created_at_time: []
+      };
+      
+      const result = await (gameService as any).actor.icrc1_transfer(transferArgs);
+      
+      if (result.Err) {
+        throw new Error(`Transfer failed: ${Object.keys(result.Err)[0]}`);
+      }
+      
+      Alert.alert('Success', `Transferred ${withdrawAmount} SPOT`);
+      setShowWithdrawModal(false);
+      setWithdrawTo('');
+      setWithdrawAmount('');
+      
+      // Reload balance
+      loadTokenBalance();
+      
+    } catch (error) {
+      console.error('Withdraw error:', error);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Transfer failed');
+    } finally {
+      setIsWithdrawing(false);
+    }
+  };
+  
+  // Handle max button for withdraw
+  const handleMaxWithdraw = () => {
+    const transferFee = BigInt(1);
+    const maxAmount = tokenBalance > transferFee ? tokenBalance - transferFee : BigInt(0);
+    const maxAmountSpot = Number(maxAmount) / 100; // Convert to SPOT
+    setWithdrawAmount(maxAmountSpot.toFixed(2));
+  };
+
+  // Load stats when service is ready
+  React.useEffect(() => {
+    if (isServiceInitialized && currentTab === 'stats') {
+      loadPlayerStats();
+    }
+  }, [isServiceInitialized, currentTab, loadPlayerStats]);
+  
+  // Refresh all data
+  const refreshData = async () => {
+    await Promise.all([
+      loadPlayerStats(),
+      loadTokenBalance()
+    ]);
+  };
+
   // Load user photos
   const loadUserPhotos = async (showRefreshing = false) => {
     if (showRefreshing) {
@@ -79,7 +292,7 @@ export default function ProfileScreen() {
     }
 
     try {
-      const photos = await photoService.getUserPhotos();
+      const photos = await photoService.getUserPhotos(identity);
       setUserPhotos(photos);
     } catch (error) {
       console.error('Failed to load user photos:', error);
@@ -149,12 +362,42 @@ export default function ProfileScreen() {
   ];
 
   const statItems = [
-    { icon: 'game-controller', value: stats.totalGamesPlayed, label: 'Games', color: '#3b82f6' },
-    { icon: 'camera', value: stats.totalPhotosUploaded, label: 'Photos', color: '#8b5cf6' },
-    { icon: 'trophy', value: stats.bestScore, label: 'Best Score', color: '#f59e0b' },
-    { icon: 'analytics', value: stats.averageScore.toFixed(1), label: 'Avg Score', color: '#10b981' },
-    { icon: 'trending-up', value: `${(stats.winRate * 100).toFixed(0)}%`, label: 'Win Rate', color: '#ef4444' },
-    { icon: 'flame', value: stats.currentStreak, label: 'Streak', color: '#f97316' },
+    { 
+      icon: 'game-controller', 
+      value: stats.totalGamesPlayed > 0 ? stats.totalGamesPlayed : 'nodata', 
+      label: 'Games', 
+      color: '#3b82f6' 
+    },
+    { 
+      icon: 'camera', 
+      value: stats.totalPhotosUploaded > 0 ? stats.totalPhotosUploaded : 'nodata', 
+      label: 'Photos', 
+      color: '#8b5cf6' 
+    },
+    { 
+      icon: 'trophy', 
+      value: stats.bestScore > 0 ? stats.bestScore : 'nodata', 
+      label: 'Best Score', 
+      color: '#f59e0b' 
+    },
+    { 
+      icon: 'analytics', 
+      value: stats.totalGamesPlayed > 0 && stats.averageScore > 0 ? stats.averageScore.toFixed(1) : 'nodata', 
+      label: 'Avg Score', 
+      color: '#10b981' 
+    },
+    { 
+      icon: 'trending-up', 
+      value: stats.totalGamesPlayed > 0 ? `${(stats.winRate * 100).toFixed(0)}%` : 'nodata', 
+      label: 'Win Rate', 
+      color: '#ef4444' 
+    },
+    { 
+      icon: 'flame', 
+      value: stats.currentStreak > 0 ? stats.currentStreak : 'nodata', 
+      label: 'Streak', 
+      color: '#f97316' 
+    },
   ];
 
   return (
@@ -166,7 +409,13 @@ export default function ProfileScreen() {
             <View style={styles.avatar}>
               <MaterialCommunityIcons name="account" size={48} color="#ffffff" />
             </View>
-            <Text style={styles.username}>Anonymous User</Text>
+            <TouchableOpacity onPress={() => {
+              setTempUsername(username);
+              setShowUsernameModal(true);
+            }}>
+              <Text style={styles.username}>{username}</Text>
+              <Text style={styles.editUsernameHint}>Tap to edit</Text>
+            </TouchableOpacity>
             <Text style={styles.principal}>
               {principal ? `${principal.toString().slice(0, 8)}...` : 'Not connected'}
             </Text>
@@ -177,10 +426,13 @@ export default function ProfileScreen() {
                 <View>
                   <Text style={styles.balanceLabel}>SPOT Balance</Text>
                   <Text style={styles.balanceValue}>
-                    {stats.totalRewardsEarned.toFixed(2)}
+                    {isLoadingBalance ? '...' : (Number(tokenBalance) / 100).toFixed(2)}
                   </Text>
                 </View>
-                <TouchableOpacity style={styles.withdrawButton}>
+                <TouchableOpacity 
+                  style={styles.withdrawButton}
+                  onPress={() => setShowWithdrawModal(true)}
+                >
                   <Text style={styles.withdrawButtonText}>Withdraw</Text>
                 </TouchableOpacity>
               </View>
@@ -497,6 +749,136 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Username Edit Modal */}
+      <Modal
+        visible={showUsernameModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowUsernameModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Edit Username</Text>
+              <TouchableOpacity onPress={() => setShowUsernameModal(false)}>
+                <Ionicons name="close" size={28} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.modalBody}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Username</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={tempUsername}
+                  onChangeText={setTempUsername}
+                  placeholder="Enter username"
+                  placeholderTextColor="#64748b"
+                  maxLength={50}
+                />
+              </View>
+              
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalButtonPrimary]}
+                  onPress={async () => {
+                    if (tempUsername.trim()) {
+                      await saveUsername(tempUsername);
+                      setShowUsernameModal(false);
+                    }
+                  }}
+                >
+                  <Text style={styles.modalButtonTextPrimary}>Save</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalButtonSecondary]}
+                  onPress={() => setShowUsernameModal(false)}
+                >
+                  <Text style={styles.modalButtonTextSecondary}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Withdraw Modal */}
+      <Modal
+        visible={showWithdrawModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowWithdrawModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Withdraw SPOT Tokens</Text>
+              <TouchableOpacity onPress={() => setShowWithdrawModal(false)}>
+                <Ionicons name="close" size={28} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.modalBody}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Destination Principal</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={withdrawTo}
+                  onChangeText={setWithdrawTo}
+                  placeholder="Enter principal ID"
+                  placeholderTextColor="#64748b"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
+              
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Amount (SPOT)</Text>
+                <View style={styles.amountInputContainer}>
+                  <TextInput
+                    style={[styles.textInput, styles.amountInput]}
+                    value={withdrawAmount}
+                    onChangeText={setWithdrawAmount}
+                    placeholder="0.00"
+                    placeholderTextColor="#64748b"
+                    keyboardType="decimal-pad"
+                  />
+                  <TouchableOpacity
+                    style={styles.maxButton}
+                    onPress={handleMaxWithdraw}
+                  >
+                    <Text style={styles.maxButtonText}>MAX</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.balanceHint}>
+                  Available: {(Number(tokenBalance) / 100).toFixed(2)} SPOT (Transfer fee: 0.01 SPOT)
+                </Text>
+              </View>
+              
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalButtonPrimary, isWithdrawing && styles.modalButtonDisabled]}
+                  onPress={handleWithdraw}
+                  disabled={isWithdrawing}
+                >
+                  {isWithdrawing ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <Text style={styles.modalButtonTextPrimary}>Withdraw</Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalButtonSecondary]}
+                  onPress={() => setShowWithdrawModal(false)}
+                >
+                  <Text style={styles.modalButtonTextSecondary}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </LinearGradient>
   );
 }
@@ -611,7 +993,13 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 24,
     fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  editUsernameHint: {
+    color: '#64748b',
+    fontSize: 12,
     marginBottom: 8,
+    textAlign: 'center',
   },
   principal: {
     color: '#94a3b8',
@@ -1074,5 +1462,30 @@ const styles = StyleSheet.create({
     color: '#ef4444',
     marginLeft: 8,
     fontWeight: '600',
+  },
+  // Withdraw modal styles
+  amountInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  amountInput: {
+    flex: 1,
+  },
+  maxButton: {
+    backgroundColor: '#3b82f6',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  maxButtonText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+    fontSize: 12,
+  },
+  balanceHint: {
+    color: '#64748b',
+    fontSize: 12,
+    marginTop: 8,
   },
 });

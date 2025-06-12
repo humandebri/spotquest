@@ -96,7 +96,7 @@ export default function GameModeScreen() {
       colors={['#0f172a', '#1e293b']}
       style={styles.container}
     >
-      <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
