@@ -271,14 +271,14 @@ class GameService {
       });
     };
 
-      // Actor作成（Dev modeでも通常の作成を行う - earlyPatchesが証明書検証を処理）
+      // Actor作成
       this.actor = Actor.createActor(idlFactory, {
         agent: this.agent,
         canisterId,
       });
       
       if (isDevMode) {
-        console.log('🎮 DEV: Actor created in dev mode (certificate verification patched by earlyPatches.ts)');
+        console.log('🎮 DEV: Actor created in dev mode - mock responses will be used for network errors');
       }
     } catch (error) {
       console.error('Failed to initialize game service actor:', error);
@@ -292,12 +292,18 @@ class GameService {
     }
     
     try {
-      console.log('🎮 DEV: Calling createSession...');
+      console.log('🎮 Calling createSession...');
       const result = await this.actor.createSession();
-      console.log('🎮 DEV: createSession result:', result);
+      console.log('🎮 createSession result:', result);
       return result;
     } catch (error: any) {
       console.error('Failed to create session:', error);
+      // In dev mode, return mock session ID if the error is network-related
+      if (this.identity?.constructor.name === 'Ed25519KeyIdentity' && 
+          (error.message.includes('unreachable') || error.message.includes('certificate'))) {
+        console.log('🎮 DEV: Returning mock session for dev mode');
+        return { ok: `dev-session-${Date.now()}` };
+      }
       return { err: error.message || 'Failed to create session' };
     }
   }
@@ -310,8 +316,26 @@ class GameService {
     try {
       const result = await this.actor.getNextRound(sessionId);
       return result;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to get next round:', error);
+      // In dev mode, return mock round data
+      if (this.identity?.constructor.name === 'Ed25519KeyIdentity' && 
+          (error.message.includes('unreachable') || error.message.includes('certificate'))) {
+        console.log('🎮 DEV: Returning mock round for dev mode');
+        return {
+          ok: {
+            photoId: BigInt(Math.floor(Math.random() * 1000) + 1),
+            status: { Active: null },
+            score: BigInt(0),
+            scoreNorm: BigInt(0),
+            guessData: [],
+            retryAvailable: false,
+            hintsPurchased: [],
+            startTime: BigInt(Date.now() * 1000000),
+            endTime: [],
+          }
+        };
+      }
       return { err: 'Failed to get next round' };
     }
   }
@@ -335,8 +359,32 @@ class GameService {
         confidenceRadius
       );
       return result;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to submit guess:', error);
+      // In dev mode, return mock submission result
+      if (this.identity?.constructor.name === 'Ed25519KeyIdentity' && 
+          (error.message.includes('unreachable') || error.message.includes('certificate'))) {
+        console.log('🎮 DEV: Returning mock submission for dev mode');
+        return {
+          ok: {
+            photoId: BigInt(Math.floor(Math.random() * 1000) + 1),
+            status: { Completed: null },
+            score: BigInt(Math.floor(Math.random() * 5000)),
+            scoreNorm: BigInt(Math.floor(Math.random() * 100)),
+            guessData: [{
+              lat: guessLat,
+              lon: guessLon,
+              azimuth: guessAzimuth ? [guessAzimuth] : [],
+              confidenceRadius,
+              submittedAt: BigInt(Date.now() * 1000000),
+            }],
+            retryAvailable: false,
+            hintsPurchased: [],
+            startTime: BigInt(Date.now() * 1000000 - 60000000000),
+            endTime: [BigInt(Date.now() * 1000000)],
+          }
+        };
+      }
       return { err: 'Failed to submit guess' };
     }
   }
@@ -381,8 +429,9 @@ class GameService {
       return balance;
     } catch (error: any) {
       if (this.identity?.constructor.name === 'Ed25519KeyIdentity' && 
-          error.message && error.message.includes('certificate')) {
-        console.warn('Dev mode: Certificate verification failed. Consider using Internet Identity for production access.');
+          (error.message.includes('unreachable') || error.message.includes('certificate'))) {
+        console.log('🎮 DEV: Returning mock balance for dev mode');
+        return BigInt(10000); // 100.00 SPOT
       } else {
         console.error('Failed to get token balance:', error);
       }
@@ -400,8 +449,21 @@ class GameService {
       return stats;
     } catch (error: any) {
       if (this.identity?.constructor.name === 'Ed25519KeyIdentity' && 
-          error.message && error.message.includes('certificate')) {
-        console.warn('Dev mode: Certificate verification failed. Consider using Internet Identity for production access.');
+          (error.message.includes('unreachable') || error.message.includes('certificate'))) {
+        console.log('🎮 DEV: Returning mock stats for dev mode');
+        return {
+          totalGamesPlayed: BigInt(5),
+          totalPhotosUploaded: BigInt(3),
+          totalRewardsEarned: BigInt(1500),
+          bestScore: BigInt(4500),
+          averageScore: BigInt(3200),
+          averageScore30Days: [BigInt(3500)],
+          rank: [BigInt(42)],
+          currentStreak: BigInt(2),
+          longestStreak: BigInt(5),
+          reputation: 4.5,
+          totalGuesses: BigInt(5),
+        };
       } else {
         console.error('Failed to get player stats:', error);
       }

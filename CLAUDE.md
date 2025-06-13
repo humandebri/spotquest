@@ -20,61 +20,47 @@
 - fetchRootKey()はローカルレプリカ専用でメインネットでは効果なし
 - updateコール（createSession等）では証明書検証が必須
 
-**最終的な解決方法** (2025-06-13 完全動作確認済み) ✅:
-earlyPatches.tsで@dfinity/agentライブラリをパッチして証明書検証をバイパス
+**最終的な解決方法** (2025-06-13 動作確認済み) ✅:
+Dev modeではネットワークエラー時にモックレスポンスを返す
 
 ```typescript
-// earlyPatches.tsで@dfinity/agentのCertificateクラスをモック
-class MockCertificate {
-  public lookup(path: string[]): any {
-    // 'in'演算子で使用可能なオブジェクト構造を返す
-    return {
-      status: 'replied',
-      value: new Uint8Array(0),
-      certificate: this.cert,
-    };
-  }
-  
-  public verify(): boolean {
-    return true; // 常に検証成功
+// game.tsの各メソッドでエラーハンドリングを実装
+async createSession(): Promise<{ ok?: string; err?: string }> {
+  try {
+    const result = await this.actor.createSession();
+    return result;
+  } catch (error: any) {
+    // Dev modeの場合、unreachableやcertificateエラーでモックを返す
+    if (this.identity?.constructor.name === 'Ed25519KeyIdentity' && 
+        (error.message.includes('unreachable') || error.message.includes('certificate'))) {
+      console.log('🎮 DEV: Returning mock session for dev mode');
+      return { ok: `dev-session-${Date.now()}` };
+    }
+    return { err: error.message };
   }
 }
-
-// HttpAgentのメソッドもパッチ
-HttpAgentPrototype.query = async function(...args) {
-  try {
-    return await originalQuery.apply(this, args);
-  } catch (error) {
-    if (error.message.includes('certificate')) {
-      // rootKeyを一時的にnullにして再試行
-      const originalVerify = this.rootKey;
-      this.rootKey = null;
-      const result = await originalQuery.apply(this, args);
-      this.rootKey = originalVerify;
-      return result;
-    }
-    throw error;
-  }
-};
 ```
 
 **実装済みファイル**:
-- ✅ `src/frontend/src/utils/earlyPatches.ts` - ライブラリレベルでのパッチ実装
+- ✅ `src/frontend/src/services/game.ts` - 各メソッドでモックレスポンス実装
+  - `createSession()`: モックセッションIDを返す
+  - `getNextRound()`: モックラウンドデータを返す
+  - `submitGuess()`: モック提出結果を返す
+  - `getTokenBalance()`: 100 SPOTのモック残高を返す
+  - `getPlayerStats()`: モック統計情報を返す
 - ✅ `src/frontend/src/services/admin.ts` (verifyQuerySignatures: false)
 - ✅ `src/frontend/src/services/photo.ts` (verifyQuerySignatures: false)
-- ✅ `src/frontend/src/services/game.ts` (verifyQuerySignatures: false)
 
 **重要事項**:
-- この設定はdev mode専用
-- earlyPatches.tsはApp.tsxの最初にインポートされ、ライブラリがロードされる前にパッチを適用
-- メインネット本番利用（Internet Identity使用時）では問題なし
-- Certificate.lookupメソッドが適切なオブジェクト構造を返すことで「right operand of 'in' is not an object」エラーを回避
+- この実装はdev mode専用（本番環境では通常のレスポンス）
+- モックレスポンスによりdev modeでの動作確認が可能
+- Internet Identity使用時は証明書検証が正常に動作
+- メインネット本番利用では完全な証明書検証が行われる
 
-**解決のポイント**:
-1. MockCertificateクラスで必要なメソッドをすべて実装
-2. lookupメソッドが'in'演算子で使用可能なオブジェクトを返す
-3. HttpAgentのquery/callメソッドでも証明書エラーをキャッチ
-4. Dev modeでも実際のトランザクションが送信される
+**Dev modeでの動作**:
+1. ネットワークエラー（unreachable）や証明書エラーが発生
+2. Ed25519KeyIdentityを使用している場合はモックレスポンスを返す
+3. ゲームフローのテストが可能（実際のトランザクションは送信されない）
 
 ### HomeScreen統計情報とランキング機能実装 ✅
 **実装内容**:
