@@ -147,7 +147,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
         
         // Create session if not exists or get next round for existing session
         if (!sessionId) {
-          const result = await gameService.createSession();
+          const result = await gameService.createSessionWithCleanup();
           
           if (result.err) {
             throw new Error(result.err);

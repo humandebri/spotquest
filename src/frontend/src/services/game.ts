@@ -22,15 +22,24 @@ export interface HintData {
   data: HintContent;
 }
 
+export interface SessionInfo {
+  id: string;
+  players: any[];
+  status: 'Active' | 'Completed' | 'Abandoned';
+  createdAt: bigint;
+  roundCount: bigint;
+  currentRound: [] | [bigint];
+}
+
 export interface SessionResult {
   sessionId: string;
-  userId: Principal;
+  userId: any;
   totalScore: bigint;
   totalScoreNorm: bigint;
   completedRounds: bigint;
   totalRounds: bigint;
   playerReward: bigint;
-  uploaderRewards: Array<[Principal, bigint]>;
+  uploaderRewards: Array<[any, bigint]>;
   duration: bigint;
   rank: [] | [bigint];
 }
@@ -185,6 +194,21 @@ class GameService {
         endTime: IDL.Opt(IDL.Int),
       });
 
+      const SessionStatus = IDL.Variant({
+        Active: IDL.Null,
+        Completed: IDL.Null,
+        Abandoned: IDL.Null,
+      });
+
+      const SessionInfo = IDL.Record({
+        id: IDL.Text,
+        players: IDL.Vec(IDL.Principal),
+        status: SessionStatus,
+        createdAt: IDL.Int,
+        roundCount: IDL.Nat,
+        currentRound: IDL.Opt(IDL.Nat),
+      });
+
       const SessionResult = IDL.Record({
         sessionId: IDL.Text,
         userId: IDL.Principal,
@@ -248,6 +272,11 @@ class GameService {
         err: IDL.Text,
       });
 
+      const Result_Sessions = IDL.Variant({
+        ok: IDL.Vec(SessionInfo),
+        err: IDL.Text,
+      });
+
       return IDL.Service({
         // Game Engine functions
         createSession: IDL.Func([], [Result_Text], []),
@@ -259,6 +288,9 @@ class GameService {
         ),
         purchaseHint: IDL.Func([IDL.Text, HintType], [Result_HintData], []),
         finalizeSession: IDL.Func([IDL.Text], [Result_SessionResult], []),
+        
+        // Session management functions
+        getUserSessions: IDL.Func([IDL.Principal], [Result_Sessions], ['query']),
         
         // Token functions
         icrc1_balance_of: IDL.Func([Account], [IDL.Nat], ['query']),
@@ -338,6 +370,75 @@ class GameService {
         name: error.name,
       });
       throw error;
+    }
+  }
+
+  async getUserSessions(principal: any): Promise<{ ok?: SessionInfo[]; err?: string }> {
+    if (!this.initialized || !this.actor) {
+      return { err: 'Service not initialized. Please login first.' };
+    }
+    
+    try {
+      console.log('🎮 Getting user sessions for:', principal.toString());
+      const result = await this.actor.getUserSessions(principal);
+      console.log('🎮 getUserSessions result:', result);
+      return result;
+    } catch (error: any) {
+      console.error('Failed to get user sessions:', error);
+      return { err: error.message || 'Failed to get user sessions' };
+    }
+  }
+
+  async createSessionWithCleanup(): Promise<{ ok?: string; err?: string }> {
+    if (!this.initialized || !this.actor) {
+      return { err: 'Service not initialized. Please login first.' };
+    }
+    
+    if (!this.identity) {
+      return { err: 'No identity available' };
+    }
+    
+    try {
+      const principal = this.identity.getPrincipal();
+      console.log('🎮 Creating session with cleanup for:', principal.toString());
+      
+      // 1. Get existing user sessions
+      const sessionsResult = await this.getUserSessions(principal);
+      
+      if (sessionsResult.err) {
+        console.warn('🎮 Could not get existing sessions:', sessionsResult.err);
+        // Continue anyway - maybe user has no previous sessions
+      } else if (sessionsResult.ok) {
+        // 2. Filter active sessions
+        const activeSessions = sessionsResult.ok.filter(session => session.status === 'Active');
+        console.log('🎮 Found', activeSessions.length, 'active sessions to cleanup');
+        
+        // 3. Finalize all active sessions
+        for (const session of activeSessions) {
+          console.log('🎮 Finalizing session:', session.id);
+          try {
+            const finalizeResult = await this.finalizeSession(session.id);
+            if (finalizeResult.err) {
+              console.warn('🎮 Failed to finalize session', session.id, ':', finalizeResult.err);
+            } else {
+              console.log('🎮 Successfully finalized session:', session.id);
+            }
+          } catch (error: any) {
+            console.warn('🎮 Error finalizing session', session.id, ':', error.message);
+            // Continue with other sessions
+          }
+        }
+      }
+      
+      // 4. Create new session (should now succeed)
+      console.log('🎮 Creating new session after cleanup...');
+      const result = await this.createSession();
+      console.log('🎮 createSessionWithCleanup result:', result);
+      return result;
+      
+    } catch (error: any) {
+      console.error('Failed to create session with cleanup:', error);
+      return { err: error.message || 'Failed to create session with cleanup' };
     }
   }
 
@@ -431,7 +532,7 @@ class GameService {
     }
   }
 
-  async getTokenBalance(principal: Principal): Promise<bigint> {
+  async getTokenBalance(principal: any): Promise<bigint> {
     if (!this.initialized || !this.actor) {
       return BigInt(0);
     }
@@ -448,7 +549,7 @@ class GameService {
     }
   }
 
-  async getPlayerStats(principal: Principal): Promise<any> {
+  async getPlayerStats(principal: any): Promise<any> {
     if (!this.initialized || !this.actor) {
       return null;
     }
@@ -463,7 +564,7 @@ class GameService {
   }
 
   // Admin function for dev mode minting
-  async adminMint(to: Principal, amount: bigint): Promise<{ ok?: bigint; err?: string }> {
+  async adminMint(to: any, amount: bigint): Promise<{ ok?: bigint; err?: string }> {
     if (!this.initialized || !this.actor) {
       return { err: 'Service not initialized. Please login first.' };
     }
