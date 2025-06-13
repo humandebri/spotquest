@@ -37,6 +37,7 @@ export interface SessionResult {
 
 class GameService {
   private actor: any;
+  private agent: HttpAgent | null = null;
   private identity: Identity | null = null;
   private initialized = false;
   
@@ -49,9 +50,22 @@ class GameService {
       throw new Error('No identity provided');
     }
 
-    // Reuse existing actor if identity hasn't changed
-    if (this.identity === identity && this.actor) {
+    // Debug logging
+    console.log('🎮 GameService.init called with identity:', {
+      type: identity.constructor.name,
+      principal: identity.getPrincipal().toString()
+    });
+
+    // Reuse existing actor if identity hasn't changed (but not for dev mode)
+    const isDevMode = identity.constructor.name === 'Ed25519KeyIdentity';
+    if (this.identity === identity && this.actor && !isDevMode) {
+      console.log('🎮 Reusing existing actor');
       return;
+    }
+    
+    // Dev modeでは常に新しいactorを作成（証明書エラー回避のため）
+    if (isDevMode && this.actor) {
+      console.log('🎮 DEV: Recreating actor with certificate bypass');
     }
 
     this.identity = identity;
@@ -60,23 +74,37 @@ class GameService {
   }
 
   private async initializeActor(identity: Identity) {
-    
-    // メインネット環境のみを使用
-    const agent = new HttpAgent({
-      identity,
-      host: process.env.EXPO_PUBLIC_IC_HOST || 'https://ic0.app',
-      // dev環境では証明書検証をスキップ（falseに設定）
-      verifyQuerySignatures: false,
-    });
+    try {
+      // Dev modeの場合、特別な設定を使用
+      const isDevMode = identity.constructor.name === 'Ed25519KeyIdentity';
+      
+      // Create HttpAgent with special configuration for dev mode
+      const agentOptions: any = {
+        identity,
+        host: process.env.EXPO_PUBLIC_IC_HOST || 'https://ic0.app',
+        // dev環境では証明書検証をスキップ
+        verifyQuerySignatures: false,
+      };
+      
+      this.agent = new HttpAgent(agentOptions);
+      
+      // Dev modeの場合、earlyPatches.tsが証明書検証を処理
+      if (isDevMode) {
+        console.log('🎮 DEV: Using HttpAgent in dev mode (certificate verification handled by earlyPatches.ts)');
+      }
 
-    // fetchRootKeyはローカルレプリカでのみ実行（mainnetでは不要）
-    // mainnetを使用しているため、fetchRootKeyは実行しない
-    // if (process.env.NODE_ENV === 'development') {
-    //   await agent.fetchRootKey();
-    // }
+      // fetchRootKeyはローカルレプリカでのみ実行（mainnetでは不要）
+      // mainnetを使用しているため、fetchRootKeyは実行しない
+      // if (process.env.NODE_ENV === 'development') {
+      //   await this.agent.fetchRootKey();
+      // }
 
-    // メインネットの統合canister IDを使用
-    const canisterId = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || '77fv5-oiaaa-aaaal-qsoea-cai';
+      // メインネットの統合canister IDを使用
+      const canisterId = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || '77fv5-oiaaa-aaaal-qsoea-cai';
+
+      if (!canisterId) {
+        throw new Error('Unified canister ID not found');
+      }
 
     // IDL factory for unified canister
     const idlFactory = () => {
@@ -215,18 +243,24 @@ class GameService {
           totalRewardsEarned: IDL.Nat,
           bestScore: IDL.Nat,
           averageScore: IDL.Nat,
-          winRate: IDL.Float64,
+          averageScore30Days: IDL.Opt(IDL.Nat),
+          rank: IDL.Opt(IDL.Nat),
           currentStreak: IDL.Nat,
           longestStreak: IDL.Nat,
           reputation: IDL.Float64,
           totalGuesses: IDL.Nat,
         })], ['query']),
         
+        // Ranking functions
+        getPlayerRank: IDL.Func([IDL.Principal], [IDL.Opt(IDL.Nat)], ['query']),
+        getLeaderboard: IDL.Func([IDL.Nat], [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Nat))], ['query']),
+        
         // Admin functions (for dev mode)
         adminMint: IDL.Func([IDL.Principal, IDL.Nat], [IDL.Variant({
           ok: IDL.Nat,
           err: IDL.Text,
         })], []),
+        getOwner: IDL.Func([], [IDL.Principal], ['query']),
         
         // Debug functions
         debugGetTokenInfo: IDL.Func([], [IDL.Record({
@@ -237,10 +271,19 @@ class GameService {
       });
     };
 
-    this.actor = Actor.createActor(idlFactory, {
-      agent,
-      canisterId,
-    });
+      // Actor作成（Dev modeでも通常の作成を行う - earlyPatchesが証明書検証を処理）
+      this.actor = Actor.createActor(idlFactory, {
+        agent: this.agent,
+        canisterId,
+      });
+      
+      if (isDevMode) {
+        console.log('🎮 DEV: Actor created in dev mode (certificate verification patched by earlyPatches.ts)');
+      }
+    } catch (error) {
+      console.error('Failed to initialize game service actor:', error);
+      throw error;
+    }
   }
 
   async createSession(): Promise<{ ok?: string; err?: string }> {
@@ -248,14 +291,14 @@ class GameService {
       return { err: 'Service not initialized. Please login first.' };
     }
     
-    // Always use real backend data, no mock data
-    
     try {
+      console.log('🎮 DEV: Calling createSession...');
       const result = await this.actor.createSession();
+      console.log('🎮 DEV: createSession result:', result);
       return result;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to create session:', error);
-      return { err: 'Failed to create session' };
+      return { err: error.message || 'Failed to create session' };
     }
   }
 
@@ -263,8 +306,6 @@ class GameService {
     if (!this.initialized || !this.actor) {
       return { err: 'Service not initialized. Please login first.' };
     }
-    
-    // Always use real backend data, no mock data
     
     try {
       const result = await this.actor.getNextRound(sessionId);
@@ -318,8 +359,6 @@ class GameService {
       return { err: 'Service not initialized. Please login first.' };
     }
     
-    // Always use real backend data, no mock data
-    
     try {
       const result = await this.actor.finalizeSession(sessionId);
       return result;
@@ -367,6 +406,23 @@ class GameService {
         console.error('Failed to get player stats:', error);
       }
       return null;
+    }
+  }
+
+  // Admin function for dev mode minting
+  async adminMint(to: Principal, amount: bigint): Promise<{ ok?: bigint; err?: string }> {
+    if (!this.initialized || !this.actor) {
+      return { err: 'Service not initialized. Please login first.' };
+    }
+    
+    try {
+      console.log('🔧 DEV: Calling adminMint for', to.toString(), 'amount:', amount);
+      const result = await this.actor.adminMint(to, amount);
+      console.log('🔧 DEV: adminMint result:', result);
+      return result;
+    } catch (error) {
+      console.error('Failed to mint tokens:', error);
+      return { err: `Failed to mint tokens: ${error}` };
     }
   }
 

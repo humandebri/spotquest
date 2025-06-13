@@ -223,7 +223,7 @@ export default function HomeScreen() {
                 </View>
                 <View style={styles.statsBadge}>
                   <Text style={styles.statsBadgeText}>
-                    {isLoadingStats ? "..." : (playerStats && Number(playerStats.bestScore) > 0 ? `Best: ${Number(playerStats.bestScore)}` : "Best: nodata")}
+                    {isLoadingStats ? "..." : (playerStats ? `Best: ${Number(playerStats.bestScore)}` : "Best: 0")}
                   </Text>
                 </View>
               </View>
@@ -231,23 +231,23 @@ export default function HomeScreen() {
               <View style={styles.statsGrid}>
                 <StatItem 
                   icon="game-controller-outline" 
-                  value={isLoadingStats ? "..." : (playerStats && Number(playerStats.totalGamesPlayed) > 0 ? Number(playerStats.totalGamesPlayed).toString() : "nodata")} 
+                  value={isLoadingStats ? "..." : (playerStats ? Number(playerStats.totalGamesPlayed).toString() : "0")} 
                   label="Games" 
                 />
                 <StatItem 
                   icon="camera-outline" 
-                  value={isLoadingStats ? "..." : (playerStats && Number(playerStats.totalPhotosUploaded) > 0 ? Number(playerStats.totalPhotosUploaded).toString() : "nodata")} 
+                  value={isLoadingStats ? "..." : (playerStats ? Number(playerStats.totalPhotosUploaded).toString() : "0")} 
                   label="Photos" 
                 />
                 <StatItem 
                   icon="medal" 
-                  value={isLoadingStats ? "..." : "nodata"} 
+                  value={isLoadingStats ? "..." : (playerStats && playerStats.rank?.[0] ? `#${playerStats.rank[0]}` : "Unranked")} 
                   label="Rank" 
                 />
                 <StatItem 
-                  icon="trophy-outline" 
-                  value={isLoadingStats ? "..." : (playerStats && Number(playerStats.totalGamesPlayed) > 0 ? `${Math.round(playerStats.winRate * 100)}%` : "nodata")} 
-                  label="Win Rate" 
+                  icon="trending-up-outline" 
+                  value={isLoadingStats ? "..." : (playerStats ? Number(playerStats.averageScore30Days?.[0] || playerStats.averageScore || 0).toString() : "0")} 
+                  label="Avg Score" 
                 />
               </View>
             </LinearGradient>
@@ -311,8 +311,8 @@ const StatItem = ({ icon, value, label }: any) => (
     <View style={styles.statIconContainer}>
       {icon === 'medal' ? (
         <FontAwesome5 name={icon} size={18} color="#f59e0b" />
-      ) : icon === 'trophy-outline' ? (
-        <MaterialCommunityIcons name={icon} size={20} color="#10b981" />
+      ) : icon === 'trending-up-outline' ? (
+        <Ionicons name={icon} size={20} color="#10b981" />
       ) : (
         <Ionicons name={icon} size={20} color={icon.includes('game') ? '#3b82f6' : '#8b5cf6'} />
       )}

@@ -31,29 +31,28 @@ export function DevAuthProvider({ children }: DevAuthProviderProps) {
     debugLog('AUTH_FLOW', '🔧 DEV: Logging in with dev credentials');
     
     try {
-      // Use a fixed seed for consistent identity generation
-      const seed = new Uint8Array(32);
-      // Fixed seed values to ensure consistency
-      const fixedSeed = [
-        1, 2, 3, 4, 5, 6, 7, 8,
-        9, 10, 11, 12, 13, 14, 15, 16,
-        17, 18, 19, 20, 21, 22, 23, 24,
-        25, 26, 27, 28, 29, 30, 31, 32
-      ];
-      for (let i = 0; i < 32; i++) {
-        seed[i] = fixedSeed[i];
-      }
+      // Use a fixed test Ed25519 key for dev mode
+      // This is a well-known test key that works properly
+      console.log('🔧 DEV: Creating Ed25519KeyIdentity with fixed test key');
       
-      // Generate identity with fixed seed
-      const identity = Ed25519KeyIdentity.generate(seed);
+      // This is a properly formatted test private key (32 bytes)
+      const TEST_SECRET_KEY = new Uint8Array([
+        0x94, 0xeb, 0x94, 0xd7, 0x20, 0x2f, 0x2b, 0x87,
+        0x7b, 0x12, 0x1f, 0x87, 0xfa, 0x85, 0x42, 0x2e,
+        0x38, 0xf4, 0x7e, 0xd9, 0x16, 0xcc, 0xad, 0x37,
+        0xa2, 0x42, 0xc8, 0xd8, 0xee, 0x6f, 0xb9, 0xc0
+      ]);
+      
+      const identity = Ed25519KeyIdentity.fromSecretKey(TEST_SECRET_KEY.buffer);
       const generatedPrincipal = identity.getPrincipal();
       
-      // Use the provided principal or the generated one
+      console.log('🔧 DEV: Test identity principal:', generatedPrincipal.toString());
+      
+      // Use the provided principal or the test identity principal
       const principal = principalText 
         ? Principal.fromText(principalText)
         : generatedPrincipal;
       
-      console.log('🔧 DEV: Generated identity principal:', generatedPrincipal.toString());
       console.log('🔧 DEV: Using principal:', principal.toString());
       
       // Store the principal for future minting if needed

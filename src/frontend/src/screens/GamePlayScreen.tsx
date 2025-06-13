@@ -214,10 +214,14 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
         setError(err instanceof Error ? err.message : 'Failed to start game');
         setIsLoading(false);
         
-        // Show error alert
+        // Show error alert with more specific message
+        const errorMessage = err instanceof Error && err.message.includes('certificate') 
+          ? 'Certificate verification failed. This is a known issue with dev mode on mainnet. Please try using Internet Identity for full functionality.'
+          : (err instanceof Error ? err.message : 'Failed to start game');
+          
         Alert.alert(
           'Game Error',
-          err instanceof Error ? err.message : 'Failed to start game',
+          errorMessage,
           [
             { text: 'Go Back', onPress: () => navigation.goBack() }
           ]

@@ -100,81 +100,8 @@ export function patchExpoIIIntegration() {
       console.log('🔧 expo-ii-integration patched successfully');
     }
     
-    // Also try to patch Ed25519KeyIdentity generation
-    try {
-      const identityModule = require('@dfinity/identity');
-      if (identityModule && identityModule.Ed25519KeyIdentity) {
-        const originalGenerate = identityModule.Ed25519KeyIdentity.generate;
-        
-        identityModule.Ed25519KeyIdentity.generate = function(seed?: Uint8Array) {
-          console.log('🔧 Ed25519KeyIdentity.generate called');
-          
-          // Always generate a proper seed if not provided or if it's all zeros
-          if (!seed) {
-            seed = new Uint8Array(32);
-          }
-          
-          // Check if seed is all zeros
-          const isAllZeros = seed.every((byte: number) => byte === 0);
-          if (isAllZeros || !seed || seed.length !== 32) {
-            console.log('🔧 Generating proper random seed...');
-            seed = new Uint8Array(32);
-            
-            // Try expo-crypto first
-            try {
-              const Crypto = require('expo-crypto');
-              const randomBytes = Crypto.getRandomBytes(32);
-              seed.set(randomBytes);
-              console.log('🔧 Used expo-crypto for seed generation');
-            } catch (e) {
-              // Fallback to Math.random
-              console.warn('🔧 Using Math.random fallback for seed');
-              for (let i = 0; i < 32; i++) {
-                seed[i] = Math.floor(Math.random() * 256);
-              }
-            }
-            
-            // Log seed preview
-            const preview = Array.from(seed.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join(' ');
-            console.log(`🔧 Generated seed preview: ${preview}...`);
-          }
-          
-          // Call original with proper seed
-          let result;
-          let attempts = 0;
-          const maxAttempts = 5;
-          
-          while (attempts < maxAttempts) {
-            attempts++;
-            result = originalGenerate.call(this, seed);
-            
-            // Verify the generated key
-            try {
-              const json = result.toJSON();
-              const parsed = JSON.parse(json);
-              if (parsed[1] === '0000000000000000000000000000000000000000000000000000000000000000') {
-                console.error(`🔧 ERROR: Attempt ${attempts} - Generated key has all-zero private key!`);
-                // Generate new seed and try again
-                for (let i = 0; i < 32; i++) {
-                  seed[i] = Math.floor(Math.random() * 256);
-                }
-                continue;
-              } else {
-                console.log('🔧 Successfully generated key with valid private key');
-                break;
-              }
-            } catch (e) {
-              console.error('🔧 Could not verify generated key:', e);
-              break;
-            }
-          }
-          
-          return result;
-        };
-      }
-    } catch (e) {
-      console.log('🔧 Could not patch Ed25519KeyIdentity.generate:', e);
-    }
+    // Ed25519KeyIdentity patching is no longer needed
+    // Dev mode uses a fixed test identity
     
   } catch (error) {
     console.warn('🔧 Could not patch expo-ii-integration:', error);

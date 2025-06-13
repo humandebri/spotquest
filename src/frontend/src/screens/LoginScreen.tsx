@@ -19,6 +19,9 @@ import { AuthPoller } from '../utils/authPoller';
 import { checkAndFixDelegation, createMockDelegation } from '../utils/delegationFix';
 import { useDevAuth } from '../contexts/DevAuthContext';
 import { DEBUG_CONFIG, debugLog, debugError } from '../utils/debugConfig';
+import { gameService } from '../services/game';
+import { Principal } from '@dfinity/principal';
+import { useIIAuthStore } from '../store/iiAuthStore';
 
 export default function LoginScreen() {
   const { login, isLoading, error, clearError, isAuthenticated } = useAuth();
@@ -57,6 +60,12 @@ export default function LoginScreen() {
       debugLog('AUTH_FLOW', '🔧 Starting dev login...');
       await loginAsDev();
       debugLog('AUTH_FLOW', '🔧 Dev login successful!');
+      
+      Alert.alert(
+        'Dev Mode',
+        'Login successful!\n\nNote: This is a FREE game (no tokens required to play).',
+        [{ text: 'OK' }]
+      );
     } catch (error) {
       debugError('AUTH_FLOW', '🔧 Dev login error:', error);
       Alert.alert('Dev Login Error', 'Failed to login with dev credentials');

@@ -173,6 +173,7 @@ class PhotoService {
         verifyQuerySignatures: false,
       });
 
+
       // fetchRootKeyはローカルレプリカでのみ実行（mainnetでは不要）
       // mainnetを使用しているため、fetchRootKeyは実行しない
       // if (process.env.NODE_ENV === 'development') {

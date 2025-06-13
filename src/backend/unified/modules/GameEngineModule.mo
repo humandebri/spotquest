@@ -395,6 +395,14 @@ module {
             }
         };
         
+        // Get player sessions map (returns Principal -> [SessionId] mapping)
+        public func getPlayerSessionsMap() : [(Principal, [Text])] {
+            Array.map<(Principal, Buffer.Buffer<Text>), (Principal, [Text])>(
+                Iter.toArray(userSessions.entries()),
+                func(entry) = (entry.0, Buffer.toArray(entry.1))
+            )
+        };
+        
         // Get metrics
         public func getMetrics() : {
             totalSessions: Nat;

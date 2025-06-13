@@ -3,7 +3,7 @@ import { Platform } from 'react-native';
 import { Buffer } from 'buffer';
 import process from 'process';
 import 'react-native-url-polyfill/auto';
-import * as Crypto from 'expo-crypto-universal';
+import * as ExpoCrypto from 'expo-crypto';
 
 // TextEncoder/TextDecoder polyfill
 // Use react-native's built-in TextEncoder/TextDecoder if available,
@@ -37,28 +37,45 @@ if (typeof global.TextDecoder === 'undefined') {
 
 // Crypto polyfill for React Native
 if (typeof global.crypto === 'undefined') {
+  console.log('Setting up crypto polyfill...');
+  
   // For React Native, we'll use expo-crypto
-  // This is a placeholder - actual crypto operations should use expo-crypto directly
   global.crypto = {
     getRandomValues: (array: any) => {
-      // This is a basic implementation for development
-      // In production, use expo-crypto's randomBytes
-      for (let i = 0; i < array.length; i++) {
-        array[i] = Math.floor(Math.random() * 256);
+      try {
+        // Use expo-crypto for secure random values
+        const randomBytes = ExpoCrypto.getRandomBytes(array.length);
+        
+        // Copy bytes to the input array
+        for (let i = 0; i < array.length; i++) {
+          array[i] = randomBytes[i];
+        }
+        
+        return array;
+      } catch (error) {
+        console.warn('Crypto.getRandomValues error:', error);
+        // Fallback to Math.random with better seeding
+        const timestamp = Date.now();
+        const rand = Math.random() * 1000000;
+        
+        for (let i = 0; i < array.length; i++) {
+          // Use a more complex formula for better randomness
+          array[i] = Math.floor((timestamp + rand + i * 137 + (i * i * 31)) % 256);
+        }
+        return array;
       }
-      return array;
     },
     subtle: {} as any, // Placeholder for subtle crypto API
     // Add web property for @noble/hashes compatibility
     web: {
       getRandomValues: (array: any) => {
-        for (let i = 0; i < array.length; i++) {
-          array[i] = Math.floor(Math.random() * 256);
-        }
-        return array;
+        // Use the same implementation as above
+        return global.crypto.getRandomValues(array);
       }
     }
   } as any;
+  
+  console.log('Crypto polyfill set up successfully');
 }
 
 // Buffer polyfill

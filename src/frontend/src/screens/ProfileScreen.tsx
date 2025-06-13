@@ -37,6 +37,8 @@ interface UserStats {
   totalRewardsEarned: number;
   bestScore: number;
   averageScore: number;
+  averageScore30Days?: number;
+  rank?: number;
   winRate: number;
   currentStreak: number;
   longestStreak: number;
@@ -70,6 +72,8 @@ export default function ProfileScreen() {
     totalRewardsEarned: 0,
     bestScore: 0,
     averageScore: 0,
+    averageScore30Days: 0,
+    rank: undefined,
     winRate: 0,
     currentStreak: 0,
     longestStreak: 0,
@@ -170,9 +174,11 @@ export default function ProfileScreen() {
         setStats({
           totalGamesPlayed: Number(playerStats.totalGamesPlayed),
           totalPhotosUploaded: Number(playerStats.totalPhotosUploaded),
-          totalRewardsEarned: Number(playerStats.totalRewardsEarned) / 100, // Convert to SPOT
+          totalRewardsEarned: Number(playerStats.totalRewardsEarned),
           bestScore: Number(playerStats.bestScore),
-          averageScore: Number(playerStats.averageScore), // Backend already calculates correctly
+          averageScore: Number(playerStats.averageScore),
+          averageScore30Days: playerStats.averageScore30Days?.[0] ? Number(playerStats.averageScore30Days[0]) : undefined,
+          rank: playerStats.rank?.[0] ? Number(playerStats.rank[0]) : undefined,
           winRate: playerStats.winRate,
           currentStreak: Number(playerStats.currentStreak),
           longestStreak: Number(playerStats.longestStreak),
@@ -186,6 +192,8 @@ export default function ProfileScreen() {
           totalRewardsEarned: 0,
           bestScore: 0,
           averageScore: 0,
+          averageScore30Days: 0,
+          rank: undefined,
           winRate: 0,
           currentStreak: 0,
           longestStreak: 0,
@@ -364,38 +372,38 @@ export default function ProfileScreen() {
   const statItems = [
     { 
       icon: 'game-controller', 
-      value: stats.totalGamesPlayed > 0 ? stats.totalGamesPlayed : 'nodata', 
+      value: stats.totalGamesPlayed || 0, 
       label: 'Games', 
       color: '#3b82f6' 
     },
     { 
       icon: 'camera', 
-      value: stats.totalPhotosUploaded > 0 ? stats.totalPhotosUploaded : 'nodata', 
+      value: stats.totalPhotosUploaded || 0, 
       label: 'Photos', 
       color: '#8b5cf6' 
     },
     { 
       icon: 'trophy', 
-      value: stats.bestScore > 0 ? stats.bestScore : 'nodata', 
+      value: stats.bestScore || 0, 
       label: 'Best Score', 
       color: '#f59e0b' 
     },
     { 
       icon: 'analytics', 
-      value: stats.totalGamesPlayed > 0 && stats.averageScore > 0 ? stats.averageScore.toFixed(1) : 'nodata', 
-      label: 'Avg Score', 
+      value: stats.averageScore30Days || stats.averageScore || 0, 
+      label: 'Avg Score (30d)', 
       color: '#10b981' 
     },
     { 
-      icon: 'trending-up', 
-      value: stats.totalGamesPlayed > 0 ? `${(stats.winRate * 100).toFixed(0)}%` : 'nodata', 
-      label: 'Win Rate', 
+      icon: 'medal', 
+      value: stats.rank ? `#${stats.rank}` : 'Unranked', 
+      label: 'Rank', 
       color: '#ef4444' 
     },
     { 
       icon: 'flame', 
-      value: stats.currentStreak > 0 ? stats.currentStreak : 'nodata', 
-      label: 'Streak', 
+      value: stats.totalRewardsEarned ? Math.floor(stats.totalRewardsEarned / 100) : 0, 
+      label: 'Rewards', 
       color: '#f97316' 
     },
   ];
@@ -485,7 +493,7 @@ export default function ProfileScreen() {
                 {statItems.map((stat, index) => (
                   <View key={index} style={styles.statCard}>
                     <View style={[styles.statIcon, { backgroundColor: `${stat.color}20` }]}>
-                      {stat.icon === 'trophy' ? (
+                      {stat.icon === 'trophy' || stat.icon === 'medal' ? (
                         <FontAwesome5 name={stat.icon} size={24} color={stat.color} />
                       ) : (
                         <Ionicons name={stat.icon as any} size={24} color={stat.color} />

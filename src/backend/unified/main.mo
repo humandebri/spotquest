@@ -537,7 +537,7 @@ actor GameUnified {
         reputationManager.getReferralStats(user)
     };
     
-    public query func getLeaderboard(limit: Nat) : async [(Principal, Float)] {
+    public query func getReputationLeaderboard(limit: Nat) : async [(Principal, Float)] {
         reputationManager.getLeaderboard(limit)
     };
     
@@ -579,6 +579,10 @@ actor GameUnified {
         tokenManager.mint(to, amount)
     };
     
+    public query func getOwner() : async Principal {
+        owner
+    };
+    
     // ======================================
     // TREASURY FUNCTIONS
     // ======================================
@@ -603,6 +607,8 @@ actor GameUnified {
         totalRewardsEarned: Nat;
         bestScore: Nat;
         averageScore: Nat;
+        averageScore30Days: ?Nat;
+        rank: ?Nat;
         winRate: Float;
         currentStreak: Nat;
         longestStreak: Nat;
@@ -621,6 +627,11 @@ actor GameUnified {
         var completedGames = 0;
         var totalRewardsEarned : Nat = 0;
         
+        // Calculate 30-day cutoff time
+        let thirtyDaysAgo = Time.now() - (30 * 24 * 60 * 60 * 1000_000_000); // 30 days in nanoseconds
+        var totalScore30Days : Nat = 0;
+        var totalGamesPlayed30Days : Nat = 0;
+        
         // Calculate stats from completed sessions
         for (sessionId in userSessionBuffer.vals()) {
             switch(gameEngineManager.getSession(sessionId)) {
@@ -629,6 +640,13 @@ actor GameUnified {
                     if (session.endTime != null) {
                         totalGamesPlayed += 1;
                         totalScore += session.totalScore;
+                        
+                        // Check if session is within 30 days
+                        let sessionTime = session.startTime;
+                        if (sessionTime >= thirtyDaysAgo) {
+                            totalGamesPlayed30Days += 1;
+                            totalScore30Days += session.totalScore;
+                        };
                         
                         // Check if all rounds completed
                         let completedRounds = Array.filter<GameV2.RoundState>(
@@ -657,14 +675,55 @@ actor GameUnified {
             totalScore / totalGamesPlayed
         } else { 0 };
         
-        let winRate = if (totalGamesPlayed > 0) {
-            Float.fromInt(completedGames) / Float.fromInt(totalGamesPlayed)
-        } else { 0.0 };
+        let averageScore30Days = if (totalGamesPlayed30Days > 0) {
+            totalScore30Days / totalGamesPlayed30Days
+        } else { 0 };
+        
+        // Calculate player rank inline (can't await in query)
+        var playerScores : [(Principal, Nat)] = [];
+        for ((p, sessionIds) in gameEngineManager.getPlayerSessionsMap().vals()) {
+            var pBestScore : Nat = 0;
+            for (sessionId in sessionIds.vals()) {
+                switch(gameEngineManager.getSession(sessionId)) {
+                    case null { };
+                    case (?session) {
+                        if (session.endTime != null and session.totalScore > pBestScore) {
+                            pBestScore := session.totalScore;
+                        };
+                    };
+                };
+            };
+            if (pBestScore > 0) {
+                playerScores := Array.append(playerScores, [(p, pBestScore)]);
+            };
+        };
+        
+        // Sort by best score (descending)
+        let sortedScores = Array.sort(playerScores, func(a: (Principal, Nat), b: (Principal, Nat)) : {#less; #equal; #greater} {
+            if (a.1 > b.1) { #less }
+            else if (a.1 < b.1) { #greater }
+            else { #equal }
+        });
+        
+        // Find player's rank
+        var playerRank : ?Nat = null;
+        var rank : Nat = 1;
+        for ((p, score) in sortedScores.vals()) {
+            if (Principal.equal(p, player)) {
+                playerRank := ?rank;
+            };
+            rank += 1;
+        };
         
         // Get other stats
         let totalPhotosUploaded = photoManager.getPhotosByOwner(player).size();
         let reputation = reputationManager.getReputation(player).score;
         let totalGuesses = guessHistoryManager.getPlayerHistory(player, null).size();
+        
+        // Calculate win rate
+        let winRate = if (totalGamesPlayed > 0) {
+            Float.fromInt(completedGames) / Float.fromInt(totalGamesPlayed)
+        } else { 0.0 };
         
         {
             totalGamesPlayed = totalGamesPlayed;
@@ -672,12 +731,90 @@ actor GameUnified {
             totalRewardsEarned = totalRewardsEarned;
             bestScore = bestScore;
             averageScore = averageScore;
-            winRate = winRate;
+            averageScore30Days = if (totalGamesPlayed30Days > 0) { ?averageScore30Days } else { null };
+            rank = playerRank;
             currentStreak = 0; // TODO: Implement streak tracking
             longestStreak = 0; // TODO: Implement streak tracking
             reputation = reputation;
             totalGuesses = totalGuesses;
+            winRate = winRate;
         }
+    };
+    
+    // ======================================
+    // RANKING FUNCTIONS
+    // ======================================
+    public query func getPlayerRank(player: Principal) : async ?Nat {
+        // Get all players with their best scores
+        var playerScores : [(Principal, Nat)] = [];
+        
+        for ((p, sessionIds) in gameEngineManager.getPlayerSessionsMap().vals()) {
+            var bestScore : Nat = 0;
+            for (sessionId in sessionIds.vals()) {
+                switch(gameEngineManager.getSession(sessionId)) {
+                    case null { };
+                    case (?session) {
+                        if (session.endTime != null and session.totalScore > bestScore) {
+                            bestScore := session.totalScore;
+                        };
+                    };
+                };
+            };
+            if (bestScore > 0) {
+                playerScores := Array.append(playerScores, [(p, bestScore)]);
+            };
+        };
+        
+        // Sort by best score (descending)
+        let sortedScores = Array.sort(playerScores, func(a: (Principal, Nat), b: (Principal, Nat)) : {#less; #equal; #greater} {
+            if (a.1 > b.1) { #less }
+            else if (a.1 < b.1) { #greater }
+            else { #equal }
+        });
+        
+        // Find player's rank
+        var rank : Nat = 1;
+        for ((p, score) in sortedScores.vals()) {
+            if (Principal.equal(p, player)) {
+                return ?rank;
+            };
+            rank += 1;
+        };
+        
+        null // Player not found in rankings
+    };
+    
+    public query func getLeaderboard(limit: Nat) : async [(Principal, Nat)] {
+        // Get all players with their best scores
+        var playerScores : [(Principal, Nat)] = [];
+        
+        for ((p, sessionIds) in gameEngineManager.getPlayerSessionsMap().vals()) {
+            var bestScore : Nat = 0;
+            for (sessionId in sessionIds.vals()) {
+                switch(gameEngineManager.getSession(sessionId)) {
+                    case null { };
+                    case (?session) {
+                        if (session.endTime != null and session.totalScore > bestScore) {
+                            bestScore := session.totalScore;
+                        };
+                    };
+                };
+            };
+            if (bestScore > 0) {
+                playerScores := Array.append(playerScores, [(p, bestScore)]);
+            };
+        };
+        
+        // Sort by best score (descending)
+        let sortedScores = Array.sort(playerScores, func(a: (Principal, Nat), b: (Principal, Nat)) : {#less; #equal; #greater} {
+            if (a.1 > b.1) { #less }
+            else if (a.1 < b.1) { #greater }
+            else { #equal }
+        });
+        
+        // Return top N players
+        let actualLimit = Nat.min(limit, sortedScores.size());
+        Array.tabulate<(Principal, Nat)>(actualLimit, func(i) = sortedScores[i])
     };
     
     // ======================================
