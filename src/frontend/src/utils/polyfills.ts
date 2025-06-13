@@ -87,3 +87,4 @@ if (typeof global.Buffer === 'undefined') {
 if (typeof global.process === 'undefined') {
   global.process = process;
 }
+

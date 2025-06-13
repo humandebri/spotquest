@@ -24,6 +24,21 @@ if (typeof global !== 'undefined' && !global.crypto) {
 // Ed25519KeyIdentity patch is no longer needed since we use fixed test keys in dev mode
 console.log('🚀 Early patch: Using fixed test identity for dev mode (no patching needed)');
 
+// Replace @dfinity/principal with custom implementation
+console.log('🚀 Early patch: Attempting to replace @dfinity/principal...');
+
+// Patch @dfinity/candid to debug CBOR issues
+try {
+  const candidModule = require('@dfinity/candid');
+  
+  if (candidModule) {
+    console.log('🚀 Early patch: Checking @dfinity/candid for CBOR usage');
+    console.log('🚀 @dfinity/candid exports:', Object.keys(candidModule));
+  }
+} catch (error) {
+  console.warn('🚀 Could not patch @dfinity/candid:', error);
+}
+
 console.log('🚀 Early patches applied');
 
 export {};

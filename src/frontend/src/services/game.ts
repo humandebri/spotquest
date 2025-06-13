@@ -1,5 +1,5 @@
 import { Actor, HttpAgent, Identity } from '@dfinity/agent';
-import { Principal } from '@dfinity/principal';
+import { CustomPrincipal as Principal } from '../utils/principal';
 import { IDL } from '@dfinity/candid';
 
 // Import IDL from unified canister (we'll create this)
@@ -79,18 +79,33 @@ class GameService {
       const isDevMode = identity.constructor.name === 'Ed25519KeyIdentity';
       
       // Create HttpAgent with special configuration for dev mode
+      const host = process.env.EXPO_PUBLIC_IC_HOST || 'https://ic0.app';
+      console.log('🎮 Creating HttpAgent with host:', host);
+      
       const agentOptions: any = {
         identity,
-        host: process.env.EXPO_PUBLIC_IC_HOST || 'https://ic0.app',
+        host,
         // dev環境では証明書検証をスキップ
         verifyQuerySignatures: false,
       };
       
       this.agent = new HttpAgent(agentOptions);
       
-      // Dev modeの場合、earlyPatches.tsが証明書検証を処理
+      // Log agent configuration
+      console.log('🎮 HttpAgent created:', {
+        host: this.agent._host,
+        identity: identity.getPrincipal().toString(),
+        isDevMode,
+      });
+      
+      // Dev modeの場合、追加のデバッグログ
       if (isDevMode) {
-        console.log('🎮 DEV: Using HttpAgent in dev mode (certificate verification handled by earlyPatches.ts)');
+        console.log('🎮 DEV: Agent initialized in dev mode');
+        console.log('🎮 DEV: Agent configuration:', {
+          host,
+          canisterId,
+          verifyQuerySignatures: false,
+        });
       }
 
       // fetchRootKeyはローカルレプリカでのみ実行（mainnetでは不要）
@@ -101,12 +116,27 @@ class GameService {
 
       // メインネットの統合canister IDを使用
       const canisterId = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || '77fv5-oiaaa-aaaal-qsoea-cai';
+      console.log('🎮 Using canister ID:', canisterId);
+      
+      // Test Principal creation with custom implementation
+      try {
+        const testPrincipal = Principal.fromText(canisterId);
+        console.log('🎮 Custom Principal.fromText succeeded:', testPrincipal.toString());
+      } catch (principalError: any) {
+        console.error('🎮 Custom Principal.fromText failed:', principalError);
+        console.error('🎮 Principal error details:', {
+          message: principalError.message,
+          stack: principalError.stack,
+        });
+        throw new Error('Failed to create Principal from canister ID');
+      }
 
       if (!canisterId) {
         throw new Error('Unified canister ID not found');
       }
 
     // IDL factory for unified canister
+    console.log('🎮 Creating IDL factory...');
     const idlFactory = () => {
       // Define types
       const HintType = IDL.Variant({
@@ -272,16 +302,41 @@ class GameService {
     };
 
       // Actor作成
-      this.actor = Actor.createActor(idlFactory, {
-        agent: this.agent,
-        canisterId,
-      });
+      console.log('🎮 About to create Actor...');
+      try {
+        // Try using canisterId as string first
+        this.actor = Actor.createActor(idlFactory, {
+          agent: this.agent,
+          canisterId: canisterId,
+        });
+        console.log('🎮 Actor created successfully with string canisterId');
+      } catch (actorError: any) {
+        console.error('🎮 Actor creation with string failed:', actorError.message);
+        
+        // Try with custom Principal if string didn't work
+        try {
+          const principalCanisterId = Principal.fromText(canisterId);
+          this.actor = Actor.createActor(idlFactory, {
+            agent: this.agent,
+            canisterId: principalCanisterId as any,
+          });
+          console.log('🎮 Actor created successfully with custom Principal');
+        } catch (principalError: any) {
+          console.error('🎮 Actor creation with custom Principal failed:', principalError);
+          throw principalError;
+        }
+      }
       
       if (isDevMode) {
         console.log('🎮 DEV: Actor created in dev mode - mock responses will be used for network errors');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to initialize game service actor:', error);
+      console.error('Initialization error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+      });
       throw error;
     }
   }
@@ -293,17 +348,19 @@ class GameService {
     
     try {
       console.log('🎮 Calling createSession...');
+      console.log('🎮 Actor methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(this.actor)));
+      console.log('🎮 Identity principal:', this.identity?.getPrincipal().toString());
+      
       const result = await this.actor.createSession();
       console.log('🎮 createSession result:', result);
       return result;
     } catch (error: any) {
       console.error('Failed to create session:', error);
-      // In dev mode, return mock session ID if the error is network-related
-      if (this.identity?.constructor.name === 'Ed25519KeyIdentity' && 
-          (error.message.includes('unreachable') || error.message.includes('certificate'))) {
-        console.log('🎮 DEV: Returning mock session for dev mode');
-        return { ok: `dev-session-${Date.now()}` };
-      }
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+      });
       return { err: error.message || 'Failed to create session' };
     }
   }
@@ -318,25 +375,7 @@ class GameService {
       return result;
     } catch (error: any) {
       console.error('Failed to get next round:', error);
-      // In dev mode, return mock round data
-      if (this.identity?.constructor.name === 'Ed25519KeyIdentity' && 
-          (error.message.includes('unreachable') || error.message.includes('certificate'))) {
-        console.log('🎮 DEV: Returning mock round for dev mode');
-        return {
-          ok: {
-            photoId: BigInt(Math.floor(Math.random() * 1000) + 1),
-            status: { Active: null },
-            score: BigInt(0),
-            scoreNorm: BigInt(0),
-            guessData: [],
-            retryAvailable: false,
-            hintsPurchased: [],
-            startTime: BigInt(Date.now() * 1000000),
-            endTime: [],
-          }
-        };
-      }
-      return { err: 'Failed to get next round' };
+      return { err: error.message || 'Failed to get next round' };
     }
   }
 
@@ -361,31 +400,7 @@ class GameService {
       return result;
     } catch (error: any) {
       console.error('Failed to submit guess:', error);
-      // In dev mode, return mock submission result
-      if (this.identity?.constructor.name === 'Ed25519KeyIdentity' && 
-          (error.message.includes('unreachable') || error.message.includes('certificate'))) {
-        console.log('🎮 DEV: Returning mock submission for dev mode');
-        return {
-          ok: {
-            photoId: BigInt(Math.floor(Math.random() * 1000) + 1),
-            status: { Completed: null },
-            score: BigInt(Math.floor(Math.random() * 5000)),
-            scoreNorm: BigInt(Math.floor(Math.random() * 100)),
-            guessData: [{
-              lat: guessLat,
-              lon: guessLon,
-              azimuth: guessAzimuth ? [guessAzimuth] : [],
-              confidenceRadius,
-              submittedAt: BigInt(Date.now() * 1000000),
-            }],
-            retryAvailable: false,
-            hintsPurchased: [],
-            startTime: BigInt(Date.now() * 1000000 - 60000000000),
-            endTime: [BigInt(Date.now() * 1000000)],
-          }
-        };
-      }
-      return { err: 'Failed to submit guess' };
+      return { err: error.message || 'Failed to submit guess' };
     }
   }
 
@@ -428,13 +443,7 @@ class GameService {
       });
       return balance;
     } catch (error: any) {
-      if (this.identity?.constructor.name === 'Ed25519KeyIdentity' && 
-          (error.message.includes('unreachable') || error.message.includes('certificate'))) {
-        console.log('🎮 DEV: Returning mock balance for dev mode');
-        return BigInt(10000); // 100.00 SPOT
-      } else {
-        console.error('Failed to get token balance:', error);
-      }
+      console.error('Failed to get token balance:', error);
       return BigInt(0);
     }
   }
@@ -448,25 +457,7 @@ class GameService {
       const stats = await this.actor.getPlayerStats(principal);
       return stats;
     } catch (error: any) {
-      if (this.identity?.constructor.name === 'Ed25519KeyIdentity' && 
-          (error.message.includes('unreachable') || error.message.includes('certificate'))) {
-        console.log('🎮 DEV: Returning mock stats for dev mode');
-        return {
-          totalGamesPlayed: BigInt(5),
-          totalPhotosUploaded: BigInt(3),
-          totalRewardsEarned: BigInt(1500),
-          bestScore: BigInt(4500),
-          averageScore: BigInt(3200),
-          averageScore30Days: [BigInt(3500)],
-          rank: [BigInt(42)],
-          currentStreak: BigInt(2),
-          longestStreak: BigInt(5),
-          reputation: 4.5,
-          totalGuesses: BigInt(5),
-        };
-      } else {
-        console.error('Failed to get player stats:', error);
-      }
+      console.error('Failed to get player stats:', error);
       return null;
     }
   }
