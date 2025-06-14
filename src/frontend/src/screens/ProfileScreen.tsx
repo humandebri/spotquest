@@ -1119,15 +1119,15 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 24,
     paddingTop: 24,
-    paddingBottom: 16,
+    paddingBottom: 8,
   },
   profileInfo: {
-    flex: 1,
+    // flex: 1を削除
   },
   profileRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 16,
   },
   avatar: {
     width: 80,
@@ -1163,7 +1163,7 @@ const styles = StyleSheet.create({
     width: '100%',
     backgroundColor: 'rgba(30, 41, 59, 0.3)',
     borderRadius: 16,
-    padding: 20,
+    padding: 16,
     borderWidth: 1,
     borderColor: 'rgba(71, 85, 105, 0.5)',
   },
@@ -1246,6 +1246,7 @@ const styles = StyleSheet.create({
     width: '33.333%',
     paddingHorizontal: 8,
     marginBottom: 16,
+    alignItems: 'center',
   },
   statIcon: {
     width: 48,
