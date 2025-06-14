@@ -145,15 +145,17 @@ agentModule.Certificate = class MockCertificate {
 - Ed25519KeyIdentity.fromParsedJsonの使い方の誤り
 
 **最終的な解決策** ✅:
-Dev modeでは固定のテストキーを使ったEd25519KeyIdentityを使用
+Dev modeでは決定論的に生成されるテストキーを使用
 ```typescript
-// Use a fixed test Ed25519 key for dev mode
-const TEST_SECRET_KEY = new Uint8Array([
-  0x94, 0xeb, 0x94, 0xd7, 0x20, 0x2f, 0x2b, 0x87,
-  0x7b, 0x12, 0x1f, 0x87, 0xfa, 0x85, 0x42, 0x2e,
-  0x38, 0xf4, 0x7e, 0xd9, 0x16, 0xcc, 0xad, 0x37,
-  0xa2, 0x42, 0xc8, 0xd8, 0xee, 0x6f, 0xb9, 0xc0
-]);
+// Generate a deterministic test key based on a fixed seed
+const generateTestKey = (): Uint8Array => {
+  const FIXED_SEED = 'guess-the-spot-dev-mode-test-key-2024';
+  // Hash function to generate consistent 32 bytes
+  const key = new Uint8Array(32);
+  // ... deterministic key generation logic ...
+  return key;
+};
+const TEST_SECRET_KEY = generateTestKey();
 const identity = Ed25519KeyIdentity.fromSecretKey(TEST_SECRET_KEY.buffer);
 ```
 

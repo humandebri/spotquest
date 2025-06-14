@@ -5,6 +5,21 @@ module {
     // Session types
     public type SessionId = Text;
     
+    public type SessionStatus = {
+        #Active;
+        #Completed;
+        #Abandoned;
+    };
+    
+    public type SessionInfo = {
+        id: SessionId;
+        players: [Principal];
+        status: SessionStatus;
+        createdAt: Time.Time;
+        roundCount: Nat;
+        currentRound: ?Nat;
+    };
+    
     public type GameSession = {
         id: SessionId;
         userId: Principal;

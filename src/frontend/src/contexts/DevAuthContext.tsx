@@ -35,13 +35,36 @@ export function DevAuthProvider({ children }: DevAuthProviderProps) {
       // This is a well-known test key that works properly
       console.log('🔧 DEV: Creating Ed25519KeyIdentity with fixed test key');
       
-      // This is a properly formatted test private key (32 bytes)
-      const TEST_SECRET_KEY = new Uint8Array([
-        0x94, 0xeb, 0x94, 0xd7, 0x20, 0x2f, 0x2b, 0x87,
-        0x7b, 0x12, 0x1f, 0x87, 0xfa, 0x85, 0x42, 0x2e,
-        0x38, 0xf4, 0x7e, 0xd9, 0x16, 0xcc, 0xad, 0x37,
-        0xa2, 0x42, 0xc8, 0xd8, 0xee, 0x6f, 0xb9, 0xc0
-      ]);
+      // Generate a deterministic test key based on a fixed seed
+      // This ensures the same key is generated every time for dev mode
+      const generateTestKey = (): Uint8Array => {
+        // Use a fixed seed string that's not a real private key
+        const FIXED_SEED = 'guess-the-spot-dev-mode-test-key-2024';
+        
+        // Simple hash function to generate consistent bytes from seed
+        const key = new Uint8Array(32);
+        let hash = 0x12345678; // Start with a fixed value
+        
+        for (let i = 0; i < FIXED_SEED.length; i++) {
+          hash = ((hash << 5) - hash) + FIXED_SEED.charCodeAt(i);
+          hash = hash & hash; // Convert to 32-bit integer
+        }
+        
+        // Fill key with deterministic values based on hash
+        for (let i = 0; i < 32; i++) {
+          // Use multiple operations to ensure good distribution
+          const value = (hash * (i + 1) * 0x45d9f3b + i * 0x1234567) >>> 0;
+          key[i] = value & 0xff;
+          // Update hash for next iteration
+          hash = (hash * 0x343fd + 0x269ec3) >>> 0;
+        }
+        
+        return key;
+      };
+      
+      const TEST_SECRET_KEY = generateTestKey();
+      
+      console.log('🔧 DEV: Using deterministic test key for dev mode');
       
       const identity = Ed25519KeyIdentity.fromSecretKey(TEST_SECRET_KEY.buffer);
       const generatedPrincipal = identity.getPrincipal();

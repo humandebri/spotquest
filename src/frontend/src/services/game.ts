@@ -406,15 +406,20 @@ class GameService {
       const sessionsResult = await this.getUserSessions(principal);
       
       if (sessionsResult.err) {
-        console.warn('🎮 Could not get existing sessions:', sessionsResult.err);
-        // Continue anyway - maybe user has no previous sessions
+        // Check if it's a network error or just no sessions
+        if (sessionsResult.err.includes('not found') || sessionsResult.err.includes('no sessions')) {
+          console.log('🎮 No existing sessions found, proceeding with new session');
+        } else {
+          console.warn('🎮 Could not get existing sessions:', sessionsResult.err);
+          // For non-critical errors, continue with new session creation
+        }
       } else if (sessionsResult.ok) {
         // 2. Filter active sessions
         const activeSessions = sessionsResult.ok.filter(session => session.status === 'Active');
         console.log('🎮 Found', activeSessions.length, 'active sessions to cleanup');
         
         // 3. Finalize all active sessions
-        for (const session of activeSessions) {
+        const cleanupPromises = activeSessions.map(async (session) => {
           console.log('🎮 Finalizing session:', session.id);
           try {
             const finalizeResult = await this.finalizeSession(session.id);
@@ -425,9 +430,11 @@ class GameService {
             }
           } catch (error: any) {
             console.warn('🎮 Error finalizing session', session.id, ':', error.message);
-            // Continue with other sessions
           }
-        }
+        });
+        
+        // Wait for all cleanup operations to complete
+        await Promise.allSettled(cleanupPromises);
       }
       
       // 4. Create new session (should now succeed)

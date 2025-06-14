@@ -104,6 +104,10 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     currentGuess,
     confidenceRadius,
     sessionId,
+    sessionStatus,
+    userSessions,
+    isSessionLoading,
+    sessionError,
     tokenBalance,
     purchasedHints,
     roundNumber,
@@ -111,9 +115,18 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     setGuess: setGameGuess,
     setTimeLeft: setGameTimeLeft,
     setSessionId,
+    setSessionStatus,
+    setUserSessions,
+    setSessionLoading,
+    setSessionError,
     setTokenBalance,
     setRoundNumber,
     addPurchasedHint,
+    hasActiveSession,
+    getActiveSession,
+    createNewSession,
+    updateSessionStatus,
+    clearSessionData,
   } = useGameStore();
   
   // Auth store
@@ -136,31 +149,65 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   useEffect(() => {
     const initializeGame = async () => {
       // Wait for gameService to be initialized
-      if (!identity) {
+      if (!identity || !principal) {
         return;
       }
       
       setIsLoading(true);
+      setSessionLoading(true);
       setError(null);
+      setSessionError(null);
       
       try {
+        console.log('🎮 Starting game initialization...');
         
-        // Create session if not exists or get next round for existing session
-        if (!sessionId) {
-          const result = await gameService.createSessionWithCleanup();
+        // Step 1: Check for existing sessions
+        const sessionsResult = await gameService.getUserSessions(principal);
+        console.log('🎮 User sessions result:', sessionsResult);
+        
+        if (sessionsResult.ok) {
+          setUserSessions(sessionsResult.ok);
           
-          if (result.err) {
-            throw new Error(result.err);
+          const activeSessions = sessionsResult.ok.filter(session => session.status === 'Active');
+          console.log('🎮 Found', activeSessions.length, 'active sessions');
+          
+          // Step 2: Always create new session with cleanup
+          // This ensures old sessions are properly finalized before starting new game
+          let newSessionId: string | null = null;
+          
+          if (!sessionId) {
+            console.log('🎮 Creating new session with cleanup...');
+            const result = await gameService.createSessionWithCleanup();
+            
+            if (result.err) {
+              throw new Error(result.err);
+            }
+            
+            if (result.ok) {
+              newSessionId = result.ok;
+              
+              // First update user sessions to reflect cleanup
+              setUserSessions(prevSessions => {
+                const cleanedSessions = (Array.isArray(prevSessions) ? prevSessions : []).map(session => 
+                  session.status === 'Active' && session.id !== newSessionId
+                    ? { ...session, status: 'Completed' as SessionStatus }
+                    : session
+                );
+                return cleanedSessions;
+              });
+              
+              // Then create the new session
+              createNewSession(newSessionId);
+              console.log('🎮 New session created after cleanup:', newSessionId);
+            }
           }
           
-          if (result.ok) {
-            setSessionId(result.ok);
-            
-            // Reset round number for new session
-            setRoundNumber(1);
-            
-            // Get first round
-            const roundResult = await gameService.getNextRound(result.ok);
+          // Step 4: Get round data for current session
+          // Use the sessionId from store or the newly created one
+          const currentSessionId = sessionId || newSessionId;
+          if (currentSessionId) {
+            console.log('🎮 Getting round data for session:', currentSessionId);
+            const roundResult = await gameService.getNextRound(currentSessionId);
             
             if (roundResult.err) {
               throw new Error(roundResult.err);
@@ -170,7 +217,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
               // TODO: Set actual photo from round data
               setCurrentPhoto({
                 id: roundResult.ok.photoId.toString(),
-                url: 'https://picsum.photos/800/600', // TODO: Get from photo canister
+                url: 'https://picsum.photos/800/600?' + Date.now(), // TODO: Get from photo canister
                 actualLocation: { latitude: 35.6762, longitude: 139.6503 }, // TODO: Get from round
                 azimuth: 45,
                 timestamp: Date.now(),
@@ -180,57 +227,53 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
             }
           }
         } else {
-          // Existing session - get next round
-          const roundResult = await gameService.getNextRound(sessionId);
-          console.log('Get round result:', roundResult);
-          
-          if (roundResult.err) {
-            throw new Error(roundResult.err);
-          }
-          
-          if (roundResult.ok) {
-            // TODO: Set actual photo from round data
-            setCurrentPhoto({
-              id: roundResult.ok.photoId.toString(),
-              url: 'https://picsum.photos/800/600?' + Date.now(), // TODO: Get from photo canister, add timestamp to force new image
-              actualLocation: { latitude: 35.6762, longitude: 139.6503 }, // TODO: Get from round
-              azimuth: 45,
-              timestamp: Date.now(),
-              uploader: '2vxsx-fae',
-              difficulty,
-            });
-          }
+          throw new Error(sessionsResult.err || 'Failed to get user sessions');
         }
         
-        // Update token balance
-        if (principal) {
-          const balance = await gameService.getTokenBalance(principal);
-          setTokenBalance(balance);
-        }
+        // Step 5: Update token balance
+        const balance = await gameService.getTokenBalance(principal);
+        setTokenBalance(balance);
         
         setIsLoading(false);
+        setSessionLoading(false);
+        console.log('🎮 Game initialization completed successfully');
+        
       } catch (err) {
-        console.error('Failed to initialize game:', err);
-        setError(err instanceof Error ? err.message : 'Failed to start game');
+        console.error('🎮 Failed to initialize game:', err);
+        const errorMessage = err instanceof Error ? err.message : 'Failed to start game';
+        setError(errorMessage);
+        setSessionError(errorMessage);
         setIsLoading(false);
+        setSessionLoading(false);
         
         // Show error alert with more specific message
-        const errorMessage = err instanceof Error && err.message.includes('certificate') 
+        const alertMessage = err instanceof Error && err.message.includes('certificate') 
           ? 'Certificate verification failed. This is a known issue with dev mode on mainnet. Please try using Internet Identity for full functionality.'
-          : (err instanceof Error ? err.message : 'Failed to start game');
+          : errorMessage;
           
         Alert.alert(
           'Game Error',
-          errorMessage,
+          alertMessage,
           [
-            { text: 'Go Back', onPress: () => navigation.goBack() }
+            { 
+              text: 'Go Back', 
+              onPress: () => {
+                // Stop timer before navigating
+                isNavigatingAway.current = true;
+                if (timerRef.current) {
+                  clearTimeout(timerRef.current);
+                  timerRef.current = null;
+                }
+                navigation.goBack();
+              }
+            }
           ]
         );
       }
     };
     
     initializeGame();
-  }, [sessionId, principal, identity]);
+  }, [principal, identity]); // Removed sessionId dependency to avoid infinite loop
   
   // Cleanup on unmount
   useEffect(() => {
@@ -407,24 +450,25 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   const isNavigatingAway = useRef(false);
   
   useEffect(() => {
-    // Don't run timer if navigating away or time is already up
-    if (isNavigatingAway.current || timeLeft <= 0) {
+    // Don't run timer if navigating away
+    if (isNavigatingAway.current) {
       return;
     }
     
-    // Handle timeout only if still on this screen
-    if (timeLeft === 0 && !isNavigatingAway.current) {
+    // Handle timeout
+    if (timeLeft <= 0) {
       handleTimeout();
       return;
     }
     
     timerRef.current = setTimeout(() => {
-      setTimeLeft(prev => prev - 1);
+      setTimeLeft(prev => Math.max(0, prev - 1));
     }, 1000);
     
     return () => {
       if (timerRef.current) {
         clearTimeout(timerRef.current);
+        timerRef.current = null;
       }
     };
   }, [timeLeft]);
@@ -498,6 +542,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     // Submit guess to backend
     if (sessionId) {
       try {
+        setSessionLoading(true);
         const result = await gameService.submitGuess(
           sessionId,
           finalGuess.latitude,
@@ -508,12 +553,18 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
         
         if (result.ok) {
           // Guess submitted successfully
+          console.log('🎮 Guess submitted successfully');
+          // Update round state if needed
         } else {
           console.error('Failed to submit guess:', result.err);
+          setSessionError(result.err || 'Failed to submit guess');
           Alert.alert('Error', result.err || 'Failed to submit guess');
         }
       } catch (error) {
         console.error('Error submitting guess:', error);
+        setSessionError('Network error occurred while submitting guess');
+      } finally {
+        setSessionLoading(false);
       }
     }
     
@@ -555,6 +606,8 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
           text: '購入',
           onPress: async () => {
             try {
+              setSessionLoading(true);
+              
               // Map hint type to service type
               const hintTypeMap: Record<string, ServiceHintType> = {
                 'BasicRadius': { BasicRadius: null },
@@ -592,11 +645,17 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
                 
                 Alert.alert('成功', 'ヒントを購入しました！');
               } else {
-                Alert.alert('エラー', result.err || 'ヒントの購入に失敗しました');
+                const errorMsg = result.err || 'ヒントの購入に失敗しました';
+                setSessionError(errorMsg);
+                Alert.alert('エラー', errorMsg);
               }
             } catch (error) {
               console.error('Failed to purchase hint:', error);
-              Alert.alert('エラー', 'ヒントの購入に失敗しました');
+              const errorMsg = 'ネットワークエラーが発生しました';
+              setSessionError(errorMsg);
+              Alert.alert('エラー', errorMsg);
+            } finally {
+              setSessionLoading(false);
             }
           },
         },
@@ -625,17 +684,51 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   };
 
   const handleHomeButtonPress = () => {
+    const alertMessage = hasActiveSession() 
+      ? 'ホーム画面に戻ると、現在のゲームセッションは一時停止されます。後で続きをプレイできます。'
+      : 'ホーム画面に戻りますか？';
+      
     Alert.alert(
       'ゲームを終了しますか？',
-      'ホーム画面に戻ると、現在のゲームの進行状況が失われます。',
+      alertMessage,
       [
         {
           text: 'キャンセル',
           style: 'cancel',
         },
         {
-          text: 'ホームに戻る',
+          text: 'セッションを破棄',
           style: 'destructive',
+          onPress: async () => {
+            // Stop timer before navigating
+            isNavigatingAway.current = true;
+            if (timerRef.current) {
+              clearTimeout(timerRef.current);
+              timerRef.current = null;
+            }
+            
+            // Finalize current session if active
+            if (sessionId && hasActiveSession()) {
+              try {
+                await gameService.finalizeSession(sessionId);
+                updateSessionStatus(sessionId, 'Abandoned');
+              } catch (error) {
+                console.warn('Failed to finalize session:', error);
+              }
+            }
+            
+            // Clear session data
+            clearSessionData();
+            
+            // Reset navigation stack to home
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'Home' }],
+            });
+          },
+        },
+        {
+          text: hasActiveSession() ? '一時停止' : 'ホームに戻る',
           onPress: () => {
             // Stop timer before navigating
             isNavigatingAway.current = true;
@@ -644,7 +737,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
               timerRef.current = null;
             }
             
-            // Reset navigation stack to home
+            // Keep session active and just navigate home
             navigation.reset({
               index: 0,
               routes: [{ name: 'Home' }],
@@ -664,27 +757,52 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   }
   
   // Show loading state
-  if (isLoading) {
+  if (isLoading || isSessionLoading) {
     return (
       <View style={[styles.container, styles.centerContent]}>
         <ActivityIndicator size="large" color="#3282b8" />
-        <Text style={styles.loadingText}>Starting game...</Text>
+        <Text style={styles.loadingText}>
+          {isSessionLoading ? 'Checking game sessions...' : 'Starting game...'}
+        </Text>
+        {sessionError && (
+          <View style={styles.sessionErrorContainer}>
+            <Ionicons name="warning" size={24} color="#ff9500" />
+            <Text style={styles.sessionErrorText}>{sessionError}</Text>
+          </View>
+        )}
       </View>
     );
   }
 
   // Show error state
-  if (error) {
+  if (error || sessionError) {
     return (
       <View style={[styles.container, styles.centerContent]}>
         <Ionicons name="alert-circle" size={64} color="#ff4444" />
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity 
-          style={styles.retryButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Text style={styles.retryButtonText}>Go Back</Text>
-        </TouchableOpacity>
+        <Text style={styles.errorText}>{error || sessionError}</Text>
+        <View style={styles.errorButtons}>
+          <TouchableOpacity 
+            style={[styles.retryButton, styles.primaryButton]}
+            onPress={() => {
+              setError(null);
+              setSessionError(null);
+              clearSessionData();
+              // Retry initialization
+              if (identity && principal) {
+                setIsLoading(true);
+                setSessionLoading(true);
+              }
+            }}
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.retryButton, styles.secondaryButton]}
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={styles.retryButtonText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -1461,5 +1579,35 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  
+  // Session error handling styles
+  sessionErrorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(255, 149, 0, 0.1)',
+    borderRadius: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#ff9500',
+  },
+  sessionErrorText: {
+    color: '#ff9500',
+    fontSize: 14,
+    marginLeft: 8,
+    flex: 1,
+  },
+  errorButtons: {
+    flexDirection: 'row',
+    marginTop: 24,
+    gap: 12,
+  },
+  primaryButton: {
+    backgroundColor: '#3282b8',
+  },
+  secondaryButton: {
+    backgroundColor: '#666',
   },
 });

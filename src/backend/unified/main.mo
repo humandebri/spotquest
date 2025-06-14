@@ -11,6 +11,7 @@ import Timer "mo:base/Timer";
 import Option "mo:base/Option";
 import Iter "mo:base/Iter";
 import Array "mo:base/Array";
+import Buffer "mo:base/Buffer";
 
 import ICRC1 "../../types/icrc1";
 import GameV2 "../../types/game_v2";
@@ -205,6 +206,37 @@ actor GameUnified {
             return #err("User is banned");
         };
         gameEngineManager.createSession(msg.caller)
+    };
+    
+    public query func getUserSessions(player: Principal) : async Result.Result<[GameV2.SessionInfo], Text> {
+        switch(gameEngineManager.getUserSessions(player)) {
+            case null { #err("No sessions found for user") };
+            case (?sessionIds) {
+                let sessions = Buffer.Buffer<GameV2.SessionInfo>(sessionIds.size());
+                for (sessionId in sessionIds.vals()) {
+                    switch(gameEngineManager.getSession(sessionId)) {
+                        case null {};
+                        case (?session) {
+                            // Determine session status based on endTime
+                            let status : GameV2.SessionStatus = switch(session.endTime) {
+                                case null { #Active };
+                                case (?_) { #Completed };
+                            };
+                            
+                            sessions.add({
+                                id = session.id;
+                                players = [session.userId];
+                                status = status;
+                                createdAt = session.startTime;
+                                roundCount = session.rounds.size();
+                                currentRound = if (session.currentRound > 0) { ?session.currentRound } else { null };
+                            });
+                        };
+                    };
+                };
+                #ok(Buffer.toArray(sessions))
+            };
+        }
     };
     
     public shared(msg) func getNextRound(sessionId: Text) : async Result.Result<GameV2.RoundState, Text> {
