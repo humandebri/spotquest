@@ -11,6 +11,7 @@ import {
   TextInput,
   RefreshControl,
   Image,
+  Platform,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Principal } from '@dfinity/principal';
@@ -442,19 +443,24 @@ export default function ProfileScreen() {
         {/* Profile Header */}
         <View style={styles.header}>
           <View style={styles.profileInfo}>
-            <View style={styles.avatar}>
-              <MaterialCommunityIcons name="account" size={48} color="#ffffff" />
+            {/* Profile Row - Horizontal Layout */}
+            <View style={styles.profileRow}>
+              <View style={styles.avatar}>
+                <MaterialCommunityIcons name="account" size={48} color="#ffffff" />
+              </View>
+              <View style={styles.userInfo}>
+                <TouchableOpacity onPress={() => {
+                  setTempUsername(username);
+                  setShowUsernameModal(true);
+                }}>
+                  <Text style={styles.username}>{username}</Text>
+                  <Text style={styles.editUsernameHint}>Tap to edit</Text>
+                </TouchableOpacity>
+                <Text style={styles.principal}>
+                  PID: {principal ? principal.toString() : 'Not connected'}
+                </Text>
+              </View>
             </View>
-            <TouchableOpacity onPress={() => {
-              setTempUsername(username);
-              setShowUsernameModal(true);
-            }}>
-              <Text style={styles.username}>{username}</Text>
-              <Text style={styles.editUsernameHint}>Tap to edit</Text>
-            </TouchableOpacity>
-            <Text style={styles.principal}>
-              {principal ? `${principal.toString().slice(0, 8)}...` : 'Not connected'}
-            </Text>
 
             {/* Balance Card */}
             <View style={styles.balanceCard}>
@@ -471,10 +477,6 @@ export default function ProfileScreen() {
                 >
                   <Text style={styles.withdrawButtonText}>Withdraw</Text>
                 </TouchableOpacity>
-              </View>
-              <View style={styles.balanceChange}>
-                <Ionicons name="trending-up" size={20} color="#10b981" />
-                <Text style={styles.balanceChangeText}>+12.5% this week</Text>
               </View>
             </View>
           </View>
@@ -1120,35 +1122,42 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   profileInfo: {
+    flex: 1,
+  },
+  profileRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 24,
   },
   avatar: {
-    width: 96,
-    height: 96,
+    width: 80,
+    height: 80,
     backgroundColor: 'rgba(59, 130, 246, 0.2)',
-    borderRadius: 48,
+    borderRadius: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
-    borderWidth: 4,
+    marginRight: 16,
+    borderWidth: 3,
     borderColor: 'rgba(59, 130, 246, 0.3)',
+  },
+  userInfo: {
+    flex: 1,
   },
   username: {
     color: '#ffffff',
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: 'bold',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   editUsernameHint: {
     color: '#64748b',
     fontSize: 12,
-    marginBottom: 8,
-    textAlign: 'center',
+    marginBottom: 6,
   },
   principal: {
     color: '#94a3b8',
-    fontSize: 14,
-    marginBottom: 24,
+    fontSize: 13,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
   },
   balanceCard: {
     width: '100%',
@@ -1183,18 +1192,6 @@ const styles = StyleSheet.create({
   withdrawButtonText: {
     color: '#ffffff',
     fontWeight: 'bold',
-  },
-  balanceChange: {
-    backgroundColor: 'rgba(34, 197, 94, 0.1)',
-    borderRadius: 12,
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  balanceChangeText: {
-    color: '#10b981',
-    marginLeft: 8,
-    fontSize: 14,
   },
   tabContainer: {
     paddingHorizontal: 24,
