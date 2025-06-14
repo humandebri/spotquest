@@ -5,7 +5,7 @@
 ### 開発方針
 変更を行う際は必ず方針を日本語で説明してから着手して下さい
 
-## 🔄 最新の作業状況 (2025-06-14 PM) - Photo V2への完全移行完了 ✅
+## 🔄 最新の作業状況 (2025-06-14 PM) - Photo V2への完全移行とデプロイ完了 ✅
 
 ### Photo V1からV2への完全移行
 **実施内容**:
@@ -40,9 +40,15 @@
 - 予約投稿機能の統合
 - より詳細なメタデータ管理
 
-**残作業**:
-- [ ] バックエンドの変更をデプロイ（dfx deploy）
-- [ ] 既存のPhoto V1データをV2にマイグレーション（戦略策定完了）
+**完了作業**:
+- ✅ メインネットへのバックエンドデプロイ（dfx deploy --network ic） - 2025-06-14 完了
+  - PhotoModuleV2のコンパイルエラーを修正（798行目）
+  - Stable storage互換性問題を解決（photoV2ScheduledStableを別変数として追加）
+  - メインネットへのデプロイ成功：
+    - unified: 77fv5-oiaaa-aaaal-qsoea-cai
+    - フロントエンド: https://7yetj-dqaaa-aaaal-qsoeq-cai.icp0.io/
+    - バックエンドCandid: https://a4gq6-oaaaa-aaaab-qaa4q-cai.raw.icp0.io/?id=77fv5-oiaaa-aaaal-qsoea-cai
+- ✅ 既存のPhoto V1データをV2にマイグレーション（戦略策定完了） - 実装待ち
 
 ## 🔄 既存写真データのマイグレーション戦略
 

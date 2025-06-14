@@ -12,6 +12,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Modal,
+  StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -56,7 +57,6 @@ export default function PhotoUploadScreenV2() {
 
   const { photoUri, latitude, longitude, azimuth, timestamp } = route.params;
 
-  const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [difficulty, setDifficulty] = useState<'EASY' | 'NORMAL' | 'HARD' | 'EXTREME'>('NORMAL');
   const [hint, setHint] = useState('');
@@ -66,7 +66,7 @@ export default function PhotoUploadScreenV2() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   
   // V2新規フィールド
-  const [sceneType, setSceneType] = useState('other');
+  const [sceneType, setSceneType] = useState('nature');
   const [country, setCountry] = useState('XX');
   const [region, setRegion] = useState('XX-XX');
   const [locationName, setLocationName] = useState('取得中...');
@@ -76,7 +76,7 @@ export default function PhotoUploadScreenV2() {
   const [showMapModal, setShowMapModal] = useState(false);
   const [displayLat, setDisplayLat] = useState(latitude.toFixed(6));
   const [displayLon, setDisplayLon] = useState(longitude.toFixed(6));
-  const [displayAzimuth, setDisplayAzimuth] = useState(azimuth.toFixed(0));
+  const [displayAzimuth, setDisplayAzimuth] = useState(azimuth ? azimuth.toFixed(0) : '0');
   const [photoTakenDate, setPhotoTakenDate] = useState(new Date(Number(timestamp)));
   const [showPhotoDatePicker, setShowPhotoDatePicker] = useState(false);
 
@@ -137,10 +137,7 @@ export default function PhotoUploadScreenV2() {
   };
 
   const handleUpload = async () => {
-    if (!title.trim() && uploadDelay === 0) {
-      Alert.alert('エラー', 'タイトルを入力してください');
-      return;
-    }
+    // タイトルフィールドが削除されたので、タイトル検証を削除
 
     setIsUploading(true);
     setUploadProgress(0);
@@ -149,17 +146,35 @@ export default function PhotoUploadScreenV2() {
       // 写真データをBase64に変換
       const base64Data = await imageUriToBase64(photoUri);
 
-      // デフォルトタイトル（予約投稿の場合）
+      // デフォルトタイトル（タイトルフィールドが削除されたため常にデフォルトを使用）
       const defaultTitle = uploadDelay > 0 
         ? `予約投稿 - ${new Date().toLocaleDateString('ja-JP')}`
-        : '無題の写真';
+        : `写真 - ${new Date().toLocaleDateString('ja-JP')}`;
 
-      // V2用の写真データを準備
+      // 有効な方位角をチェックする関数
+      const getValidAzimuth = (inputAzimuth: number | null, displayValue: string): number | null => {
+        // 元のazimuthが無効な場合はnull
+        if (inputAzimuth === null || inputAzimuth < 0 || inputAzimuth > 360) {
+          return null;
+        }
+        
+        // displayValueをパースして有効性をチェック
+        const parsedValue = parseFloat(displayValue);
+        if (isNaN(parsedValue) || parsedValue < 0 || parsedValue > 360) {
+          return null;
+        }
+        
+        return parsedValue;
+      };
+
+      // V2用の写真データを準備（IDL Optional型用の変換）
+      const validAzimuth = getValidAzimuth(azimuth, displayAzimuth);
+      
       const photoRequest: CreatePhotoRequest = {
         latitude: parseFloat(displayLat),
         longitude: parseFloat(displayLon),
-        azimuth: azimuth ? parseFloat(displayAzimuth) : null,
-        title: title.trim() || defaultTitle,
+        azimuth: validAzimuth, // nullの場合は後でIDL変換時に[]に変換される
+        title: defaultTitle,
         description,
         difficulty,
         hint,
@@ -204,7 +219,7 @@ export default function PhotoUploadScreenV2() {
               '投稿成功 ✅',
               `写真がICP上に正常に保存されました\n\n` +
               `📍 位置: ${savedPhotoMetadata.latitude?.toFixed(4) ?? 'N/A'}, ${savedPhotoMetadata.longitude?.toFixed(4) ?? 'N/A'}\n` +
-              `🧭 方位角: ${savedPhotoMetadata.azimuth ? savedPhotoMetadata.azimuth.toFixed(0) + '°' : 'なし'}\n` +
+              `🧭 方位角: ${savedPhotoMetadata.azimuth && savedPhotoMetadata.azimuth.length > 0 ? savedPhotoMetadata.azimuth[0].toFixed(0) + '°' : 'なし'}\n` +
               `🌍 地域: ${savedPhotoMetadata.country || 'XX'} / ${savedPhotoMetadata.region || 'XX-XX'}\n` +
               `🏞️ シーン: ${sceneType}\n` +
               `📊 品質スコア: ${(savedPhotoMetadata.qualityScore * 100).toFixed(1)}%\n` +
@@ -252,7 +267,8 @@ export default function PhotoUploadScreenV2() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <StatusBar barStyle="light-content" backgroundColor="#f5f5f5" />
       <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -290,23 +306,12 @@ export default function PhotoUploadScreenV2() {
                 緯度: {displayLat}, 経度: {displayLon}
               </Text>
               <Text style={styles.locationText}>
-                方位角: {displayAzimuth}°
+                方位角: {azimuth !== null ? `${displayAzimuth}°` : 'なし'}
               </Text>
             </View>
             <Text style={styles.editHint}>タップして編集</Text>
           </TouchableOpacity>
 
-          {/* 基本情報入力 */}
-          <View style={styles.inputSection}>
-            <Text style={styles.inputLabel}>タイトル *</Text>
-            <TextInput
-              style={styles.input}
-              value={title}
-              onChangeText={setTitle}
-              placeholder="例: 富士山から見た朝日"
-              placeholderTextColor="#666"
-            />
-          </View>
 
           <View style={styles.inputSection}>
             <Text style={styles.inputLabel}>説明</Text>
@@ -488,7 +493,7 @@ export default function PhotoUploadScreenV2() {
         transparent={false}
         onRequestClose={() => setShowMapModal(false)}
       >
-        <SafeAreaView style={styles.modalContainer}>
+        <SafeAreaView style={styles.modalContainer} edges={['top', 'left', 'right', 'bottom']}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={() => setShowMapModal(false)}>
               <Text style={styles.modalCloseButton}>閉じる</Text>
@@ -525,6 +530,8 @@ export default function PhotoUploadScreenV2() {
                 value={displayAzimuth}
                 onChangeText={setDisplayAzimuth}
                 keyboardType="numeric"
+                placeholder="0-360度 (任意)"
+                placeholderTextColor="#999"
               />
             </View>
           </View>
@@ -728,8 +735,8 @@ const styles = StyleSheet.create({
   },
   difficultyButton: {
     flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
     borderRadius: 8,
     backgroundColor: '#fff',
     borderWidth: 1,
@@ -741,9 +748,10 @@ const styles = StyleSheet.create({
     borderColor: '#007AFF',
   },
   difficultyButtonText: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#666',
     fontWeight: '500',
+    textAlign: 'center',
   },
   difficultyButtonTextActive: {
     color: '#fff',

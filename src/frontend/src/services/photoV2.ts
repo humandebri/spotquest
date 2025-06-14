@@ -71,7 +71,7 @@ export interface PhotoMetaV2 {
   // 位置情報
   latitude: number;
   longitude: number;
-  azimuth: number | null;
+  azimuth: number[] | []; // IDL Optional型は配列形式
   geoHash: GeoHash;
   
   // 表示用メタデータ
@@ -95,7 +95,7 @@ export interface PhotoMetaV2 {
   status: { Active: null } | { Banned: null } | { Deleted: null };
   qualityScore: number;
   timesUsed: bigint;
-  lastUsedTime: bigint | null;
+  lastUsedTime: bigint[] | []; // IDL Optional型は配列形式
 }
 
 export interface SearchFilter {
@@ -334,8 +334,15 @@ class PhotoServiceV2 {
     }
 
     try {
+      // IDL variant型とOptional型用の変換を行う
+      const idlRequest = {
+        ...request,
+        azimuth: request.azimuth !== null ? [request.azimuth] : [], // null → [] に変換
+        difficulty: difficultyFromString(request.difficulty), // 文字列 → variant型に変換
+      };
+      
       console.log('🖼️ Creating photo with request:', request);
-      const result = await this.actor.createPhotoV2(request);
+      const result = await this.actor.createPhotoV2(idlRequest);
       console.log('🖼️ Photo created:', result);
       return result;
     } catch (error) {
@@ -510,8 +517,15 @@ class PhotoServiceV2 {
     }
 
     try {
+      // IDL variant型とOptional型用の変換を行う
+      const idlRequest = {
+        ...request,
+        azimuth: request.azimuth !== null ? [request.azimuth] : [], // null → [] に変換
+        difficulty: difficultyFromString(request.difficulty), // 文字列 → variant型に変換
+      };
+      
       console.log('📸 Scheduling photo upload:', { request, scheduledTime: scheduledPublishTime });
-      const result = await this.actor.schedulePhotoUploadV2(request, photoData, scheduledPublishTime);
+      const result = await this.actor.schedulePhotoUploadV2(idlRequest, photoData, scheduledPublishTime);
       console.log('📸 Scheduled photo created:', result);
       return result;
     } catch (error) {

@@ -10,6 +10,7 @@ import {
   Modal,
   TextInput,
   RefreshControl,
+  Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Principal } from '@dfinity/principal';
@@ -906,6 +907,90 @@ export default function ProfileScreen() {
   );
 }
 
+// PhotoImageLoader Component - 画像を非同期で読み込むコンポーネント
+const PhotoImageLoader = ({ photoId }: { photoId: bigint }) => {
+  const [imageUri, setImageUri] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const { identity } = useAuth();
+
+  useEffect(() => {
+    const loadImage = async () => {
+      try {
+        // 写真のメタデータを取得
+        const metadata = await photoServiceV2.getPhotoMetadata(photoId, identity);
+        if (!metadata) {
+          setIsLoading(false);
+          return;
+        }
+
+        // チャンク数を取得
+        const chunkCount = Number(metadata.chunkCount);
+        const chunks: Uint8Array[] = [];
+
+        // 全チャンクを取得
+        for (let i = 0; i < chunkCount; i++) {
+          const chunk = await photoServiceV2.getPhotoChunk(photoId, BigInt(i), identity);
+          if (chunk) {
+            chunks.push(chunk);
+          }
+        }
+
+        // チャンクを結合してBase64文字列に変換
+        const allChunks = chunks.reduce((acc, chunk) => {
+          const newArray = new Uint8Array(acc.length + chunk.length);
+          newArray.set(acc);
+          newArray.set(chunk, acc.length);
+          return newArray;
+        }, new Uint8Array(0));
+
+        // Uint8Arrayを文字列に変換（Base64データとして）
+        const base64String = new TextDecoder().decode(allChunks);
+        
+        // data URLとして設定
+        setImageUri(`data:image/jpeg;base64,${base64String}`);
+      } catch (error) {
+        console.error('Failed to load photo:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadImage();
+  }, [photoId, identity]);
+
+  if (isLoading) {
+    return (
+      <View style={styles.photoImageContainer}>
+        <View style={styles.photoImagePlaceholder}>
+          <ActivityIndicator size="small" color="#3b82f6" />
+          <Text style={styles.photoImageLoadingText}>Loading image...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (!imageUri) {
+    return (
+      <View style={styles.photoImageContainer}>
+        <View style={styles.photoImagePlaceholder}>
+          <Ionicons name="image-outline" size={48} color="#94a3b8" />
+          <Text style={styles.photoImageErrorText}>Failed to load image</Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.photoImageContainer}>
+      <Image 
+        source={{ uri: imageUri }} 
+        style={styles.photoImage}
+        resizeMode="cover"
+      />
+    </View>
+  );
+};
+
 // PhotoCard Component
 const PhotoCard = ({ photo, onEdit, onDelete }: any) => {
   const formatTime = (timestamp: bigint) => {
@@ -952,6 +1037,9 @@ const PhotoCard = ({ photo, onEdit, onDelete }: any) => {
         </View>
       </View>
 
+      {/* 画像を表示 */}
+      <PhotoImageLoader photoId={photo.id} />
+
       <View style={styles.photoCardMeta}>
         <View style={styles.photoCardMetaItem}>
           <Ionicons name="location" size={16} color="#94a3b8" />
@@ -962,7 +1050,7 @@ const PhotoCard = ({ photo, onEdit, onDelete }: any) => {
         <View style={styles.photoCardMetaItem}>
           <Ionicons name="compass" size={16} color="#94a3b8" />
           <Text style={styles.photoCardMetaText}>
-            {photo.azimuth ? `${photo.azimuth.toFixed(0)}°` : 'N/A'}
+            {photo.azimuth && photo.azimuth.length > 0 ? `${photo.azimuth[0].toFixed(0)}°` : 'N/A'}
           </Text>
         </View>
         <View style={styles.photoCardMetaItem}>
@@ -1543,5 +1631,34 @@ const styles = StyleSheet.create({
     color: '#64748b',
     fontSize: 12,
     marginTop: 8,
+  },
+  // Photo image styles
+  photoImageContainer: {
+    marginVertical: 12,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(15, 23, 42, 0.5)',
+  },
+  photoImage: {
+    width: '100%',
+    height: 200,
+    resizeMode: 'cover',
+  },
+  photoImagePlaceholder: {
+    width: '100%',
+    height: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(30, 41, 59, 0.5)',
+  },
+  photoImageLoadingText: {
+    color: '#94a3b8',
+    marginTop: 8,
+    fontSize: 14,
+  },
+  photoImageErrorText: {
+    color: '#94a3b8',
+    marginTop: 8,
+    fontSize: 14,
   },
 });

@@ -795,16 +795,12 @@ module {
             for ((id, photo) in scheduledPhotos.entries()) {
                 if (photo.status == #Pending and photo.scheduledPublishTime <= now) {
                     // 写真を公開 - ownerフィールドはCreatePhotoRequest内にないので追加
-                    let photoOwner = switch(userScheduledPhotos.entries().vals().next()) {
-                        case null { Principal.fromText("aaaaa-aa") }; // Fallback
-                        case (?(owner, buffer)) {
-                            var foundOwner = Principal.fromText("aaaaa-aa");
-                            for (scheduledId in buffer.vals()) {
-                                if (scheduledId == id) {
-                                    foundOwner := owner;
-                                };
+                    var photoOwner = Principal.fromText("aaaaa-aa");
+                    for ((owner, buffer) in userScheduledPhotos.entries()) {
+                        for (scheduledId in buffer.vals()) {
+                            if (scheduledId == id) {
+                                photoOwner := owner;
                             };
-                            foundOwner
                         };
                     };
                     

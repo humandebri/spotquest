@@ -154,6 +154,9 @@ actor GameUnified {
         nextPhotoId: Nat;
         totalPhotos: Nat;
         totalStorageSize: Nat;
+    } = null;
+    
+    private stable var photoV2ScheduledStable : ?{
         scheduledPhotos: [(Nat, PhotoModuleV2.ScheduledPhoto)];
         nextScheduledId: Nat;
         userScheduledPhotos: [(Principal, [Nat])];
@@ -1754,7 +1757,19 @@ actor GameUnified {
         gameEngineStable := ?gameEngineManager.toStable();
         guessHistoryStable := ?guessHistoryManager.toStable();
         photoStable := ?photoManager.toStable();
-        photoV2Stable := ?photoManagerV2.toStable();
+        let v2Data = photoManagerV2.toStable();
+        photoV2Stable := ?{
+            photos = v2Data.photos;
+            photoChunks = v2Data.photoChunks;
+            nextPhotoId = v2Data.nextPhotoId;
+            totalPhotos = v2Data.totalPhotos;
+            totalStorageSize = v2Data.totalStorageSize;
+        };
+        photoV2ScheduledStable := ?{
+            scheduledPhotos = v2Data.scheduledPhotos;
+            nextScheduledId = v2Data.nextScheduledId;
+            userScheduledPhotos = v2Data.userScheduledPhotos;
+        };
         reputationStable := ?reputationManager.toStable();
         iiIntegrationStable := ?iiIntegrationManager.preupgrade();
     };
@@ -1827,8 +1842,29 @@ actor GameUnified {
         switch(photoV2Stable) {
             case null { };
             case (?stableData) {
-                photoManagerV2.fromStable(stableData);
+                // Get scheduled data if available
+                let scheduledData = switch(photoV2ScheduledStable) {
+                    case null { {
+                        scheduledPhotos = [];
+                        nextScheduledId = 1;
+                        userScheduledPhotos = [];
+                    } };
+                    case (?s) { s };
+                };
+                
+                let v2Data = {
+                    photos = stableData.photos;
+                    photoChunks = stableData.photoChunks;
+                    nextPhotoId = stableData.nextPhotoId;
+                    totalPhotos = stableData.totalPhotos;
+                    totalStorageSize = stableData.totalStorageSize;
+                    scheduledPhotos = scheduledData.scheduledPhotos;
+                    nextScheduledId = scheduledData.nextScheduledId;
+                    userScheduledPhotos = scheduledData.userScheduledPhotos;
+                };
+                photoManagerV2.fromStable(v2Data);
                 photoV2Stable := null;
+                photoV2ScheduledStable := null;
             };
         };
         

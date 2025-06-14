@@ -216,9 +216,9 @@ export default function ScheduledPhotosScreen() {
           <Text style={styles.metaText}>
             📍 {item.request.latitude.toFixed(4)}, {item.request.longitude.toFixed(4)}
           </Text>
-          {item.request.azimuth && (
+          {(Array.isArray(item.request.azimuth) ? item.request.azimuth.length > 0 : item.request.azimuth !== null && item.request.azimuth !== undefined) && (
             <Text style={styles.metaText}>
-              🧭 {item.request.azimuth.toFixed(0)}°
+              🧭 {Array.isArray(item.request.azimuth) ? item.request.azimuth[0].toFixed(0) : item.request.azimuth.toFixed(0)}°
             </Text>
           )}
           <Text style={styles.metaText}>

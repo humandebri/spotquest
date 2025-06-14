@@ -243,12 +243,33 @@ export default function CameraScreen() {
 
       console.log('Photo captured with location:', photoData.metadata);
 
+      // 有効な方位角のみを渡す（0-360度の範囲チェック）
+      const getValidAzimuth = (h1: number | null, h2: number | null): number | null => {
+        const heading1 = h1;
+        const heading2 = h2;
+        
+        // h1が有効な範囲内（0-360度）かチェック
+        if (heading1 !== null && heading1 >= 0 && heading1 <= 360) {
+          return heading1;
+        }
+        
+        // h2が有効な範囲内（0-360度）かチェック
+        if (heading2 !== null && heading2 >= 0 && heading2 <= 360) {
+          return heading2;
+        }
+        
+        // どちらも無効な場合はnullを返す
+        return null;
+      };
+
+      const validAzimuth = getValidAzimuth(heading, location.heading);
+
       // 写真アップロード画面に遷移
       navigation.navigate('PhotoUpload', {
         photoUri: photo.uri,
         latitude: location.latitude,
         longitude: location.longitude,
-        azimuth: heading || location.heading || 0,
+        azimuth: validAzimuth,
         timestamp: Date.now(),
       });
     } catch (error) {

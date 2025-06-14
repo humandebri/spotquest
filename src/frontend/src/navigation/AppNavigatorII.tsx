@@ -44,7 +44,7 @@ export type RootStackParamList = {
     photoUri: string;
     latitude: number;
     longitude: number;
-    azimuth: number;
+    azimuth: number | null;
     timestamp: number;
   };
   Leaderboard: undefined;
@@ -113,7 +113,7 @@ export default function AppNavigatorII() {
           <Stack.Screen
             name="PhotoUpload"
             component={PhotoUploadScreen}
-            options={{ title: 'Upload Photo' }}
+            options={{ headerShown: false }}
           />
           <Stack.Screen
             name="Leaderboard"
