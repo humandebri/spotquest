@@ -26,7 +26,10 @@ import { useAuth } from '../hooks/useAuth';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
-import photoService, { PhotoMetadata, PhotoUpdateInfo } from '../services/photo';
+import { photoServiceV2, PhotoMetaV2 } from '../services/photoV2';
+
+// Use V2 types
+type PhotoMetadata = PhotoMetaV2;
 import { gameService } from '../services/game';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Profile'>;
@@ -43,6 +46,23 @@ interface UserStats {
   currentStreak: number;
   longestStreak: number;
 }
+
+// Helper function to extract difficulty from V2 variant
+const getDifficulty = (diff: any): 'EASY' | 'NORMAL' | 'HARD' | 'EXTREME' => {
+  if (!diff || typeof diff !== 'object') {
+    console.warn('Invalid difficulty value:', diff);
+    return 'NORMAL';
+  }
+  
+  // Check for variant properties (e.g., { EASY: null })
+  if ('EASY' in diff) return 'EASY';
+  if ('NORMAL' in diff) return 'NORMAL';
+  if ('HARD' in diff) return 'HARD';
+  if ('EXTREME' in diff) return 'EXTREME';
+  
+  console.warn('Unknown difficulty variant:', diff);
+  return 'NORMAL';
+};
 
 export default function ProfileScreen() {
   const navigation = useNavigation<NavigationProp>();
@@ -85,7 +105,13 @@ export default function ProfileScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingPhoto, setEditingPhoto] = useState<PhotoMetadata | null>(null);
-  const [editForm, setEditForm] = useState<PhotoUpdateInfo>({
+  const [editForm, setEditForm] = useState<{
+    title: string;
+    description: string;
+    difficulty: 'EASY' | 'NORMAL' | 'HARD' | 'EXTREME';
+    hint: string;
+    tags: string[];
+  }>({
     title: '',
     description: '',
     difficulty: 'NORMAL',
@@ -300,8 +326,9 @@ export default function ProfileScreen() {
     }
 
     try {
-      const photos = await photoService.getUserPhotos(identity);
-      setUserPhotos(photos);
+      // Use V2 API to get user photos
+      const result = await photoServiceV2.getUserPhotos(undefined, 100, identity);
+      setUserPhotos(result.photos);
     } catch (error) {
       console.error('Failed to load user photos:', error);
       Alert.alert('Error', 'Failed to load photos');
@@ -569,7 +596,7 @@ export default function ProfileScreen() {
                       setEditForm({
                         title: photo.title || '',
                         description: photo.description || '',
-                        difficulty: photo.difficulty || 'NORMAL',
+                        difficulty: getDifficulty(photo.difficulty),
                         hint: photo.hint || '',
                         tags: photo.tags || [],
                       });
@@ -578,7 +605,7 @@ export default function ProfileScreen() {
                     onDelete={() => {
                       Alert.alert(
                         'Delete Photo',
-                        `Delete "${photo.title || 'Untitled'}"? This cannot be undone.`,
+                        `Delete "${photo.title || 'Untitled Photo'}"? This cannot be undone.`,
                         [
                           { text: 'Cancel', style: 'cancel' },
                           {
@@ -586,7 +613,7 @@ export default function ProfileScreen() {
                             style: 'destructive',
                             onPress: async () => {
                               try {
-                                const result = await photoService.deletePhoto(photo.id);
+                                const result = await photoServiceV2.deletePhoto(photo.id, identity);
                                 if (result.err) throw new Error(result.err);
                                 Alert.alert('Success', 'Photo deleted');
                                 loadUserPhotos();
@@ -722,35 +749,23 @@ export default function ProfileScreen() {
 
               <View style={styles.modalActions}>
                 <TouchableOpacity
-                  style={[styles.modalButton, styles.modalButtonPrimary, isUpdating && styles.modalButtonDisabled]}
-                  onPress={async () => {
-                    if (!editingPhoto) return;
-                    setIsUpdating(true);
-                    try {
-                      const result = await photoService.updatePhotoInfo(editingPhoto.id, editForm);
-                      if (result.err) throw new Error(result.err);
-                      Alert.alert('Success', 'Photo updated');
-                      setShowEditModal(false);
-                      loadUserPhotos();
-                    } catch (error) {
-                      Alert.alert('Error', 'Failed to update photo');
-                    } finally {
-                      setIsUpdating(false);
-                    }
+                  style={[styles.modalButton, styles.modalButtonPrimary, styles.modalButtonDisabled]}
+                  onPress={() => {
+                    Alert.alert(
+                      'Coming Soon',
+                      'Photo editing feature will be available in the next update.',
+                      [{ text: 'OK' }]
+                    );
                   }}
-                  disabled={isUpdating}
+                  disabled={true}
                 >
-                  {isUpdating ? (
-                    <ActivityIndicator size="small" color="#ffffff" />
-                  ) : (
-                    <Text style={styles.modalButtonTextPrimary}>Save</Text>
-                  )}
+                  <Text style={[styles.modalButtonTextPrimary, { opacity: 0.5 }]}>Save (Coming Soon)</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalButtonSecondary]}
                   onPress={() => setShowEditModal(false)}
                 >
-                  <Text style={styles.modalButtonTextSecondary}>Cancel</Text>
+                  <Text style={styles.modalButtonTextSecondary}>Close</Text>
                 </TouchableOpacity>
               </View>
             </ScrollView>
@@ -908,6 +923,16 @@ const PhotoCard = ({ photo, onEdit, onDelete }: any) => {
     HARD: '#f59e0b',
     EXTREME: '#ef4444',
   };
+  
+  const getSceneLabel = (sceneKind: any): string => {
+    if (!sceneKind) return 'Unknown';
+    if (sceneKind.Nature) return '自然';
+    if (sceneKind.Building) return '建物';
+    if (sceneKind.Store) return '店舗';
+    if (sceneKind.Facility) return '施設';
+    if (sceneKind.Other) return 'その他';
+    return 'Unknown';
+  };
 
   return (
     <View style={styles.photoCard}>
@@ -920,9 +945,9 @@ const PhotoCard = ({ photo, onEdit, onDelete }: any) => {
             {photo.description || 'No description'}
           </Text>
         </View>
-        <View style={[styles.difficultyBadge, { backgroundColor: `${difficultyColors[photo.difficulty || 'NORMAL']}20` }]}>
-          <Text style={[styles.difficultyBadgeText, { color: difficultyColors[photo.difficulty || 'NORMAL'] }]}>
-            {photo.difficulty || 'NORMAL'}
+        <View style={[styles.difficultyBadge, { backgroundColor: `${difficultyColors[getDifficulty(photo.difficulty)]}20` }]}>
+          <Text style={[styles.difficultyBadgeText, { color: difficultyColors[getDifficulty(photo.difficulty)] }]}>
+            {getDifficulty(photo.difficulty)}
           </Text>
         </View>
       </View>
@@ -931,16 +956,39 @@ const PhotoCard = ({ photo, onEdit, onDelete }: any) => {
         <View style={styles.photoCardMetaItem}>
           <Ionicons name="location" size={16} color="#94a3b8" />
           <Text style={styles.photoCardMetaText}>
-            {photo.lat.toFixed(4)}, {photo.lon.toFixed(4)}
+            {photo.latitude?.toFixed(4) ?? 'N/A'}, {photo.longitude?.toFixed(4) ?? 'N/A'}
           </Text>
         </View>
         <View style={styles.photoCardMetaItem}>
           <Ionicons name="compass" size={16} color="#94a3b8" />
-          <Text style={styles.photoCardMetaText}>{photo.azim.toFixed(0)}°</Text>
+          <Text style={styles.photoCardMetaText}>
+            {photo.azimuth ? `${photo.azimuth.toFixed(0)}°` : 'N/A'}
+          </Text>
         </View>
         <View style={styles.photoCardMetaItem}>
           <Ionicons name="calendar" size={16} color="#94a3b8" />
-          <Text style={styles.photoCardMetaText}>{formatTime(photo.timestamp)}</Text>
+          <Text style={styles.photoCardMetaText}>{formatTime(photo.uploadTime)}</Text>
+        </View>
+      </View>
+      
+      <View style={styles.photoCardMeta}>
+        <View style={styles.photoCardMetaItem}>
+          <Ionicons name="globe-outline" size={16} color="#94a3b8" />
+          <Text style={styles.photoCardMetaText}>
+            {photo.country || 'XX'} / {photo.region || 'XX-XX'}
+          </Text>
+        </View>
+        <View style={styles.photoCardMetaItem}>
+          <Ionicons name="image-outline" size={16} color="#94a3b8" />
+          <Text style={styles.photoCardMetaText}>
+            {getSceneLabel(photo.sceneKind)}
+          </Text>
+        </View>
+        <View style={styles.photoCardMetaItem}>
+          <Ionicons name="server-outline" size={16} color="#94a3b8" />
+          <Text style={styles.photoCardMetaText}>
+            {photo.totalSize ? `${(Number(photo.totalSize) / 1024).toFixed(1)} KB` : 'N/A'}
+          </Text>
         </View>
       </View>
 

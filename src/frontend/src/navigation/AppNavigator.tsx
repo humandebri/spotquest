@@ -11,7 +11,7 @@ import GuessMapScreen from '../screens/GuessMapScreen';
 import GameResultScreen from '../screens/GameResultScreen';
 import SessionSummaryScreen from '../screens/SessionSummaryScreen';
 import CameraScreen from '../screens/CameraScreen';
-import PhotoUploadScreen from '../screens/PhotoUploadScreen';
+import PhotoUploadScreen from '../screens/PhotoUploadScreenV2';
 import LeaderboardScreen from '../screens/LeaderboardScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import LoginScreen from '../screens/LoginScreen';

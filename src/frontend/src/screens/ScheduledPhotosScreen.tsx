@@ -15,7 +15,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useAuth } from '../hooks/useAuth';
-import photoService, { ScheduledPhoto } from '../services/photo';
+import { photoServiceV2, ScheduledPhoto } from '../services/photoV2';
 
 type ScheduledPhotosScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'ScheduledPhotos'>;
 
@@ -37,10 +37,10 @@ export default function ScheduledPhotosScreen() {
     }
 
     try {
-      const photos = await photoService.getUserScheduledPhotos(identity);
+      const photos = await photoServiceV2.getUserScheduledPhotos(identity);
       // ステータスが pending のものだけフィルタリング
       const pendingPhotos = photos.filter(photo => 
-        photo.status.pending !== undefined
+        photo.status && 'Pending' in photo.status
       );
       // 公開予定時刻でソート（早い順）
       pendingPhotos.sort((a, b) => 
@@ -97,7 +97,7 @@ export default function ScheduledPhotosScreen() {
             setCancellingIds(prev => new Set(prev).add(photo.id));
             
             try {
-              const result = await photoService.cancelScheduledPhoto(photo.id, identity);
+              const result = await photoServiceV2.cancelScheduledPhoto(photo.id, identity);
               
               if (result.err) {
                 throw new Error(result.err);
@@ -166,13 +166,17 @@ export default function ScheduledPhotosScreen() {
       <View style={styles.photoCard}>
         <View style={styles.photoHeader}>
           <View style={styles.photoInfo}>
-            <Text style={styles.photoTitle}>{item.title}</Text>
+            <Text style={styles.photoTitle}>{item.request.title}</Text>
             <Text style={styles.photoDescription} numberOfLines={2}>
-              {item.description}
+              {item.request.description}
             </Text>
           </View>
           <View style={styles.difficultyBadge}>
-            <Text style={styles.difficultyText}>{item.difficulty}</Text>
+            <Text style={styles.difficultyText}>
+              {item.request.difficulty.EASY ? 'EASY' : 
+               item.request.difficulty.NORMAL ? 'NORMAL' :
+               item.request.difficulty.HARD ? 'HARD' : 'EXTREME'}
+            </Text>
           </View>
         </View>
 
@@ -210,20 +214,22 @@ export default function ScheduledPhotosScreen() {
 
         <View style={styles.photoMeta}>
           <Text style={styles.metaText}>
-            📍 {item.photoMeta.lat.toFixed(4)}, {item.photoMeta.lon.toFixed(4)}
+            📍 {item.request.latitude.toFixed(4)}, {item.request.longitude.toFixed(4)}
           </Text>
+          {item.request.azimuth && (
+            <Text style={styles.metaText}>
+              🧭 {item.request.azimuth.toFixed(0)}°
+            </Text>
+          )}
           <Text style={styles.metaText}>
-            🧭 {item.photoMeta.azim.toFixed(0)}°
-          </Text>
-          <Text style={styles.metaText}>
-            🏷️ {item.tags.join(', ')}
+            🏷️ {item.request.tags.join(', ')}
           </Text>
         </View>
 
-        {item.hint && (
+        {item.request.hint && (
           <View style={styles.hintSection}>
             <Text style={styles.hintLabel}>ヒント</Text>
-            <Text style={styles.hintText}>{item.hint}</Text>
+            <Text style={styles.hintText}>{item.request.hint}</Text>
           </View>
         )}
       </View>

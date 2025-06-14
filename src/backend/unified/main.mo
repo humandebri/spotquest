@@ -154,6 +154,9 @@ actor GameUnified {
         nextPhotoId: Nat;
         totalPhotos: Nat;
         totalStorageSize: Nat;
+        scheduledPhotos: [(Nat, PhotoModuleV2.ScheduledPhoto)];
+        nextScheduledId: Nat;
+        userScheduledPhotos: [(Principal, [Nat])];
     } = null;
     
     // ======================================
@@ -250,11 +253,11 @@ actor GameUnified {
     };
     
     public shared(msg) func getNextRound(sessionId: Text) : async Result.Result<GameV2.RoundState, Text> {
-        // Get random photo
-        switch(photoManager.getRandomPhoto()) {
+        // Use Photo V2 system only
+        switch(photoManagerV2.getRandomPhoto()) {
             case null { #err("No photos available") };
-            case (?photo) {
-                gameEngineManager.getNextRound(sessionId, msg.caller, photo.id)
+            case (?photoV2) {
+                gameEngineManager.getNextRound(sessionId, msg.caller, photoV2.id)
             };
         }
     };
@@ -281,22 +284,22 @@ actor GameUnified {
                 let roundIndex = session.currentRound - 1;
                 let currentRound = session.rounds[roundIndex];
                 
-                // Get photo location
-                switch(photoManager.getPhoto(currentRound.photoId)) {
+                // Get photo location using helper function
+                switch(getPhotoFromV2System(currentRound.photoId)) {
                     case null { #err("Photo not found") };
-                    case (?photo) {
+                    case (?location) {
                         // Submit guess
                         switch(gameEngineManager.submitGuess(
                             sessionId, msg.caller,
                             guessLat, guessLon, guessAzimuth, confidenceRadius,
-                            photo.latitude, photo.longitude
+                            location.latitude, location.longitude
                         )) {
                             case (#err(e)) { #err(e) };
                             case (#ok(roundState)) {
                                 // Record guess in history
                                 let distance = Helpers.calculateHaversineDistance(
                                     guessLat, guessLon,
-                                    photo.latitude, photo.longitude
+                                    location.latitude, location.longitude
                                 );
                                 
                                 let guess : GuessHistoryModule.Guess = {
@@ -321,8 +324,8 @@ actor GameUnified {
                                     normalizedScore = roundState.scoreNorm;
                                     distance = distance;
                                     actualLocation = {
-                                        lat = photo.latitude;
-                                        lon = photo.longitude;
+                                        lat = location.latitude;
+                                        lon = location.longitude;
                                     };
                                     guessLocation = {
                                         lat = guessLat;
@@ -370,10 +373,10 @@ actor GameUnified {
                                 
                                 let currentRound = session.rounds[session.currentRound - 1];
                                 
-                                // Get photo
-                                switch(photoManager.getPhoto(currentRound.photoId)) {
+                                // Get photo location using helper function
+                                switch(getPhotoFromV2System(currentRound.photoId)) {
                                     case null { #err("Photo not found") };
-                                    case (?photo) {
+                                    case (?location) {
                                         // Generate hint info based on type
                                         let hintInfo : HintInfo = switch(hintType) {
                                             case (#BasicRadius) {
@@ -386,8 +389,8 @@ actor GameUnified {
                                                 // Calculate direction from center of map to photo
                                                 let centerLat = 0.0;
                                                 let centerLon = 0.0;
-                                                let dLat = photo.latitude - centerLat;
-                                                let dLon = photo.longitude - centerLon;
+                                                let dLat = location.latitude - centerLat;
+                                                let dLon = location.longitude - centerLon;
                                                 let azimuth = Float.arctan2(dLon, dLat) * 180.0 / Float.pi;
                                                 let normalizedAzimuth = if (azimuth < 0) { azimuth + 360 } else { azimuth };
                                                 #DirectionHint(Helpers.getCardinalDirection(normalizedAzimuth))
@@ -476,70 +479,16 @@ actor GameUnified {
     // ======================================
     // PHOTO FUNCTIONS
     // ======================================
+    // Deprecated V1 functions - redirect to V2
     public shared(msg) func uploadPhoto(request: Photo.PhotoUploadRequest) : async Result.Result<Nat, Text> {
-        if (reputationManager.isBanned(msg.caller)) {
-            return #err("User is banned");
-        };
-        
-        switch(photoManager.uploadPhoto(request, msg.caller)) {
-            case (#err(e)) { #err(e) };
-            case (#ok(photoId)) {
-                // Update reputation for upload
-                ignore reputationManager.updateReputation(msg.caller, Constants.UPLOAD_REWARD, true, false);
-                #ok(photoId)
-            };
-        }
-    };
-    
-    public shared(msg) func schedulePhotoUpload(request: PhotoModule.ScheduledUploadRequest) : async Result.Result<Text, Text> {
-        if (reputationManager.isBanned(msg.caller)) {
-            return #err("User is banned");
-        };
-        photoManager.schedulePhotoUpload(request, msg.caller)
-    };
-    
-    public query func getPhotosByOwner(owner: Principal) : async [PhotoModule.Photo] {
-        photoManager.getPhotosByOwner(owner)
-    };
-    
-    // New method for frontend compatibility - gets photos for the caller
-    public shared query(msg) func getUserPhotos() : async [Photo.PhotoMeta] {
-        let photos = photoManager.getPhotosByOwner(msg.caller);
-        Array.map<PhotoModule.Photo, Photo.PhotoMeta>(photos, func(photo: PhotoModule.Photo) : Photo.PhotoMeta {
-            {
-                id = photo.id;
-                owner = photo.owner;
-                lat = photo.latitude;
-                lon = photo.longitude;
-                azim = 0.0; // PhotoModule.Photo doesn't have azimuth field
-                timestamp = photo.uploadTime;
-                quality = photo.qualityScore;
-                uploadTime = photo.uploadTime;
-                chunkCount = 0; // PhotoModule.Photo doesn't track chunks
-                totalSize = 0; // PhotoModule.Photo doesn't track size
-                perceptualHash = null; // PhotoModule.Photo doesn't have hash
-            }
-        })
-    };
-    
-    public query func getScheduledPhotos(userId: Principal) : async [Photo.ScheduledPhoto] {
-        photoManager.getScheduledPhotos(userId)
-    };
-    
-    // New method for frontend compatibility - gets scheduled photos for the caller
-    public shared query(msg) func getUserScheduledPhotos() : async [Photo.ScheduledPhoto] {
-        photoManager.getScheduledPhotos(msg.caller)
-    };
-    
-    public shared(msg) func cancelScheduledPhoto(scheduledId: Text) : async Result.Result<(), Text> {
-        photoManager.cancelScheduledPhoto(scheduledId, msg.caller)
+        #err("Please use Photo V2 API (createPhotoV2, uploadPhotoChunkV2, finalizePhotoUploadV2)")
     };
     
     public shared(msg) func deletePhoto(photoId: Nat) : async Result.Result<(), Text> {
-        photoManager.deletePhoto(photoId, msg.caller)
+        #err("Please use deletePhotoV2")
     };
     
-    // Placeholder updatePhotoInfo method - returns not implemented error for now
+    // Update photo info using V2 system
     public shared(msg) func updatePhotoInfo(photoId: Nat, updateInfo: {
         title: Text;
         description: Text;
@@ -547,12 +496,12 @@ actor GameUnified {
         hint: Text;
         tags: [Text];
     }) : async Result.Result<(), Text> {
-        #err("Photo info update not yet implemented - feature coming soon")
+        photoManagerV2.updatePhotoInfo(photoId, msg.caller, updateInfo)
     };
     
-    // Get photo metadata by ID
+    // Get photo metadata by ID - redirect to V2
     public query func getPhotoMetadata(photoId: Nat) : async ?Photo.PhotoMeta {
-        switch(photoManager.getPhoto(photoId)) {
+        switch(photoManagerV2.getPhoto(photoId)) {
             case null { null };
             case (?photo) {
                 ?{
@@ -560,13 +509,13 @@ actor GameUnified {
                     owner = photo.owner;
                     lat = photo.latitude;
                     lon = photo.longitude;
-                    azim = 0.0; // PhotoModule.Photo doesn't have azimuth field
+                    azim = switch(photo.azimuth) { case null { 0.0 }; case (?a) { a } };
                     timestamp = photo.uploadTime;
                     quality = photo.qualityScore;
                     uploadTime = photo.uploadTime;
-                    chunkCount = 0; // PhotoModule.Photo doesn't track chunks
-                    totalSize = 0; // PhotoModule.Photo doesn't track size
-                    perceptualHash = null; // PhotoModule.Photo doesn't have hash
+                    chunkCount = photo.chunkCount;
+                    totalSize = photo.totalSize;
+                    perceptualHash = null; // V2 doesn't have hash yet
                 }
             };
         }
@@ -678,6 +627,33 @@ actor GameUnified {
             status = ?#Active;
         };
         photoManagerV2.search(filter, cursor, Nat.min(limit, 100))
+    };
+    
+    /// 写真を削除（V2）
+    public shared(msg) func deletePhotoV2(photoId: Nat) : async Result.Result<(), Text> {
+        photoManagerV2.deletePhoto(photoId, msg.caller)
+    };
+    
+    /// 写真の予約投稿（V2）
+    public shared(msg) func schedulePhotoUploadV2(
+        request: Photo.CreatePhotoRequest,
+        photoData: Blob,
+        scheduledPublishTime: Time.Time
+    ) : async Result.Result<Nat, Text> {
+        if (reputationManager.isBanned(msg.caller)) {
+            return #err("User is banned");
+        };
+        photoManagerV2.schedulePhotoUpload(request, photoData, scheduledPublishTime, msg.caller)
+    };
+    
+    /// スケジュール済み写真を取得（V2）
+    public shared query(msg) func getUserScheduledPhotosV2() : async [PhotoModuleV2.ScheduledPhoto] {
+        photoManagerV2.getScheduledPhotos(msg.caller)
+    };
+    
+    /// スケジュール済み写真をキャンセル（V2）
+    public shared(msg) func cancelScheduledPhotoV2(scheduledId: Nat) : async Result.Result<(), Text> {
+        photoManagerV2.cancelScheduledPhoto(scheduledId, msg.caller)
     };
     
     // ======================================
@@ -888,7 +864,19 @@ actor GameUnified {
         };
         
         // Get other stats
-        let totalPhotosUploaded = photoManager.getPhotosByOwner(player).size();
+        // Use V2 search to count user's photos
+        let userPhotoFilter : Photo.SearchFilter = {
+            country = null;
+            region = null;
+            sceneKind = null;
+            tags = null;
+            nearLocation = null;
+            owner = ?player;
+            difficulty = null;
+            status = ?#Active;
+        };
+        let userPhotosResult = photoManagerV2.search(userPhotoFilter, null, 1000); // Get up to 1000 photos
+        let totalPhotosUploaded = userPhotosResult.totalCount;
         let reputation = reputationManager.getReputation(player).score;
         let totalGuesses = guessHistoryManager.getPlayerHistory(player, null).size();
         
@@ -1067,6 +1055,25 @@ actor GameUnified {
     // ======================================
     // HELPER FUNCTIONS
     // ======================================
+    
+    // Helper function to get photo from V2 system
+    private func getPhotoFromV2System(photoId: Nat) : ?{ 
+        owner: Principal; 
+        latitude: Float; 
+        longitude: Float 
+    } {
+        switch(photoManagerV2.getPhoto(photoId)) {
+            case null { null };
+            case (?photoV2) {
+                ?{ 
+                    owner = photoV2.owner;
+                    latitude = photoV2.latitude; 
+                    longitude = photoV2.longitude 
+                }
+            };
+        }
+    };
+    
     private func calculatePlayerReward(session: GameV2.GameSession) : Nat {
         // Base reward calculation
         let totalScoreNorm = session.totalScoreNorm;
@@ -1094,8 +1101,8 @@ actor GameUnified {
         let uploaderRewards = HashMap.HashMap<Principal, Nat>(10, Principal.equal, Principal.hash);
         
         for (round in session.rounds.vals()) {
-            switch(photoManager.getPhoto(round.photoId)) {
-                case null { };
+            switch(getPhotoFromV2System(round.photoId)) {
+                case null { }; // Photo not found, skip
                 case (?photo) {
                     let currentReward = Option.get(uploaderRewards.get(photo.owner), 0);
                     
@@ -1112,7 +1119,7 @@ actor GameUnified {
     
     private func cleanupExpiredSessions() : async () {
         await gameEngineManager.cleanupExpiredSessions();
-        ignore await photoManager.processScheduledPhotos();
+        await photoManagerV2.processScheduledPhotos();
     };
     
     // ======================================

@@ -5,17 +5,211 @@
 ### 開発方針
 変更を行う際は必ず方針を日本語で説明してから着手して下さい
 
-## 🔄 最新の作業状況 (2025-06-14) - 写真管理システムの全面的な再設計 ✅
+## 🔄 最新の作業状況 (2025-06-14 PM) - Photo V2への完全移行完了 ✅
 
-### 実装された新機能（Photo V2）
-**問題**: 既存の写真管理システムでは画像データ・メタ情報・ゲーム属性が保存されず、検索性が低い
+### Photo V1からV2への完全移行
+**実施内容**:
+1. **バックエンド変更**:
+   - Photo V1関連のすべての参照を削除
+   - `getPhotoFromEitherSystem`を`getPhotoFromV2System`に変更（V1フォールバック削除）
+   - `getNextRound`でPhoto V2のみを使用
+   - `updatePhotoInfo`機能をPhotoModuleV2に実装
+   - 予約投稿機能をPhotoModuleV2に実装：
+     - `schedulePhotoUpload`: 写真の予約投稿作成
+     - `getScheduledPhotos`: ユーザーの予約投稿取得
+     - `cancelScheduledPhoto`: 予約投稿キャンセル
+     - `processScheduledPhotos`: 時間になった写真を自動公開
 
-**解決策**: 検索ファーストな Photo ストレージ&検索 API を実装
-- **拡張されたPhoto型**: country, region, sceneKind, tags, azimuth, chunkCount追加
-- **二次インデックス**: 国・県・SceneKind・タグ・GeoHashの逆引きを保持
-- **チャンクアップロードAPI**: createPhoto → uploadChunk → finalizeの3段階
-- **高性能検索API**: フィルタAND交差、カーソルページング対応
-- **近傍検索**: GeoHash prefix で粗取得→Haversine関数で半径絞り込み
+2. **フロントエンド変更**:
+   - `photoV2.ts`にScheduledPhoto型とAPIメソッドを追加
+   - IDLファクトリーにScheduledPhoto関連の定義を追加
+   - ScheduledPhotosScreenを完全にPhoto V2に移行：
+     - インポートを`photoService`から`photoServiceV2`に変更
+     - ScheduledPhoto型の構造変更に対応（`item.title` → `item.request.title`など）
+     - difficulty表示の修正（Variant型への対応）
+   - ProfileScreenで`getDifficulty`ヘルパー関数を改善
+
+3. **削除されたもの**:
+   - Photo V1 APIへのすべての参照とフォールバック
+   - 段階的移行のための冗長なコード
+   - `uploadPhoto`、`deletePhoto`のV1エンドポイント（エラーメッセージでV2を促す）
+
+**Photo V2の利点**:
+- 検索ファースト設計（GeoHash、国、地域、シーンタイプ、タグによる検索）
+- チャンクベースアップロード（大容量ファイルサポート）
+- 予約投稿機能の統合
+- より詳細なメタデータ管理
+
+**残作業**:
+- [ ] バックエンドの変更をデプロイ（dfx deploy）
+- [ ] 既存のPhoto V1データをV2にマイグレーション（戦略策定完了）
+
+## 🔄 既存写真データのマイグレーション戦略
+
+### マイグレーション方針
+**目的**: 既存のPhoto V1データをPhoto V2形式に移行し、検索機能とチャンクアップロードに対応
+
+**アプローチ**: 
+1. **段階的マイグレーション** - システム稼働を維持しながら順次移行
+2. **データ整合性確保** - 移行中もゲームが正常に動作することを保証
+3. **ロールバック可能** - 問題発生時に元に戻せる設計
+
+### マイグレーション手順
+
+#### 1. 準備フェーズ
+```motoko
+// main.moに一時的なマイグレーション関数を追加
+public shared(msg) func migratePhotoToV2(photoId: Nat) : async Result.Result<Nat, Text> {
+    if (msg.caller != owner) {
+        return #err("Unauthorized");
+    };
+    
+    // V1から写真を取得
+    switch(photoManager.getPhoto(photoId)) {
+        case null { #err("Photo not found in V1") };
+        case (?photoV1) {
+            // V2形式に変換
+            let request : Photo.CreatePhotoRequest = {
+                latitude = photoV1.lat;
+                longitude = photoV1.lon;
+                azimuth = ?photoV1.azim;
+                title = "Migrated Photo #" # Nat.toText(photoId);
+                description = "";
+                difficulty = #NORMAL;
+                hint = "";
+                country = "XX"; // デフォルト値
+                region = "XX-XX";
+                sceneKind = #Other;
+                tags = [];
+                expectedChunks = photoV1.chunkCount;
+                totalSize = photoV1.totalSize;
+            };
+            
+            // V2に作成
+            switch(photoManagerV2.createPhoto(request, photoV1.owner)) {
+                case (#err(e)) { #err(e) };
+                case (#ok(newPhotoId)) {
+                    // チャンクをコピー
+                    for (i in Iter.range(0, photoV1.chunkCount - 1)) {
+                        switch(photoManager.getPhotoChunk(photoId, i)) {
+                            case null { };
+                            case (?chunk) {
+                                ignore photoManagerV2.uploadPhotoChunk(newPhotoId, i, chunk);
+                            };
+                        };
+                    };
+                    
+                    // アップロード完了
+                    ignore photoManagerV2.finalizePhotoUpload(newPhotoId);
+                    
+                    // V1の写真をマーク（削除はしない）
+                    ignore photoManager.markAsMigrated(photoId);
+                    
+                    #ok(newPhotoId)
+                };
+            };
+        };
+    };
+};
+```
+
+#### 2. バッチマイグレーション関数
+```motoko
+public shared(msg) func migratePhotoBatch(start: Nat, count: Nat) : async {
+    success: Nat;
+    failed: Nat;
+    errors: [Text];
+} {
+    if (msg.caller != owner) {
+        return { success = 0; failed = 0; errors = ["Unauthorized"] };
+    };
+    
+    var successCount = 0;
+    var failedCount = 0;
+    var errors = Buffer.Buffer<Text>(10);
+    
+    for (i in Iter.range(start, start + count - 1)) {
+        switch(await migratePhotoToV2(i)) {
+            case (#ok(_)) { successCount += 1; };
+            case (#err(e)) { 
+                failedCount += 1;
+                errors.add("Photo " # Nat.toText(i) # ": " # e);
+            };
+        };
+    };
+    
+    {
+        success = successCount;
+        failed = failedCount;
+        errors = Buffer.toArray(errors);
+    }
+};
+```
+
+#### 3. マイグレーション実行計画
+1. **テスト環境での検証**
+   - 少数の写真（10-20枚）でテスト
+   - マイグレーション後の動作確認
+
+2. **本番環境での段階的実行**
+   - 100枚ずつバッチ処理
+   - 各バッチ後に動作確認
+   - エラー率が5%を超えたら停止
+
+3. **検証項目**
+   - ✅ 写真メタデータの整合性
+   - ✅ チャンクデータの完全性
+   - ✅ ゲームでの写真表示
+   - ✅ 所有者情報の保持
+
+#### 4. ロールバック計画
+- V1データは削除せず、`migrated`フラグで管理
+- 問題発生時はV2データを削除してV1に戻す
+- マイグレーション完了後1週間はV1データを保持
+
+### マイグレーション後の対応
+1. **データ検証**
+   - 全写真の表示テスト
+   - ゲームプレイテスト
+   - パフォーマンス測定
+
+2. **V1システムの削除**
+   - マイグレーション完了確認後
+   - PhotoModuleの削除
+   - 関連するstable変数の削除
+
+3. **ユーザー通知**
+   - マイグレーション完了のアナウンス
+   - 新機能（検索、タグ付け）の案内
+
+## 🔄 最新の作業状況 (2025-06-14) - Photo V2 API実装完了 ✅
+
+### Photo V2 実装状況
+**背景**: 検索機能と大容量写真対応のため、写真管理システムをV1からV2へ移行
+
+**実装内容**:
+1. **バックエンド実装** ✅
+   - PhotoModuleV2: 検索対応の新写真管理システム
+   - チャンクアップロード対応（256KB単位）
+   - セカンダリインデックス（国、地域、シーン、タグ、GeoHash）
+   - 検索API（複数フィルター対応）
+   - Haversine距離計算による近傍検索
+
+2. **フロントエンド移行** ✅
+   - **PhotoUploadScreenV2**: 完全にV2 APIに移行
+     - 国・地域自動検出（Nominatim API使用）
+     - シーンタイプ選択UI（自然/建物/店舗/施設/その他）
+     - チャンクアップロード進捗表示
+   - **ProfileScreen**: V2 APIに移行
+     - getUserPhotosV2使用
+     - PhotoMetaV2型対応
+   - **ナビゲーション**: PhotoUploadScreenV2を使用
+   - 旧PhotoUploadScreen.tsxを削除
+
+3. **ゲームシステム統合** ✅
+   - getNextRound: V2優先でV1フォールバック
+   - submitGuess: 両システム対応
+   - getPhotoFromEitherSystemヘルパー関数
 
 **新しいAPIエンドポイント**:
 - `createPhotoV2`: 写真メタデータ作成
@@ -24,18 +218,44 @@
 - `searchPhotosV2`: 高度な検索
 - `getPhotoMetadataV2`: 拡張メタデータ取得
 - `getPhotoStatsV2`: 統計情報取得
+- `getUserPhotosV2`: ユーザー写真取得
+- `deletePhotoV2`: 写真削除
 
-**フロントエンド対応**:
-- ✅ `src/frontend/src/services/photoV2.ts`: 新しいAPIクライアント実装
-- 地域情報自動取得（Nominatim API使用）
-- 3段階アップロードヘルパー関数
+**バグ修正**:
+1. **ProfileScreen null安全性** ✅
+   ```typescript
+   // 修正前
+   photo.latitude.toFixed(4)
+   // 修正後
+   photo.latitude?.toFixed(4) ?? 'N/A'
+   ```
+
+2. **PhotoModuleV2ランダム性向上** ✅
+   ```motoko
+   // 時間の複数コンポーネントを組み合わせ
+   let randomIndex = (nanoComponent + microComponent + milliComponent + photoCount) % photoCount;
+   ```
+
+3. **コード重複の解消** ✅
+   ```motoko
+   private func getPhotoFromEitherSystem(photoId: Nat) : ?{ 
+       owner: Principal; 
+       latitude: Float; 
+       longitude: Float 
+   }
+   ```
+
+**保留事項**:
+- ⏸️ ScheduledPhotosScreen: V2未対応のため移行保留
+- 📋 updatePhotoInfo: バックエンドV2実装待ち
+- 🚀 バックエンドデプロイ: 実装完了後に必要
+
+**重要な変更点**:
+- Photo V1とV2の併存（段階的移行）
+- フロントエンドは基本的にV2を使用
+- ゲームシステムは両方に対応（互換性維持）
 
 **デプロイ済み** (2025-06-14): 77fv5-oiaaa-aaaal-qsoea-cai
-
-### 次のステップ
-1. PhotoUploadScreenをV2 APIに移行
-2. パフォーマンステスト実施（目標: query応答 ≦100ms）
-3. 既存データのマイグレーション計画
 
 ## 🔄 最新の作業状況 (2025-06-13) - Dev Mode完全動作実現 🎉
 

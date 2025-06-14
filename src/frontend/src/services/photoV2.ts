@@ -16,6 +16,20 @@ export type SceneKind =
   | { Facility: null }
   | { Other: null };
 
+export type ScheduledPhotoStatus = 
+  | { Pending: null }
+  | { Published: null }
+  | { Cancelled: null };
+
+export interface ScheduledPhoto {
+  id: bigint;
+  request: CreatePhotoRequest;
+  photoData: Blob;
+  scheduledPublishTime: bigint;
+  status: ScheduledPhotoStatus;
+  createdAt: bigint;
+}
+
 export type CountryCode = string; // ISO-3166-1 alpha-2 (例: "JP")
 export type RegionCode = string;  // ISO-3166-2 (例: "JP-15")
 export type GeoHash = string;
@@ -230,6 +244,21 @@ const idlFactory = ({ IDL }: any) => {
     popularTags: IDL.Vec(IDL.Tuple(IDL.Text, IDL.Nat)),
   });
 
+  const ScheduledPhotoStatus = IDL.Variant({
+    'Pending': IDL.Null,
+    'Published': IDL.Null,
+    'Cancelled': IDL.Null,
+  });
+
+  const ScheduledPhoto = IDL.Record({
+    id: IDL.Nat,
+    request: CreatePhotoRequest,
+    photoData: IDL.Vec(IDL.Nat8),
+    scheduledPublishTime: IDL.Int,
+    status: ScheduledPhotoStatus,
+    createdAt: IDL.Int,
+  });
+
   const Result = IDL.Variant({
     'ok': IDL.Nat,
     'err': IDL.Text,
@@ -249,6 +278,10 @@ const idlFactory = ({ IDL }: any) => {
     getPhotoChunkV2: IDL.Func([IDL.Nat, IDL.Nat], [IDL.Opt(IDL.Vec(IDL.Nat8))], ['query']),
     getPhotoStatsV2: IDL.Func([], [PhotoStatsV2], ['query']),
     getUserPhotosV2: IDL.Func([IDL.Opt(IDL.Nat), IDL.Nat], [SearchResult], ['query']),
+    deletePhotoV2: IDL.Func([IDL.Nat], [ResultEmpty], []),
+    schedulePhotoUploadV2: IDL.Func([CreatePhotoRequest, IDL.Vec(IDL.Nat8), IDL.Int], [Result], []),
+    getUserScheduledPhotosV2: IDL.Func([], [IDL.Vec(ScheduledPhoto)], ['query']),
+    cancelScheduledPhotoV2: IDL.Func([IDL.Nat], [ResultEmpty], []),
   });
 };
 
@@ -447,6 +480,81 @@ class PhotoServiceV2 {
   }
 
   /**
+   * 写真を削除
+   */
+  async deletePhoto(photoId: bigint, identity?: Identity): Promise<{ ok?: null; err?: string }> {
+    if (!this.actor && identity) {
+      await this.init(identity);
+    }
+
+    try {
+      const result = await this.actor.deletePhotoV2(photoId);
+      return result;
+    } catch (error) {
+      console.error('❌ Delete photo error:', error);
+      return { err: error instanceof Error ? error.message : 'Delete failed' };
+    }
+  }
+
+  /**
+   * 写真の予約投稿を作成
+   */
+  async schedulePhotoUpload(
+    request: CreatePhotoRequest,
+    photoData: Blob,
+    scheduledPublishTime: bigint,
+    identity?: Identity
+  ): Promise<{ ok?: bigint; err?: string }> {
+    if (!this.actor && identity) {
+      await this.init(identity);
+    }
+
+    try {
+      console.log('📸 Scheduling photo upload:', { request, scheduledTime: scheduledPublishTime });
+      const result = await this.actor.schedulePhotoUploadV2(request, photoData, scheduledPublishTime);
+      console.log('📸 Scheduled photo created:', result);
+      return result;
+    } catch (error) {
+      console.error('❌ Schedule photo error:', error);
+      return { err: error instanceof Error ? error.message : 'Schedule failed' };
+    }
+  }
+
+  /**
+   * ユーザーのスケジュール済み写真を取得
+   */
+  async getUserScheduledPhotos(identity?: Identity): Promise<ScheduledPhoto[]> {
+    if (!this.actor && identity) {
+      await this.init(identity);
+    }
+
+    try {
+      const result = await this.actor.getUserScheduledPhotosV2();
+      return result;
+    } catch (error) {
+      console.error('❌ Get scheduled photos error:', error);
+      return [];
+    }
+  }
+
+  /**
+   * スケジュール済み写真をキャンセル
+   */
+  async cancelScheduledPhoto(scheduledId: bigint, identity?: Identity): Promise<{ ok?: null; err?: string }> {
+    if (!this.actor && identity) {
+      await this.init(identity);
+    }
+
+    try {
+      const result = await this.actor.cancelScheduledPhotoV2(scheduledId);
+      return result;
+    } catch (error) {
+      console.error('❌ Cancel scheduled photo error:', error);
+      return { err: error instanceof Error ? error.message : 'Cancel failed' };
+    }
+  }
+
+  /**
    * 3段階アップロードヘルパー
    */
   async uploadPhotoWithChunks(
@@ -513,6 +621,14 @@ export function sceneKindFromString(scene: string): SceneKind {
     case 'facility': return { Facility: null };
     default: return { Other: null };
   }
+}
+
+export function sceneKindToString(kind: SceneKind): string {
+  if ('Nature' in kind) return 'nature';
+  if ('Building' in kind) return 'building';
+  if ('Store' in kind) return 'store';
+  if ('Facility' in kind) return 'facility';
+  return 'other';
 }
 
 export function difficultyFromString(diff: string): { EASY: null } | { NORMAL: null } | { HARD: null } | { EXTREME: null } {
