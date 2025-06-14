@@ -1,5 +1,7 @@
 import { Actor, HttpAgent, Identity } from '@dfinity/agent';
 import { Principal } from '@dfinity/principal';
+// Import CustomPrincipal as a fallback if needed
+import { CustomPrincipal } from '../utils/principal';
 
 // メインネット統合Canister ID設定
 const UNIFIED_CANISTER_ID = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || '77fv5-oiaaa-aaaal-qsoea-cai';
@@ -102,6 +104,16 @@ const idlFactory = ({ IDL }: any) => {
     'err': IDL.Text,
   });
 
+  const ScheduledUploadRequest = IDL.Record({
+    uploadRequest: PhotoUploadRequest,
+    scheduledTime: IDL.Int, // Time.Time in Motoko is Int
+    notificationType: IDL.Variant({
+      'scheduledPhotoPublished': IDL.Null,
+      'scheduledPhotoFailed': IDL.Null,
+      'scheduledPhotoReminder': IDL.Null,
+    }),
+  });
+
   const ScheduledPhoto = IDL.Record({
     id: IDL.Nat,
     photoMeta: PhotoMetadata,
@@ -128,7 +140,7 @@ const idlFactory = ({ IDL }: any) => {
 
   return IDL.Service({
     uploadPhoto: IDL.Func([PhotoUploadRequest], [Result], []),
-    schedulePhotoUpload: IDL.Func([PhotoUploadRequest], [Result], []),
+    schedulePhotoUpload: IDL.Func([ScheduledUploadRequest], [Result], []),
     cancelScheduledPhoto: IDL.Func([IDL.Nat], [IDL.Variant({ 'ok': IDL.Null, 'err': IDL.Text })], []),
     getUserScheduledPhotos: IDL.Func([], [IDL.Vec(ScheduledPhoto)], ['query']),
     getPhotoMetadata: IDL.Func([IDL.Nat], [IDL.Opt(PhotoMetadata)], ['query']),
@@ -209,11 +221,51 @@ class PhotoService {
 
       console.log(`Uploading photo with ${chunks.length} chunks`);
 
+      // Get the principal from the identity passed to this method
+      let ownerPrincipal;
+      try {
+        if (identity) {
+          const rawPrincipal = identity.getPrincipal();
+          // Check if we need to convert it to a proper Principal object
+          if (rawPrincipal && typeof rawPrincipal.toText === 'function') {
+            ownerPrincipal = rawPrincipal;
+          } else if (rawPrincipal && typeof rawPrincipal.toString === 'function') {
+            // Convert string representation to Principal
+            ownerPrincipal = Principal.fromText(rawPrincipal.toString());
+          } else {
+            console.warn('Invalid principal from identity, using anonymous');
+            ownerPrincipal = Principal.anonymous();
+          }
+        } else {
+          ownerPrincipal = Principal.anonymous();
+        }
+      } catch (error) {
+        console.error('Error getting principal from identity:', error);
+        ownerPrincipal = Principal.anonymous();
+      }
+      console.log('Using owner principal:', ownerPrincipal.toString());
+
+      // IMPORTANT: Always convert to CustomPrincipal for React Native compatibility
+      // The @dfinity/principal may not serialize correctly in React Native
+      try {
+        const principalText = ownerPrincipal.toText ? ownerPrincipal.toText() : ownerPrincipal.toString();
+        console.log('Converting to CustomPrincipal, text:', principalText);
+        
+        // Always use CustomPrincipal for consistent serialization
+        ownerPrincipal = CustomPrincipal.fromText(principalText);
+        console.log('Successfully created CustomPrincipal:', ownerPrincipal.toString());
+        console.log('CustomPrincipal type check:', ownerPrincipal.constructor.name);
+      } catch (err) {
+        console.error('Failed to create CustomPrincipal:', err);
+        // Fallback to anonymous if conversion fails
+        ownerPrincipal = CustomPrincipal.fromText('2vxsx-fae'); // Anonymous principal
+      }
+
       // IDLで定義されたPhotoUploadRequest形式に合わせてデータを送信
       const uploadRequest = {
         meta: {
           id: BigInt(0), // サーバー側で設定される
-          owner: this.agent?.getPrincipal() || Principal.anonymous(),
+          owner: ownerPrincipal,
           lat: data.latitude,
           lon: data.longitude,
           azim: data.azimuth,
@@ -234,11 +286,48 @@ class PhotoService {
       };
 
       console.log('Sending upload request:', uploadRequest);
+      console.log('Owner principal details:', {
+        ownerToString: ownerPrincipal.toString(),
+        ownerToText: ownerPrincipal.toText(),
+        ownerType: typeof ownerPrincipal,
+        ownerConstructor: ownerPrincipal.constructor.name,
+        ownerBytes: ownerPrincipal.toUint8Array ? ownerPrincipal.toUint8Array() : 'No toUint8Array method'
+      });
 
-      // Canisterに送信（予約投稿APIを使用）
-      const result = await this.actor.schedulePhotoUpload(uploadRequest);
+      // Check if this is a scheduled upload or immediate upload
+      if (data.scheduledPublishTime && data.scheduledPublishTime > 0) {
+        // Convert milliseconds to nanoseconds (multiply by 1,000,000)
+        const scheduledTimeNanos = data.scheduledPublishTime * BigInt(1000000);
+        
+        // Ensure the scheduled time is in the future
+        const nowNanos = BigInt(Date.now()) * BigInt(1000000);
+        if (scheduledTimeNanos <= nowNanos) {
+          return { err: 'Scheduled time must be in the future' };
+        }
 
-      return result;
+        // Wrap in ScheduledUploadRequest format
+        const scheduledUploadRequest = {
+          uploadRequest: uploadRequest,
+          scheduledTime: scheduledTimeNanos,
+          notificationType: { 'scheduledPhotoPublished': null }
+        };
+        
+        console.log('Sending scheduled upload request:', scheduledUploadRequest);
+        console.log('Scheduled time comparison:', {
+          scheduledTimeNanos: scheduledTimeNanos.toString(),
+          nowNanos: nowNanos.toString(),
+          isInFuture: scheduledTimeNanos > nowNanos
+        });
+
+        // Use scheduled upload API
+        const result = await this.actor.schedulePhotoUpload(scheduledUploadRequest);
+        return result;
+      } else {
+        // Use immediate upload API for non-scheduled uploads
+        console.log('Using immediate upload (no scheduled time)');
+        const result = await this.actor.uploadPhoto(uploadRequest);
+        return result;
+      }
     } catch (error) {
       console.error('Upload photo error:', error);
       return { err: error instanceof Error ? error.message : 'Upload failed' };

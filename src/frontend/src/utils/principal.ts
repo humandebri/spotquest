@@ -78,6 +78,9 @@ export class CustomPrincipal {
   private _bytes: Uint8Array;
   private _hex: string;
   
+  // For @dfinity/candid compatibility
+  public _isPrincipal = true;
+  
   constructor(bytes: Uint8Array = new Uint8Array(0)) {
     this._bytes = bytes;
     this._hex = Array.from(bytes)

@@ -540,6 +540,28 @@ actor GameUnified {
         #err("Photo info update not yet implemented - feature coming soon")
     };
     
+    // Get photo metadata by ID
+    public query func getPhotoMetadata(photoId: Nat) : async ?Photo.PhotoMeta {
+        switch(photoManager.getPhoto(photoId)) {
+            case null { null };
+            case (?photo) {
+                ?{
+                    id = photo.id;
+                    owner = photo.owner;
+                    lat = photo.latitude;
+                    lon = photo.longitude;
+                    azim = 0.0; // PhotoModule.Photo doesn't have azimuth field
+                    timestamp = photo.uploadTime;
+                    quality = photo.qualityScore;
+                    uploadTime = photo.uploadTime;
+                    chunkCount = 0; // PhotoModule.Photo doesn't track chunks
+                    totalSize = 0; // PhotoModule.Photo doesn't track size
+                    perceptualHash = null; // PhotoModule.Photo doesn't have hash
+                }
+            };
+        }
+    };
+    
     // ======================================
     // REPUTATION FUNCTIONS
     // ======================================
