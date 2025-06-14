@@ -96,4 +96,135 @@ module {
         popularScheduleTimes: [(Nat, Nat)]; // (時間, 件数)
         cancellationRate: Float;
     };
+    
+    // ======================================
+    // V2 Types (新しい検索対応版)
+    // ======================================
+    
+    /// シーンの種類を表す列挙型
+    public type SceneKind = { 
+        #Nature;    // 自然
+        #Building;  // 建物
+        #Store;     // 店舗
+        #Facility;  // 施設
+        #Other;     // その他
+    };
+
+    /// 地域コード (例: "JP-15" for 新潟県)
+    public type RegionCode = Text;
+    
+    /// 国コード (ISO-3166-1 alpha-2, 例: "JP")
+    public type CountryCode = Text;
+    
+    /// GeoHashコード (位置情報の階層的エンコーディング)
+    public type GeoHash = Text;
+
+    /// チャンクアップロード状態
+    public type ChunkUploadState = {
+        #Incomplete;
+        #Complete;
+        #Failed;
+    };
+    
+    /// 写真作成リクエストV2
+    public type CreatePhotoRequest = {
+        // 位置情報
+        latitude: Float;
+        longitude: Float;
+        azimuth: ?Float;
+        
+        // 表示用メタデータ
+        title: Text;
+        description: Text;
+        difficulty: { #EASY; #NORMAL; #HARD; #EXTREME };
+        hint: Text;
+        
+        // 検索属性
+        country: CountryCode;
+        region: RegionCode;
+        sceneKind: SceneKind;
+        tags: [Text];
+        
+        // チャンク情報
+        expectedChunks: Nat;
+        totalSize: Nat;
+    };
+    
+    /// チャンクアップロードリクエストV2
+    public type ChunkUploadRequestV2 = {
+        photoId: PhotoId;
+        chunkIndex: Nat;
+        data: Blob;
+    };
+    
+    /// 検索フィルター
+    public type SearchFilter = {
+        country: ?CountryCode;
+        region: ?RegionCode;
+        sceneKind: ?SceneKind;
+        tags: ?[Text];
+        nearLocation: ?{
+            latitude: Float;
+            longitude: Float;
+            radiusKm: Float;
+        };
+        owner: ?Principal;
+        difficulty: ?{ #EASY; #NORMAL; #HARD; #EXTREME };
+        status: ?{ #Active; #Banned; #Deleted };
+    };
+
+    /// 検索結果
+    public type SearchResult = {
+        photos: [PhotoMetaV2];
+        totalCount: Nat;
+        cursor: ?Nat;
+        hasMore: Bool;
+    };
+    
+    /// 拡張された写真メタデータV2
+    public type PhotoMetaV2 = {
+        // 基本情報
+        id: Nat;
+        owner: Principal;
+        uploadTime: Time.Time;
+        
+        // 位置情報
+        latitude: Float;
+        longitude: Float;
+        azimuth: ?Float;
+        geoHash: GeoHash;
+        
+        // 表示用メタデータ
+        title: Text;
+        description: Text;
+        difficulty: { #EASY; #NORMAL; #HARD; #EXTREME };
+        hint: Text;
+        
+        // 検索属性
+        country: CountryCode;
+        region: RegionCode;
+        sceneKind: SceneKind;
+        tags: [Text];
+        
+        // 画像チャンク情報
+        chunkCount: Nat;
+        totalSize: Nat;
+        uploadState: ChunkUploadState;
+        
+        // 内部管理
+        status: { #Active; #Banned; #Deleted };
+        qualityScore: Float;
+        timesUsed: Nat;
+        lastUsedTime: ?Time.Time;
+    };
+    
+    /// 写真統計情報V2
+    public type PhotoStatsV2 = {
+        totalPhotos: Nat;
+        activePhotos: Nat;
+        totalSize: Nat;
+        photosByCountry: [(CountryCode, Nat)];
+        photosBySceneKind: [(SceneKind, Nat)];
+        popularTags: [(Text, Nat)];
+    };
 }

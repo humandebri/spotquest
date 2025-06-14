@@ -25,6 +25,7 @@ import TreasuryModule "modules/TreasuryModule";
 import GameEngineModule "modules/GameEngineModule";
 import GuessHistoryModule "modules/GuessHistoryModule";
 import PhotoModule "modules/PhotoModule";
+import PhotoModuleV2 "modules/PhotoModuleV2";
 import ReputationModule "modules/ReputationModule";
 import IIIntegrationModule "modules/IIIntegrationModule";
 
@@ -84,6 +85,7 @@ actor GameUnified {
     private var gameEngineManager = GameEngineModule.GameEngineManager();
     private var guessHistoryManager = GuessHistoryModule.GuessHistoryManager();
     private var photoManager = PhotoModule.PhotoManager();
+    private var photoManagerV2 = PhotoModuleV2.PhotoManager(); // 新しい写真管理システム
     private var reputationManager = ReputationModule.ReputationManager();
     private var iiIntegrationManager = IIIntegrationModule.IIIntegrationManager();
     
@@ -145,6 +147,14 @@ actor GameUnified {
     } = null;
     
     private stable var iiIntegrationStable : ?[(Text, IIIntegrationModule.SessionData)] = null;
+    
+    private stable var photoV2Stable : ?{
+        photos: [(Nat, PhotoModuleV2.Photo)];
+        photoChunks: [(Text, PhotoModuleV2.PhotoChunk)];
+        nextPhotoId: Nat;
+        totalPhotos: Nat;
+        totalStorageSize: Nat;
+    } = null;
     
     // ======================================
     // INITIALIZATION
@@ -560,6 +570,114 @@ actor GameUnified {
                 }
             };
         }
+    };
+    
+    // ======================================
+    // PHOTO V2 FUNCTIONS (新しい検索対応版)
+    // ======================================
+    
+    /// 写真のメタデータを作成（チャンクアップロード開始）
+    public shared(msg) func createPhotoV2(request: Photo.CreatePhotoRequest) : async Result.Result<Nat, Text> {
+        if (reputationManager.isBanned(msg.caller)) {
+            return #err("User is banned");
+        };
+        
+        switch(photoManagerV2.createPhoto(request, msg.caller)) {
+            case (#err(e)) { #err(e) };
+            case (#ok(photoId)) {
+                // Update reputation for starting upload
+                ignore reputationManager.updateReputation(msg.caller, Constants.UPLOAD_REWARD / 2, true, false);
+                #ok(photoId)
+            };
+        }
+    };
+    
+    /// チャンクをアップロード
+    public shared(msg) func uploadPhotoChunkV2(photoId: Nat, chunkIndex: Nat, data: Blob) : async Result.Result<(), Text> {
+        photoManagerV2.uploadPhotoChunk(photoId, chunkIndex, data)
+    };
+    
+    /// アップロードを完了
+    public shared(msg) func finalizePhotoUploadV2(photoId: Nat) : async Result.Result<(), Text> {
+        switch(photoManagerV2.finalizePhotoUpload(photoId)) {
+            case (#err(e)) { #err(e) };
+            case (#ok()) {
+                // Update reputation for completing upload
+                ignore reputationManager.updateReputation(msg.caller, Constants.UPLOAD_REWARD / 2, true, false);
+                #ok()
+            };
+        }
+    };
+    
+    /// 写真を検索
+    public query func searchPhotosV2(filter: Photo.SearchFilter, cursor: ?Nat, limit: Nat) : async Photo.SearchResult {
+        photoManagerV2.search(filter, cursor, Nat.min(limit, 100)) // 最大100件に制限
+    };
+    
+    /// 写真メタデータを取得
+    public query func getPhotoMetadataV2(photoId: Nat) : async ?Photo.PhotoMetaV2 {
+        switch(photoManagerV2.getPhoto(photoId)) {
+            case null { null };
+            case (?photo) {
+                ?{
+                    id = photo.id;
+                    owner = photo.owner;
+                    uploadTime = photo.uploadTime;
+                    
+                    latitude = photo.latitude;
+                    longitude = photo.longitude;
+                    azimuth = photo.azimuth;
+                    geoHash = photo.geoHash;
+                    
+                    title = photo.title;
+                    description = photo.description;
+                    difficulty = photo.difficulty;
+                    hint = photo.hint;
+                    
+                    country = photo.country;
+                    region = photo.region;
+                    sceneKind = photo.sceneKind;
+                    tags = photo.tags;
+                    
+                    chunkCount = photo.chunkCount;
+                    totalSize = photo.totalSize;
+                    uploadState = photo.uploadState;
+                    
+                    status = photo.status;
+                    qualityScore = photo.qualityScore;
+                    timesUsed = photo.timesUsed;
+                    lastUsedTime = photo.lastUsedTime;
+                }
+            };
+        }
+    };
+    
+    /// 写真のチャンクを取得
+    public query func getPhotoChunkV2(photoId: Nat, chunkIndex: Nat) : async ?Blob {
+        switch(photoManagerV2.getPhotoChunk(photoId, chunkIndex)) {
+            case null { null };
+            case (?chunk) { ?chunk.data };
+        }
+    };
+    
+    /// 写真統計情報を取得
+    public query func getPhotoStatsV2() : async Photo.PhotoStatsV2 {
+        photoManagerV2.getPhotoStats()
+    };
+    
+    /// ユーザーの写真を取得
+    public shared query(msg) func getUserPhotosV2(cursor: ?Nat, limit: Nat) : async Photo.SearchResult {
+        let filter : Photo.SearchFilter = {
+            country = null;
+            region = null;
+            sceneKind = null;
+            tags = null;
+            nearLocation = null;
+            owner = ?msg.caller;
+            difficulty = null;
+            status = ?#Active;
+        };
+        photoManagerV2.search(filter, cursor, Nat.min(limit, 100))
     };
     
     // ======================================
@@ -1629,6 +1747,7 @@ actor GameUnified {
         gameEngineStable := ?gameEngineManager.toStable();
         guessHistoryStable := ?guessHistoryManager.toStable();
         photoStable := ?photoManager.toStable();
+        photoV2Stable := ?photoManagerV2.toStable();
         reputationStable := ?reputationManager.toStable();
         iiIntegrationStable := ?iiIntegrationManager.preupgrade();
     };
@@ -1694,6 +1813,15 @@ actor GameUnified {
             case (?entries) {
                 iiIntegrationManager.postupgrade(entries);
                 iiIntegrationStable := null;
+            };
+        };
+        
+        // Restore photo manager V2
+        switch(photoV2Stable) {
+            case null { };
+            case (?stableData) {
+                photoManagerV2.fromStable(stableData);
+                photoV2Stable := null;
             };
         };
         

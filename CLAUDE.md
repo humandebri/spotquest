@@ -5,6 +5,38 @@
 ### 開発方針
 変更を行う際は必ず方針を日本語で説明してから着手して下さい
 
+## 🔄 最新の作業状況 (2025-06-14) - 写真管理システムの全面的な再設計 ✅
+
+### 実装された新機能（Photo V2）
+**問題**: 既存の写真管理システムでは画像データ・メタ情報・ゲーム属性が保存されず、検索性が低い
+
+**解決策**: 検索ファーストな Photo ストレージ&検索 API を実装
+- **拡張されたPhoto型**: country, region, sceneKind, tags, azimuth, chunkCount追加
+- **二次インデックス**: 国・県・SceneKind・タグ・GeoHashの逆引きを保持
+- **チャンクアップロードAPI**: createPhoto → uploadChunk → finalizeの3段階
+- **高性能検索API**: フィルタAND交差、カーソルページング対応
+- **近傍検索**: GeoHash prefix で粗取得→Haversine関数で半径絞り込み
+
+**新しいAPIエンドポイント**:
+- `createPhotoV2`: 写真メタデータ作成
+- `uploadPhotoChunkV2`: チャンクアップロード  
+- `finalizePhotoUploadV2`: アップロード完了
+- `searchPhotosV2`: 高度な検索
+- `getPhotoMetadataV2`: 拡張メタデータ取得
+- `getPhotoStatsV2`: 統計情報取得
+
+**フロントエンド対応**:
+- ✅ `src/frontend/src/services/photoV2.ts`: 新しいAPIクライアント実装
+- 地域情報自動取得（Nominatim API使用）
+- 3段階アップロードヘルパー関数
+
+**デプロイ済み** (2025-06-14): 77fv5-oiaaa-aaaal-qsoea-cai
+
+### 次のステップ
+1. PhotoUploadScreenをV2 APIに移行
+2. パフォーマンステスト実施（目標: query応答 ≦100ms）
+3. 既存データのマイグレーション計画
+
 ## 🔄 最新の作業状況 (2025-06-13) - Dev Mode完全動作実現 🎉
 
 ### 重要な開発指示
