@@ -464,6 +464,40 @@ actor GameUnified {
         }
     };
     
+    // Get user sessions
+    public query(msg) func getUserSessions(userId: Principal) : async Result.Result<[GameV2.SessionInfo], Text> {
+        switch(gameEngineManager.getUserSessions(userId)) {
+            case null { #ok([]) };
+            case (?sessionIds) {
+                let sessions = Buffer.Buffer<GameV2.SessionInfo>(sessionIds.size());
+                for (sessionId in sessionIds.vals()) {
+                    switch(gameEngineManager.getSession(sessionId)) {
+                        case null { };
+                        case (?session) {
+                            sessions.add({
+                                id = session.id;
+                                players = [session.userId];
+                                status = if (session.endTime == null) { #Active } else { #Completed };
+                                createdAt = session.startTime;
+                                roundCount = session.rounds.size();
+                                currentRound = if (session.currentRound > 0) { ?session.currentRound } else { null };
+                            });
+                        };
+                    };
+                };
+                #ok(Buffer.toArray(sessions))
+            };
+        }
+    };
+
+    // Get specific session
+    public query(msg) func getSession(sessionId: Text) : async Result.Result<GameV2.GameSession, Text> {
+        switch(gameEngineManager.getSession(sessionId)) {
+            case null { #err("Session not found") };
+            case (?session) { #ok(session) };
+        }
+    };
+
     // ======================================
     // GUESS HISTORY FUNCTIONS
     // ======================================

@@ -291,6 +291,21 @@ class GameService {
         
         // Session management functions
         getUserSessions: IDL.Func([IDL.Principal], [Result_Sessions], ['query']),
+        getSession: IDL.Func([IDL.Text], [IDL.Variant({
+          ok: IDL.Record({
+            id: IDL.Text,
+            userId: IDL.Principal,
+            rounds: IDL.Vec(RoundState),
+            currentRound: IDL.Nat,
+            totalScore: IDL.Nat,
+            totalScoreNorm: IDL.Nat,
+            retryCount: IDL.Nat,
+            startTime: IDL.Int,
+            endTime: IDL.Opt(IDL.Int),
+            lastActivity: IDL.Int,
+          }),
+          err: IDL.Text,
+        })], ['query']),
         
         // Token functions
         icrc1_balance_of: IDL.Func([Account], [IDL.Nat], ['query']),
@@ -373,21 +388,6 @@ class GameService {
     }
   }
 
-  async getUserSessions(principal: any): Promise<{ ok?: SessionInfo[]; err?: string }> {
-    if (!this.initialized || !this.actor) {
-      return { err: 'Service not initialized. Please login first.' };
-    }
-    
-    try {
-      console.log('🎮 Getting user sessions for:', principal.toString());
-      const result = await this.actor.getUserSessions(principal);
-      console.log('🎮 getUserSessions result:', result);
-      return result;
-    } catch (error: any) {
-      console.error('Failed to get user sessions:', error);
-      return { err: error.message || 'Failed to get user sessions' };
-    }
-  }
 
   async createSessionWithCleanup(): Promise<{ ok?: string; err?: string }> {
     if (!this.initialized || !this.actor) {
@@ -566,6 +566,35 @@ class GameService {
       return stats;
     } catch (error: any) {
       console.error('Failed to get player stats:', error);
+      return null;
+    }
+  }
+
+  async getUserSessions(principal: any): Promise<{ ok?: SessionInfo[]; err?: string }> {
+    if (!this.initialized || !this.actor) {
+      return { err: 'Service not initialized. Please login first.' };
+    }
+    
+    try {
+      const result = await this.actor.getUserSessions(principal);
+      return result;
+    } catch (error: any) {
+      console.error('Failed to get user sessions:', error);
+      return { err: 'Failed to get user sessions' };
+    }
+  }
+
+  async getSession(sessionId: string): Promise<any> {
+    if (!this.initialized || !this.actor) {
+      return null;
+    }
+    
+    try {
+      // Note: This function needs to be added to the backend if not already present
+      const result = await this.actor.getSession(sessionId);
+      return result;
+    } catch (error: any) {
+      console.error('Failed to get session:', error);
       return null;
     }
   }

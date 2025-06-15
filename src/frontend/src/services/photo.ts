@@ -138,6 +138,45 @@ const idlFactory = ({ IDL }: any) => {
     updatedAt: IDL.Nat,
   });
 
+  // Photo V2 types
+  const PhotoMetaV2 = IDL.Record({
+    id: IDL.Nat,
+    owner: IDL.Principal,
+    uploadTime: IDL.Nat,
+    latitude: IDL.Float64,
+    longitude: IDL.Float64,
+    azimuth: IDL.Opt(IDL.Float64),
+    geoHash: IDL.Text,
+    title: IDL.Text,
+    description: IDL.Text,
+    difficulty: IDL.Variant({
+      'EASY': IDL.Null,
+      'NORMAL': IDL.Null,
+      'HARD': IDL.Null,
+      'EXTREME': IDL.Null,
+    }),
+    hint: IDL.Text,
+    country: IDL.Text,
+    region: IDL.Text,
+    sceneKind: IDL.Text,
+    tags: IDL.Vec(IDL.Text),
+    chunkCount: IDL.Nat,
+    totalSize: IDL.Nat,
+    uploadState: IDL.Variant({
+      'Uploading': IDL.Null,
+      'Completed': IDL.Null,
+      'Failed': IDL.Null,
+    }),
+    status: IDL.Variant({
+      'Active': IDL.Null,
+      'Banned': IDL.Null,
+      'Deleted': IDL.Null,
+    }),
+    qualityScore: IDL.Float64,
+    timesUsed: IDL.Nat,
+    lastUsedTime: IDL.Opt(IDL.Nat),
+  });
+
   return IDL.Service({
     uploadPhoto: IDL.Func([PhotoUploadRequest], [Result], []),
     schedulePhotoUpload: IDL.Func([ScheduledUploadRequest], [Result], []),
@@ -153,6 +192,9 @@ const idlFactory = ({ IDL }: any) => {
       tags: IDL.Vec(IDL.Text),
     })], [IDL.Variant({ 'ok': IDL.Null, 'err': IDL.Text })], []),
     deletePhoto: IDL.Func([IDL.Nat], [IDL.Variant({ 'ok': IDL.Null, 'err': IDL.Text })], []),
+    // V2 methods
+    getPhotoMetadataV2: IDL.Func([IDL.Nat], [IDL.Opt(PhotoMetaV2)], ['query']),
+    getPhotoChunkV2: IDL.Func([IDL.Nat, IDL.Nat], [IDL.Opt(IDL.Vec(IDL.Nat8))], ['query']),
   });
 };
 
@@ -421,6 +463,89 @@ class PhotoService {
     } catch (error) {
       console.error('Delete photo error:', error);
       return { err: error instanceof Error ? error.message : 'Delete failed' };
+    }
+  }
+
+  // V2 methods for SessionDetailsScreen
+  async getPhotoMetadataV2(photoId: number): Promise<any | null> {
+    if (!this.actor) {
+      console.error('Photo service not initialized');
+      return null;
+    }
+
+    try {
+      const result = await this.actor.getPhotoMetadataV2(BigInt(photoId));
+      return result;
+    } catch (error) {
+      console.error('Get photo metadata V2 error:', error);
+      return null;
+    }
+  }
+
+  async getPhotoChunkV2(photoId: number, chunkIndex: number): Promise<Uint8Array | null> {
+    if (!this.actor) {
+      console.error('Photo service not initialized');
+      return null;
+    }
+
+    try {
+      const result = await this.actor.getPhotoChunkV2(BigInt(photoId), BigInt(chunkIndex));
+      return result;
+    } catch (error) {
+      console.error('Get photo chunk V2 error:', error);
+      return null;
+    }
+  }
+
+  async getPhotoDataUrl(photoId: number): Promise<string | null> {
+    if (!this.actor) {
+      console.error('Photo service not initialized');
+      return null;
+    }
+
+    try {
+      // First get metadata to know how many chunks there are
+      const metadata = await this.getPhotoMetadataV2(photoId);
+      if (!metadata) {
+        console.error('Photo metadata not found');
+        return null;
+      }
+
+      // Fetch all chunks
+      const chunks: Uint8Array[] = [];
+      for (let i = 0; i < Number(metadata.chunkCount); i++) {
+        const chunk = await this.getPhotoChunkV2(photoId, i);
+        if (chunk) {
+          chunks.push(chunk);
+        }
+      }
+
+      if (chunks.length === 0) {
+        console.error('No photo chunks found');
+        return null;
+      }
+
+      // Combine chunks into single array
+      const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
+      const combined = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const chunk of chunks) {
+        combined.set(chunk, offset);
+        offset += chunk.length;
+      }
+
+      // Convert to base64 data URL
+      // For large arrays, we need to process in chunks to avoid stack overflow
+      let base64 = '';
+      const chunkSize = 0x8000; // 32KB chunks
+      for (let i = 0; i < combined.length; i += chunkSize) {
+        const chunk = combined.subarray(i, i + chunkSize);
+        base64 += btoa(String.fromCharCode.apply(null, Array.from(chunk)));
+      }
+      return `data:image/jpeg;base64,${base64}`;
+    } catch (error) {
+      console.error('Get photo data URL error:', error);
+      return null;
     }
   }
 

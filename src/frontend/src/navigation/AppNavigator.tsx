@@ -10,6 +10,7 @@ import GamePlayScreen from '../screens/GamePlayScreen';
 import GuessMapScreen from '../screens/GuessMapScreen';
 import GameResultScreen from '../screens/GameResultScreen';
 import SessionSummaryScreen from '../screens/SessionSummaryScreen';
+import SessionDetailsScreen from '../screens/SessionDetailsScreen';
 import CameraScreen from '../screens/CameraScreen';
 import PhotoUploadScreen from '../screens/PhotoUploadScreenV2';
 import LeaderboardScreen from '../screens/LeaderboardScreen';
@@ -43,6 +44,9 @@ export type RootStackParamList = {
     photoUrl?: string;
   };
   SessionSummary: undefined;
+  SessionDetails: {
+    sessionId: string;
+  };
   Camera: undefined;
   PhotoUpload: {
     photoUri: string;
@@ -128,6 +132,13 @@ export default function AppNavigator() {
             options={{ 
               headerShown: false,
               gestureEnabled: false,
+            }}
+          />
+          <Stack.Screen
+            name="SessionDetails"
+            component={SessionDetailsScreen}
+            options={{ 
+              headerShown: false,
             }}
           />
           <Stack.Screen

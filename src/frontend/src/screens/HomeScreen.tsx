@@ -32,6 +32,8 @@ export default function HomeScreen() {
   const [isServiceInitialized, setIsServiceInitialized] = React.useState(false);
   const [playerStats, setPlayerStats] = React.useState<any>(null);
   const [isLoadingStats, setIsLoadingStats] = React.useState(false);
+  const [recentSessions, setRecentSessions] = React.useState<any[]>([]);
+  const [isLoadingSessions, setIsLoadingSessions] = React.useState(false);
   
   // Convert bigint balance to display string
   const displayBalance = React.useMemo(() => {
@@ -68,6 +70,26 @@ export default function HomeScreen() {
     }
   }, [principal]);
 
+  const fetchRecentSessions = React.useCallback(async () => {
+    if (!principal) return;
+    
+    setIsLoadingSessions(true);
+    try {
+      const result = await gameService.getUserSessions(principal);
+      if (result.ok) {
+        // Sort sessions by creation time (most recent first) and take top 5
+        const sortedSessions = result.ok
+          .sort((a, b) => Number(b.createdAt) - Number(a.createdAt))
+          .slice(0, 5);
+        setRecentSessions(sortedSessions);
+      }
+    } catch (error) {
+      console.error('Failed to fetch recent sessions:', error);
+    } finally {
+      setIsLoadingSessions(false);
+    }
+  }, [principal]);
+
   // Initialize game service with identity
   React.useEffect(() => {
     const initService = async () => {
@@ -87,10 +109,11 @@ export default function HomeScreen() {
     if (isServiceInitialized) {
       fetchTokenBalance();
       fetchPlayerStats();
+      fetchRecentSessions();
       
       // Dev mode: disabled auto-minting per user request
     }
-  }, [fetchTokenBalance, fetchPlayerStats, isServiceInitialized, identity, principal]);
+  }, [fetchTokenBalance, fetchPlayerStats, fetchRecentSessions, isServiceInitialized, identity, principal]);
 
   // Fetch data when screen comes into focus
   useFocusEffect(
@@ -98,8 +121,9 @@ export default function HomeScreen() {
       if (isServiceInitialized && principal) {
         fetchTokenBalance();
         fetchPlayerStats();
+        fetchRecentSessions();
       }
-    }, [isServiceInitialized, principal, fetchTokenBalance, fetchPlayerStats])
+    }, [isServiceInitialized, principal, fetchTokenBalance, fetchPlayerStats, fetchRecentSessions])
   );
 
   const onRefresh = React.useCallback(async () => {
@@ -291,13 +315,60 @@ export default function HomeScreen() {
           {/* Recent Activity */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Recent Activity</Text>
-            <View style={styles.emptyCard}>
-              <Ionicons name="time-outline" size={48} color="#475569" />
-              <Text style={styles.emptyText}>No recent activity</Text>
-              <Text style={styles.emptySubtext}>
-                Start playing to see your game history
-              </Text>
-            </View>
+            {isLoadingSessions ? (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyText}>Loading sessions...</Text>
+              </View>
+            ) : recentSessions.length > 0 ? (
+              <View>
+                {recentSessions.map((session) => (
+                  <TouchableOpacity
+                    key={session.id}
+                    style={styles.sessionCard}
+                    onPress={() => navigation.navigate('SessionDetails', { sessionId: session.id })}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.sessionHeader}>
+                      <View style={styles.sessionInfo}>
+                        <Text style={styles.sessionDate}>
+                          {new Date(Number(session.createdAt) / 1000000).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </Text>
+                        <Text style={styles.sessionStatus}>
+                          {session.status === 'Completed' ? 'Completed' : 'In Progress'}
+                        </Text>
+                      </View>
+                      <View style={styles.sessionStats}>
+                        <Text style={styles.sessionRounds}>
+                          {session.currentRound || 0}/{session.roundCount} rounds
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.sessionFooter}>
+                      <View style={styles.sessionScoreContainer}>
+                        <Ionicons name="star" size={16} color="#f59e0b" />
+                        <Text style={styles.sessionScore}>
+                          Score: N/A
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={20} color="#64748b" />
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.emptyCard}>
+                <Ionicons name="time-outline" size={48} color="#475569" />
+                <Text style={styles.emptyText}>No recent activity</Text>
+                <Text style={styles.emptySubtext}>
+                  Start playing to see your game history
+                </Text>
+              </View>
+            )}
           </View>
         </ScrollView>
       </View>
@@ -510,5 +581,54 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 8,
     textAlign: 'center',
+  },
+  sessionCard: {
+    backgroundColor: 'rgba(30, 41, 59, 0.3)',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(71, 85, 105, 0.5)',
+  },
+  sessionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  sessionInfo: {
+    flex: 1,
+  },
+  sessionDate: {
+    color: '#e2e8f0',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  sessionStatus: {
+    color: '#94a3b8',
+    fontSize: 14,
+  },
+  sessionStats: {
+    alignItems: 'flex-end',
+  },
+  sessionRounds: {
+    color: '#64748b',
+    fontSize: 14,
+  },
+  sessionFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  sessionScoreContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sessionScore: {
+    color: '#f59e0b',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 6,
   },
 });
