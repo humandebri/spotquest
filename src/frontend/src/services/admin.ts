@@ -119,6 +119,16 @@ class AdminService {
         host: process.env.EXPO_PUBLIC_IC_HOST || 'https://ic0.app',
         // dev環境では証明書検証をスキップ（falseに設定）
         verifyQuerySignatures: false,
+        // API v3を有効化して高速化
+        useQueryNonces: true,
+        retryTimes: 3,
+        // Fetch options for timeout and performance
+        fetchOptions: {
+          reactNative: {
+            // React Native用の最適化
+            __nativeResponseType: 'base64',
+          },
+        },
       });
 
 

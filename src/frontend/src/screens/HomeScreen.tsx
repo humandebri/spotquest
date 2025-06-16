@@ -46,9 +46,10 @@ export default function HomeScreen() {
     
     setIsLoadingBalance(true);
     try {
-      // Always fetch from backend, regardless of mode
+      // Always fetch from backend
       const balance = await gameService.getTokenBalance(principal);
       setStoreBalance(balance);
+      console.log('🏠 Fetched token balance from backend:', Number(balance));
     } catch (error) {
       console.error('Failed to fetch token balance:', error);
     } finally {
@@ -274,13 +275,23 @@ export default function HomeScreen() {
                   label="Avg Score" 
                 />
               </View>
+              
+              {/* Anti-cheat warning if flagged */}
+              {playerStats?.suspiciousActivityFlags?.[0] && (
+                <View style={styles.warningBanner}>
+                  <Ionicons name="warning" size={16} color="#f59e0b" />
+                  <Text style={styles.warningText}>
+                    {playerStats.suspiciousActivityFlags[0]}
+                  </Text>
+                </View>
+              )}
             </LinearGradient>
           </View>
 
           {/* Quick Actions */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Quick Actions</Text>
-            {menuItems.map((item, index) => (
+            {menuItems.map((item) => (
               <TouchableOpacity
                 key={item.screen}
                 style={styles.menuCard}
@@ -288,7 +299,7 @@ export default function HomeScreen() {
                 activeOpacity={0.8}
               >
                 <LinearGradient
-                  colors={item.gradient}
+                  colors={item.gradient as any}
                   style={styles.menuGradient}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
@@ -630,5 +641,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginLeft: 6,
+  },
+  warningBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+    marginTop: 16,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+  },
+  warningText: {
+    color: '#f59e0b',
+    fontSize: 12,
+    marginLeft: 8,
+    flex: 1,
   },
 });

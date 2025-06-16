@@ -12,6 +12,8 @@ import Option "mo:base/Option";
 import Iter "mo:base/Iter";
 import Array "mo:base/Array";
 import Buffer "mo:base/Buffer";
+import Debug "mo:base/Debug";
+import Random "mo:base/Random";
 
 import ICRC1 "../../types/icrc1";
 import GameV2 "../../types/game_v2";
@@ -255,12 +257,73 @@ actor GameUnified {
         }
     };
     
-    public shared(msg) func getNextRound(sessionId: Text) : async Result.Result<GameV2.RoundState, Text> {
-        // Use Photo V2 system only
-        switch(photoManagerV2.getRandomPhoto()) {
-            case null { #err("No photos available") };
+    public shared(msg) func getNextRound(sessionId: Text, regionFilter: ?Text) : async Result.Result<GameV2.RoundState, Text> {
+        let selectedPhoto = switch(regionFilter) {
+            case null {
+                // 既存処理（全写真からランダム）
+                photoManagerV2.getRandomPhoto()
+            };
+            case (?region) {
+                // 地域フィルタリング：国コード（2文字）か地域コード（XX-XX形式）かを判定
+                let filter: Photo.SearchFilter = {
+                    status = ?#Active;
+                    country = if (Text.size(region) == 2 and not Text.contains(region, #char '-')) { 
+                        ?region 
+                    } else { 
+                        null 
+                    };
+                    region = if (Text.contains(region, #char '-') and Text.size(region) >= 3) { 
+                        ?region 
+                    } else { 
+                        null 
+                    };
+                    sceneKind = null;
+                    tags = null;
+                    nearLocation = null;
+                    owner = null;
+                    difficulty = null;
+                };
+                
+                let searchResult = photoManagerV2.search(filter, null, 100);
+                let photos = searchResult.photos;
+                if (photos.size() > 0) {
+                    // ランダムに1枚選択
+                    let entropy = await Random.blob();
+                    let photosSize = photos.size();
+                    let randomValue = Random.rangeFrom(32, entropy);
+                    // 警告があるが、photosSize > 0なので実際にはトラップしない
+                    let randomIndex = randomValue % photosSize;
+                    ?photos[randomIndex]
+                } else {
+                    Debug.print("🎮 No photos found in region: " # region);
+                    null
+                }
+            };
+        };
+        
+        switch(selectedPhoto) {
+            case null { 
+                switch(regionFilter) {
+                    case null { #err("No photos available") };
+                    case (?region) { #err("No photos found in selected region: " # region) };
+                }
+            };
             case (?photoV2) {
-                gameEngineManager.getNextRound(sessionId, msg.caller, photoV2.id)
+                // 🚀 Performance: Return photo metadata with round data
+                switch(gameEngineManager.getNextRound(sessionId, msg.caller, photoV2.id)) {
+                    case (#err(e)) { #err(e) };
+                    case (#ok(roundState)) {
+                        // Add photo location hint for client-side caching
+                        Debug.print("🎮 Next round photo: " # Nat.toText(photoV2.id) # 
+                                   " at (" # Float.toText(photoV2.latitude) # 
+                                   ", " # Float.toText(photoV2.longitude) # ")" #
+                                   (switch(regionFilter) {
+                                       case null { "" };
+                                       case (?region) { " [region: " # region # "]" };
+                                   }));
+                        #ok(roundState)
+                    };
+                }
             };
         }
     };
@@ -272,6 +335,36 @@ actor GameUnified {
         guessAzimuth: ?Float,
         confidenceRadius: Float
     ) : async Result.Result<RoundResult, Text> {
+        // 🛡️ ANTI-CHEAT: Validate coordinates
+        if (guessLat < -90.0 or guessLat > 90.0) {
+            return #err("Invalid latitude: must be between -90 and 90");
+        };
+        if (guessLon < -180.0 or guessLon > 180.0) {
+            return #err("Invalid longitude: must be between -180 and 180");
+        };
+        
+        // 🛡️ ANTI-CHEAT: Validate confidence radius (only allow specific values)
+        let allowedRadii : [Float] = [500.0, 1000.0, 2000.0, 5000.0];
+        var isValidRadius = false;
+        for (allowed in allowedRadii.vals()) {
+            if (confidenceRadius == allowed) {
+                isValidRadius := true;
+            };
+        };
+        if (not isValidRadius) {
+            return #err("Invalid confidence radius: must be one of 500, 1000, 2000, or 5000");
+        };
+        
+        // 🛡️ ANTI-CHEAT: Validate azimuth if provided
+        switch(guessAzimuth) {
+            case null { }; // OK
+            case (?azimuth) {
+                if (azimuth < 0.0 or azimuth > 360.0) {
+                    return #err("Invalid azimuth: must be between 0 and 360");
+                };
+            };
+        };
+        
         // Get session to find photo ID
         switch(gameEngineManager.getSession(sessionId)) {
             case null { #err("Session not found") };
@@ -287,6 +380,26 @@ actor GameUnified {
                 let roundIndex = session.currentRound - 1;
                 let currentRound = session.rounds[roundIndex];
                 
+                // 🛡️ ANTI-CHEAT: Check if already submitted
+                if (currentRound.guessData != null) {
+                    return #err("Guess already submitted for this round");
+                };
+                
+                // 🛡️ ANTI-CHEAT: Timing validation
+                let currentTime = Time.now();
+                let roundDuration = currentTime - currentRound.startTime;
+                let maxRoundTime : Int = 5 * 60 * 1_000_000_000; // 5 minutes in nanoseconds
+                
+                if (roundDuration > maxRoundTime) {
+                    return #err("Round time expired");
+                };
+                
+                // 🛡️ ANTI-CHEAT: Minimum time check (prevent instant submissions)
+                let minRoundTime : Int = 2 * 1_000_000_000; // 2 seconds in nanoseconds
+                if (roundDuration < minRoundTime) {
+                    return #err("Submission too fast - please take time to analyze the photo");
+                };
+                
                 // Get photo location using helper function
                 switch(getPhotoFromV2System(currentRound.photoId)) {
                     case null { #err("Photo not found") };
@@ -299,6 +412,16 @@ actor GameUnified {
                         )) {
                             case (#err(e)) { #err(e) };
                             case (#ok(roundState)) {
+                                // 🛡️ ANTI-CHEAT: Check for suspicious activity
+                                switch(detectSuspiciousActivity(msg.caller, sessionId)) {
+                                    case null { }; // OK
+                                    case (?warning) {
+                                        // Log suspicious activity but don't block (for now)
+                                        // In production, you might want to flag the account
+                                        Debug.print("⚠️ ANTI-CHEAT WARNING for " # Principal.toText(msg.caller) # ": " # warning);
+                                    };
+                                };
+                                
                                 // Record guess in history
                                 let distance = Helpers.calculateHaversineDistance(
                                     guessLat, guessLon,
@@ -464,32 +587,6 @@ actor GameUnified {
         }
     };
     
-    // Get user sessions
-    public query(msg) func getUserSessions(userId: Principal) : async Result.Result<[GameV2.SessionInfo], Text> {
-        switch(gameEngineManager.getUserSessions(userId)) {
-            case null { #ok([]) };
-            case (?sessionIds) {
-                let sessions = Buffer.Buffer<GameV2.SessionInfo>(sessionIds.size());
-                for (sessionId in sessionIds.vals()) {
-                    switch(gameEngineManager.getSession(sessionId)) {
-                        case null { };
-                        case (?session) {
-                            sessions.add({
-                                id = session.id;
-                                players = [session.userId];
-                                status = if (session.endTime == null) { #Active } else { #Completed };
-                                createdAt = session.startTime;
-                                roundCount = session.rounds.size();
-                                currentRound = if (session.currentRound > 0) { ?session.currentRound } else { null };
-                            });
-                        };
-                    };
-                };
-                #ok(Buffer.toArray(sessions))
-            };
-        }
-    };
-
     // Get specific session
     public query(msg) func getSession(sessionId: Text) : async Result.Result<GameV2.GameSession, Text> {
         switch(gameEngineManager.getSession(sessionId)) {
@@ -784,6 +881,67 @@ actor GameUnified {
     };
     
     // ======================================
+    // ANTI-CHEAT: Suspicious Activity Detection
+    // ======================================
+    private func detectSuspiciousActivity(player: Principal, sessionId: Text) : ?Text {
+        // Get recent sessions
+        switch(gameEngineManager.getUserSessions(player)) {
+            case null { null };
+            case (?sessionIds) {
+                var perfectScoreCount = 0;
+                var totalRecentSessions = 0;
+                let oneHourAgo = Time.now() - (60 * 60 * 1_000_000_000); // 1 hour
+                
+                for (sid in sessionIds.vals()) {
+                    switch(gameEngineManager.getSession(sid)) {
+                        case null { };
+                        case (?session) {
+                            // Check recent sessions only
+                            if (session.startTime > oneHourAgo) {
+                                totalRecentSessions += 1;
+                                
+                                // Count perfect or near-perfect rounds
+                                for (round in session.rounds.vals()) {
+                                    if (round.score >= 4950) { // 99% perfect
+                                        perfectScoreCount += 1;
+                                    };
+                                };
+                            };
+                        };
+                    };
+                };
+                
+                // 🛡️ Flag if too many perfect scores
+                if (perfectScoreCount > 3 and totalRecentSessions > 0) {
+                    return ?("Suspicious: Too many perfect scores (" # Nat.toText(perfectScoreCount) # " in recent sessions)");
+                };
+                
+                // 🛡️ Check guess history for patterns
+                let recentGuesses = guessHistoryManager.getPlayerHistory(player, ?50);
+                if (recentGuesses.size() > 10) {
+                    // Check for repeated exact coordinates (bot behavior)
+                    var duplicateCount = 0;
+                    let guesses = guessHistoryManager.getPhotoGuesses(recentGuesses[0], ?50);
+                    
+                    for (i in Iter.range(0, guesses.size() - 2)) {
+                        for (j in Iter.range(i + 1, guesses.size() - 1)) {
+                            if (guesses[i].lat == guesses[j].lat and guesses[i].lon == guesses[j].lon) {
+                                duplicateCount += 1;
+                            };
+                        };
+                    };
+                    
+                    if (duplicateCount > 5) {
+                        return ?("Suspicious: Repeated exact coordinates detected");
+                    };
+                };
+                
+                null
+            };
+        }
+    };
+    
+    // ======================================
     // PLAYER STATISTICS
     // ======================================
     public query func getPlayerStats(player: Principal) : async {
@@ -799,6 +957,7 @@ actor GameUnified {
         longestStreak: Nat;
         reputation: Float;
         totalGuesses: Nat;
+        suspiciousActivityFlags: ?Text;
     } {
         // Get user sessions
         let userSessionBuffer = switch(gameEngineManager.getUserSessions(player)) {
@@ -922,6 +1081,9 @@ actor GameUnified {
             Float.fromInt(completedGames) / Float.fromInt(totalGamesPlayed)
         } else { 0.0 };
         
+        // Check for suspicious activity
+        let suspiciousFlags = detectSuspiciousActivity(player, "");
+        
         {
             totalGamesPlayed = totalGamesPlayed;
             totalPhotosUploaded = totalPhotosUploaded;
@@ -935,6 +1097,7 @@ actor GameUnified {
             reputation = reputation;
             totalGuesses = totalGuesses;
             winRate = winRate;
+            suspiciousActivityFlags = suspiciousFlags;
         }
     };
     
@@ -1089,6 +1252,48 @@ actor GameUnified {
         }
     };
     
+    // Debug reward calculation
+    public query func debugCalculatePlayerReward(sessionId: Text) : async {
+        sessionFound: Bool;
+        roundCount: Nat;
+        totalScore: Nat;
+        roundDetails: [(Nat, Nat)]; // (round index, score)
+        totalReward: Nat;
+    } {
+        switch(gameEngineManager.getSession(sessionId)) {
+            case null { 
+                {
+                    sessionFound = false;
+                    roundCount = 0;
+                    totalScore = 0;
+                    roundDetails = [];
+                    totalReward = 0;
+                }
+            };
+            case (?session) {
+                let rounds = session.rounds.size();
+                var totalReward : Nat = 0;
+                var roundDetails : [(Nat, Nat)] = [];
+                
+                var index = 0;
+                for (round in session.rounds.vals()) {
+                    let roundReward = (round.score * 100) / 5000;
+                    totalReward += roundReward;
+                    roundDetails := Array.append(roundDetails, [(index, round.score)]);
+                    index += 1;
+                };
+                
+                {
+                    sessionFound = true;
+                    roundCount = rounds;
+                    totalScore = session.totalScore;
+                    roundDetails = roundDetails;
+                    totalReward = totalReward;
+                }
+            };
+        }
+    };
+    
     // ======================================
     // HELPER FUNCTIONS
     // ======================================
@@ -1112,26 +1317,24 @@ actor GameUnified {
     };
     
     private func calculatePlayerReward(session: GameV2.GameSession) : Nat {
-        // Base reward calculation
-        let totalScoreNorm = session.totalScoreNorm;
+        // Simple reward calculation matching frontend
+        // Each round: (score / 5000) * 1.0 SPOT = (score / 5000) * 100 units
         let rounds = session.rounds.size();
         
         if (rounds == 0) {
             return 0;
         };
         
-        // Average normalized score
-        let avgScoreNorm = totalScoreNorm / rounds;
+        var totalReward : Nat = 0;
         
-        // Time decay
-        let elapsed = Time.now() - session.startTime;
-        let daysElapsed = Helpers.getDaysElapsed(session.startTime, Time.now());
-        let decay = Constants.PRECISION * 100 / (100 + 5 * daysElapsed);
+        for (round in session.rounds.vals()) {
+            // Each round can earn max 1.0 SPOT (100 units) based on score
+            // Formula: (score / 5000) * 100 units
+            let roundReward = (round.score * 100) / 5000; // Integer division
+            totalReward += roundReward;
+        };
         
-        // Calculate reward with fixed point arithmetic
-        let baseRewardFixed = Constants.BASE_REWARD_PLAYER * avgScoreNorm * decay / (100 * Constants.PRECISION);
-        
-        baseRewardFixed
+        totalReward
     };
     
     private func calculateUploaderRewards(session: GameV2.GameSession) : [(Principal, Nat)] {

@@ -17,14 +17,19 @@ import LeaderboardScreen from '../screens/LeaderboardScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import LoginScreen from '../screens/LoginScreen';
 import AdminScreen from '../screens/AdminScreen';
+import RegionSelectScreen from '../screens/RegionSelectScreen';
 // import ScheduledPhotosScreen from '../screens/ScheduledPhotosScreen';
 
 export type RootStackParamList = {
   Home: undefined;
   Game: undefined;
+  RegionSelect: undefined;
   GamePlay: {
     gameMode?: string;
     difficulty?: 'EASY' | 'NORMAL' | 'HARD' | 'EXTREME';
+    mode?: 'classic' | 'creative' | 'competitive';
+    regionFilter?: string;
+    regionName?: string;
   };
   GuessMap: {
     photoUrl: string;
@@ -103,6 +108,11 @@ export default function AppNavigator() {
             name="Game"
             component={GameModeScreen}
             options={{ title: 'Select Game Mode' }}
+          />
+          <Stack.Screen
+            name="RegionSelect"
+            component={RegionSelectScreen}
+            options={{ headerShown: false }}
           />
           <Stack.Screen
             name="GamePlay"

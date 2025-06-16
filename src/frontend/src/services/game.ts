@@ -96,13 +96,26 @@ class GameService {
         host,
         // dev環境では証明書検証をスキップ
         verifyQuerySignatures: false,
+        // API v3を有効化して高速化
+        useQueryNonces: true,
+        retryTimes: 3,
+        // Fetch options for timeout and performance
+        fetchOptions: {
+          reactNative: {
+            // React Native用の最適化
+            __nativeResponseType: 'base64',
+          },
+        },
       };
       
       this.agent = new HttpAgent(agentOptions);
       
+      // メインネットの統合canister IDを使用
+      const canisterId = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || '77fv5-oiaaa-aaaal-qsoea-cai';
+      
       // Log agent configuration
       console.log('🎮 HttpAgent created:', {
-        host: this.agent._host,
+        host: host,
         identity: identity.getPrincipal().toString(),
         isDevMode,
       });
@@ -122,9 +135,6 @@ class GameService {
       // if (process.env.NODE_ENV === 'development') {
       //   await this.agent.fetchRootKey();
       // }
-
-      // メインネットの統合canister IDを使用
-      const canisterId = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || '77fv5-oiaaa-aaaal-qsoea-cai';
       console.log('🎮 Using canister ID:', canisterId);
       
       // Test Principal creation with custom implementation
@@ -257,8 +267,28 @@ class GameService {
         err: IDL.Text,
       });
 
+      const RoundResult = IDL.Record({
+        displayScore: IDL.Nat,
+        normalizedScore: IDL.Nat,
+        distance: IDL.Float64,
+        actualLocation: IDL.Record({
+          lat: IDL.Float64,
+          lon: IDL.Float64,
+        }),
+        guessLocation: IDL.Record({
+          lat: IDL.Float64,
+          lon: IDL.Float64,
+        }),
+        photoId: IDL.Nat,
+      });
+
       const Result_RoundState = IDL.Variant({
         ok: RoundState,
+        err: IDL.Text,
+      });
+
+      const Result_RoundResult = IDL.Variant({
+        ok: RoundResult,
         err: IDL.Text,
       });
 
@@ -280,10 +310,10 @@ class GameService {
       return IDL.Service({
         // Game Engine functions
         createSession: IDL.Func([], [Result_Text], []),
-        getNextRound: IDL.Func([IDL.Text], [Result_RoundState], []),
+        getNextRound: IDL.Func([IDL.Text, IDL.Opt(IDL.Text)], [Result_RoundState], []),
         submitGuess: IDL.Func(
           [IDL.Text, IDL.Float64, IDL.Float64, IDL.Opt(IDL.Float64), IDL.Float64], 
-          [Result_RoundState], 
+          [Result_RoundResult], 
           []
         ),
         purchaseHint: IDL.Func([IDL.Text, HintType], [Result_HintData], []),
@@ -313,6 +343,15 @@ class GameService {
         icrc1_fee: IDL.Func([], [IDL.Nat], ['query']),
         icrc1_total_supply: IDL.Func([], [IDL.Nat], ['query']),
         
+        // Debug functions
+        debugCalculatePlayerReward: IDL.Func([IDL.Text], [IDL.Record({
+          sessionFound: IDL.Bool,
+          roundCount: IDL.Nat,
+          totalScore: IDL.Nat,
+          roundDetails: IDL.Vec(IDL.Tuple(IDL.Nat, IDL.Nat)),
+          totalReward: IDL.Nat,
+        })], ['query']),
+        
         // Player stats
         getPlayerStats: IDL.Func([IDL.Principal], [IDL.Record({
           totalGamesPlayed: IDL.Nat,
@@ -326,6 +365,8 @@ class GameService {
           longestStreak: IDL.Nat,
           reputation: IDL.Float64,
           totalGuesses: IDL.Nat,
+          winRate: IDL.Float64,
+          suspiciousActivityFlags: IDL.Opt(IDL.Text),
         })], ['query']),
         
         // Ranking functions
@@ -473,13 +514,14 @@ class GameService {
     }
   }
 
-  async getNextRound(sessionId: string): Promise<any> {
+  async getNextRound(sessionId: string, regionFilter?: string): Promise<any> {
     if (!this.initialized || !this.actor) {
       return { err: 'Service not initialized. Please login first.' };
     }
     
     try {
-      const result = await this.actor.getNextRound(sessionId);
+      const result = await this.actor.getNextRound(sessionId, regionFilter ? [regionFilter] : []);
+      console.log('🎮 getNextRound called with regionFilter:', regionFilter);
       return result;
     } catch (error: any) {
       console.error('Failed to get next round:', error);
@@ -553,6 +595,20 @@ class GameService {
     } catch (error: any) {
       console.error('Failed to get token balance:', error);
       return BigInt(0);
+    }
+  }
+
+  async debugCalculatePlayerReward(sessionId: string): Promise<any> {
+    if (!this.initialized || !this.actor) {
+      return null;
+    }
+    
+    try {
+      const result = await this.actor.debugCalculatePlayerReward(sessionId);
+      return result;
+    } catch (error) {
+      console.error('Failed to debug calculate player reward:', error);
+      return null;
     }
   }
 

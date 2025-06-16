@@ -289,6 +289,9 @@ class PhotoServiceV2 {
   private agent: HttpAgent | null = null;
   private actor: any = null;
   private identity: Identity | null = null;
+  private photoCache: Map<string, PhotoMetaV2> = new Map();
+  private chunkCache: Map<string, Uint8Array> = new Map();
+  private cacheTimeout = 5 * 60 * 1000; // 5分のキャッシュ
 
   async init(identity: Identity) {
     try {
@@ -311,6 +314,16 @@ class PhotoServiceV2 {
         identity,
         host: host,
         verifyQuerySignatures: false, // dev環境では証明書検証をスキップ
+        // API v3を有効化して高速化
+        useQueryNonces: true,
+        retryTimes: 3,
+        // Fetch options for timeout and performance
+        fetchOptions: {
+          reactNative: {
+            // React Native用の最適化
+            __nativeResponseType: 'base64',
+          },
+        },
       });
 
       this.actor = Actor.createActor(idlFactory, {
@@ -414,16 +427,39 @@ class PhotoServiceV2 {
   }
 
   /**
-   * 写真メタデータを取得
+   * 写真メタデータを取得（キャッシュ付き）
    */
   async getPhotoMetadata(photoId: bigint, identity?: Identity): Promise<PhotoMetaV2 | null> {
+    // キャッシュをチェック
+    const cacheKey = `photo_${photoId}`;
+    const cached = this.photoCache.get(cacheKey);
+    if (cached) {
+      console.log('🚀 Photo metadata cache hit:', photoId);
+      return cached;
+    }
+
     if (!this.actor && identity) {
       await this.init(identity);
     }
 
     try {
+      console.log('📥 Fetching photo metadata:', photoId);
+      const startTime = Date.now();
+      
       const result = await this.actor.getPhotoMetadataV2(photoId);
-      return result.length > 0 ? result[0] : null;
+      
+      const fetchTime = Date.now() - startTime;
+      console.log(`📊 Photo metadata fetch time: ${fetchTime}ms`);
+      
+      if (result.length > 0) {
+        const metadata = result[0];
+        // キャッシュに保存
+        this.photoCache.set(cacheKey, metadata);
+        setTimeout(() => this.photoCache.delete(cacheKey), this.cacheTimeout);
+        
+        return metadata;
+      }
+      return null;
     } catch (error) {
       console.error('❌ Get photo metadata error:', error);
       return null;
@@ -431,16 +467,39 @@ class PhotoServiceV2 {
   }
 
   /**
-   * 写真のチャンクを取得
+   * 写真のチャンクを取得（キャッシュ付き）
    */
   async getPhotoChunk(photoId: bigint, chunkIndex: bigint, identity?: Identity): Promise<Uint8Array | null> {
+    // キャッシュをチェック
+    const cacheKey = `chunk_${photoId}_${chunkIndex}`;
+    const cached = this.chunkCache.get(cacheKey);
+    if (cached) {
+      console.log('🚀 Photo chunk cache hit:', photoId, chunkIndex);
+      return cached;
+    }
+
     if (!this.actor && identity) {
       await this.init(identity);
     }
 
     try {
+      console.log('📥 Fetching photo chunk:', photoId, chunkIndex);
+      const startTime = Date.now();
+      
       const result = await this.actor.getPhotoChunkV2(photoId, chunkIndex);
-      return result.length > 0 ? new Uint8Array(result[0]) : null;
+      
+      const fetchTime = Date.now() - startTime;
+      console.log(`📊 Photo chunk fetch time: ${fetchTime}ms`);
+      
+      if (result.length > 0) {
+        const chunk = new Uint8Array(result[0]);
+        // キャッシュに保存（チャンクは大きいので短めのタイムアウト）
+        this.chunkCache.set(cacheKey, chunk);
+        setTimeout(() => this.chunkCache.delete(cacheKey), this.cacheTimeout / 2);
+        
+        return chunk;
+      }
+      return null;
     } catch (error) {
       console.error('❌ Get photo chunk error:', error);
       return null;

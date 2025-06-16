@@ -18,12 +18,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import Slider from '@react-native-community/slider';
-import { useNavigation, RouteProp } from '@react-navigation/native';
+import { useNavigation, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useGameStore } from '../store/gameStore';
 import { useAuth } from '../hooks/useAuth';
 import { gameService, HintType as ServiceHintType, HintData, HintContent } from '../services/game';
+import { photoServiceV2, SearchFilter } from '../services/photoV2';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -96,7 +97,7 @@ interface GamePlayScreenProps {
 
 export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { gameMode = 'normal', difficulty = Difficulty.NORMAL } = route.params || {};
+  const { gameMode = 'normal', difficulty = Difficulty.NORMAL, regionFilter, regionName } = route.params || {};
   
   // Game store
   const { 
@@ -138,6 +139,9 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
+  // タイマー管理を改善
+  const [hasTimeoutBeenHandled, setHasTimeoutBeenHandled] = useState(false);
+  
   // Initialize gameService with identity
   useEffect(() => {
     if (identity) {
@@ -165,60 +169,123 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
         const sessionsResult = await gameService.getUserSessions(principal);
         console.log('🎮 User sessions result:', sessionsResult);
         
+        // Handle both cases: existing sessions or no sessions
         if (sessionsResult.ok) {
           setUserSessions(sessionsResult.ok);
-          
           const activeSessions = sessionsResult.ok.filter(session => session.status === 'Active');
           console.log('🎮 Found', activeSessions.length, 'active sessions');
+        } else if (sessionsResult.err) {
+          console.log('🎮 No existing sessions or error fetching sessions:', sessionsResult.err);
+          // It's OK if there are no sessions, we'll create a new one
+          setUserSessions([]);
+        }
+        
+        // Step 2: Always create new session with cleanup
+        // This ensures old sessions are properly finalized before starting new game
+        let newSessionId: string | null = null;
+        
+        if (!sessionId) {
+          console.log('🎮 Creating new session with cleanup...');
+          const result = await gameService.createSessionWithCleanup();
           
-          // Step 2: Always create new session with cleanup
-          // This ensures old sessions are properly finalized before starting new game
-          let newSessionId: string | null = null;
-          
-          if (!sessionId) {
-            console.log('🎮 Creating new session with cleanup...');
-            const result = await gameService.createSessionWithCleanup();
-            
-            if (result.err) {
-              throw new Error(result.err);
-            }
-            
-            if (result.ok) {
-              newSessionId = result.ok;
-              
-              // First update user sessions to reflect cleanup
-              setUserSessions(prevSessions => {
-                const cleanedSessions = (Array.isArray(prevSessions) ? prevSessions : []).map(session => 
-                  session.status === 'Active' && session.id !== newSessionId
-                    ? { ...session, status: 'Completed' as SessionStatus }
-                    : session
-                );
-                return cleanedSessions;
-              });
-              
-              // Then create the new session
-              createNewSession(newSessionId);
-              console.log('🎮 New session created after cleanup:', newSessionId);
-            }
+          if (result.err) {
+            throw new Error(result.err);
           }
           
-          // Step 4: Get round data for current session
-          // Use the sessionId from store or the newly created one
-          const currentSessionId = sessionId || newSessionId;
-          if (currentSessionId) {
-            console.log('🎮 Getting round data for session:', currentSessionId);
-            const roundResult = await gameService.getNextRound(currentSessionId);
+          if (result.ok) {
+            newSessionId = result.ok;
             
-            if (roundResult.err) {
-              throw new Error(roundResult.err);
-            }
+            // First update user sessions to reflect cleanup
+            setUserSessions(prevSessions => {
+              const cleanedSessions = (Array.isArray(prevSessions) ? prevSessions : []).map(session => 
+                session.status === 'Active' && session.id !== newSessionId
+                  ? { ...session, status: 'Completed' as SessionStatus }
+                  : session
+              );
+              return cleanedSessions;
+            });
             
-            if (roundResult.ok) {
-              // TODO: Set actual photo from round data
+            // Then create the new session
+            createNewSession(newSessionId);
+            console.log('🎮 New session created after cleanup:', newSessionId);
+          }
+        }
+        
+        // Step 3: Get round data for current session
+        const currentSessionId = sessionId || newSessionId;
+        if (currentSessionId) {
+          console.log('🎮 Getting round data for session:', currentSessionId);
+          const roundResult = await gameService.getNextRound(currentSessionId, regionFilter);
+          
+          if (roundResult.err) {
+            throw new Error(roundResult.err);
+          }
+          
+          if (roundResult.ok) {
+            const photoId = roundResult.ok.photoId;
+            console.log('🎮 Round photo ID:', photoId);
+            
+            // Get photo metadata
+            const photoMeta = await photoServiceV2.getPhotoMetadata(photoId, identity);
+            
+            if (photoMeta) {
+              // ✅ Region filtering implementation completed (2025-06-16)
+              // Backend's getNextRound function now supports region filtering.
+              // Photos are selected from the specified region at the backend level.
+              if (regionFilter) {
+                const photoRegion = photoMeta.region;
+                const photoCountry = photoMeta.country;
+                
+                // Log region match for verification
+                console.log('🎮 Region filter active:', {
+                  requested: regionFilter,
+                  photoRegion,
+                  photoCountry,
+                  matches: regionFilter === photoRegion || regionFilter === photoCountry
+                });
+              }
+              
+              // Get photo chunks to construct URL
+              const chunks: Uint8Array[] = [];
+              
+              for (let i = 0; i < Number(photoMeta.chunkCount); i++) {
+                const chunk = await photoServiceV2.getPhotoChunk(photoId, BigInt(i), identity);
+                if (chunk) {
+                  chunks.push(chunk);
+                }
+              }
+              
+              // Combine chunks and convert to base64
+              const combinedChunks = new Uint8Array(chunks.reduce((acc, chunk) => acc + chunk.length, 0));
+              let offset = 0;
+              for (const chunk of chunks) {
+                combinedChunks.set(chunk, offset);
+                offset += chunk.length;
+              }
+              
+              // Convert to base64 data URL
+              const base64String = new TextDecoder().decode(combinedChunks);
+              const photoUrl = `data:image/jpeg;base64,${base64String}`;
+              
               setCurrentPhoto({
-                id: roundResult.ok.photoId.toString(),
-                url: 'https://picsum.photos/800/600?' + Date.now(), // TODO: Get from photo canister
-                actualLocation: { latitude: 35.6762, longitude: 139.6503 }, // TODO: Get from round
+                id: photoMeta.id.toString(),
+                url: photoUrl,
+                actualLocation: { 
+                  latitude: photoMeta.latitude, 
+                  longitude: photoMeta.longitude 
+                },
+                azimuth: photoMeta.azimuth.length > 0 ? photoMeta.azimuth[0] : 0,
+                timestamp: Number(photoMeta.uploadTime),
+                uploader: photoMeta.owner.toString(),
+                difficulty,
+              });
+            } else {
+              // Fallback if photo metadata not found
+              console.warn('🎮 Photo metadata not found for ID:', photoId);
+              setCurrentPhoto({
+                id: photoId.toString(),
+                url: 'https://picsum.photos/800/600?' + Date.now(),
+                actualLocation: { latitude: 35.6762, longitude: 139.6503 },
                 azimuth: 45,
                 timestamp: Date.now(),
                 uploader: '2vxsx-fae',
@@ -226,8 +293,6 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
               });
             }
           }
-        } else {
-          throw new Error(sessionsResult.err || 'Failed to get user sessions');
         }
         
         // Step 5: Update token balance
@@ -286,6 +351,24 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
       }
     };
   }, []);
+  
+  // 画面のフォーカス状態を監視
+  useFocusEffect(
+    React.useCallback(() => {
+      // 画面がフォーカスされた時
+      isNavigatingAway.current = false;
+      setHasTimeoutBeenHandled(false); // Reset timeout handling flag
+      
+      // 画面がフォーカスを失った時のクリーンアップ
+      return () => {
+        isNavigatingAway.current = true;
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
+      };
+    }, [])
+  );
   
   // 画像のアスペクト比を取得
   useEffect(() => {
@@ -450,34 +533,51 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   const isNavigatingAway = useRef(false);
   
   useEffect(() => {
-    // Don't run timer if navigating away
-    if (isNavigatingAway.current) {
+    // ナビゲート中、写真がない、またはローディング中はタイマーを開始しない
+    if (isNavigatingAway.current || !currentPhoto || isLoading) {
       return;
     }
     
-    // Handle timeout
-    if (timeLeft <= 0) {
-      handleTimeout();
+    // タイムアウトの処理
+    if (timeLeft <= 0 && !hasTimeoutBeenHandled) {
+      // タイムアウトハンドラーを一度だけ呼び出す
+      if (!isNavigatingAway.current) {
+        setHasTimeoutBeenHandled(true);
+        handleTimeout();
+      }
       return;
     }
     
-    timerRef.current = setTimeout(() => {
-      setTimeLeft(prev => Math.max(0, prev - 1));
-    }, 1000);
+    // 時間が残っている場合のみタイマーを設定
+    if (timeLeft > 0) {
+      timerRef.current = setTimeout(() => {
+        if (!isNavigatingAway.current) {
+          setTimeLeft(prev => Math.max(0, prev - 1));
+        }
+      }, 1000);
+    }
     
+    // クリーンアップ
     return () => {
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
     };
-  }, [timeLeft]);
+  }, [timeLeft, hasTimeoutBeenHandled, handleTimeout, currentPhoto, isLoading]);
   
-  const handleTimeout = () => {
+  const handleTimeout = React.useCallback(() => {
+    // 既にナビゲート中の場合は何もしない
+    if (isNavigatingAway.current) {
+      return;
+    }
+    
+    console.log('⏰ Game timeout occurred');
+    
     Alert.alert('時間切れ！', 'ランダムな場所で推測を送信します。', [
       { text: 'OK', onPress: () => submitGuess(true) }
     ]);
-  };
+  }, [submitGuess]);
   
   // Calculate distance using Haversine formula (in meters)
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -512,7 +612,20 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   };
   
   const submitGuess = async (isTimeout = false) => {
+    if (isTimeout) {
+      console.log('⏰ submitGuess called from TIMEOUT:', { sessionId, currentGuess, isNavigatingAway: isNavigatingAway.current });
+    } else {
+      console.log('🎯 submitGuess called from NORMAL FLOW:', { sessionId, currentGuess, isNavigatingAway: isNavigatingAway.current });
+    }
+    
+    // Double-check navigation state
+    if (isNavigatingAway.current) {
+      console.log('🎮 Ignoring submitGuess - already navigating');
+      return;
+    }
+    
     if (!currentGuess && !isTimeout) {
+      console.log('🎮 No guess provided, showing alert');
       Alert.alert('エラー', '地図をタップして場所を推測してください');
       return;
     }
@@ -522,8 +635,11 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
       longitude: (Math.random() - 0.5) * 360,
     };
     
-    // Stop timer before navigating
+    console.log('🎯 Final guess:', finalGuess);
+    
+    // Stop timer and set navigation state immediately
     isNavigatingAway.current = true;
+    setHasTimeoutBeenHandled(true); // Prevent any further timeout handling
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
@@ -542,6 +658,15 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     // Submit guess to backend
     if (sessionId) {
       try {
+        console.log('📡 Submitting guess to backend:', {
+          sessionId,
+          latitude: finalGuess.latitude,
+          longitude: finalGuess.longitude,
+          azimuthGuess,
+          confidenceRadius,
+          calculatedScore: score
+        });
+        
         setSessionLoading(true);
         const result = await gameService.submitGuess(
           sessionId,
@@ -551,21 +676,32 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
           confidenceRadius
         );
         
+        console.log('📡 Backend submitGuess result:', result);
+        
         if (result.ok) {
           // Guess submitted successfully
-          console.log('🎮 Guess submitted successfully');
+          console.log('✅ Guess submitted successfully to backend');
           // Update round state if needed
         } else {
-          console.error('Failed to submit guess:', result.err);
+          console.error('❌ Failed to submit guess:', result.err);
           setSessionError(result.err || 'Failed to submit guess');
           Alert.alert('Error', result.err || 'Failed to submit guess');
         }
       } catch (error) {
-        console.error('Error submitting guess:', error);
+        console.error('💥 Error submitting guess:', error);
         setSessionError('Network error occurred while submitting guess');
       } finally {
         setSessionLoading(false);
       }
+    } else {
+      console.warn('⚠️ No sessionId available for submitting guess');
+    }
+    
+    // Stop timer before navigating
+    isNavigatingAway.current = true;
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
     }
     
     // Navigate to result screen
@@ -587,7 +723,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     
     // Check token balance
     const costInSPOT = hint.cost / 100; // Convert from units to SPOT
-    if (tokenBalance < BigInt(hint.cost)) {
+    if (tokenBalance < BigInt(Math.round(hint.cost))) {
       Alert.alert(
         'SPOTトークンが不足しています',
         `このヒントの購入には ${costInSPOT} SPOT が必要です。\n現在の残高: ${Number(tokenBalance) / 100} SPOT`,
@@ -887,6 +1023,14 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
       {/* UI要素のコンテナ */}
       <View style={styles.uiContainer} pointerEvents="box-none">
         <SafeAreaView style={styles.topBar} edges={['top']} pointerEvents="box-none">
+          {/* Region display */}
+          {regionName && (
+            <View style={styles.regionBadge} pointerEvents="auto">
+              <Ionicons name="location" size={16} color="#fff" />
+              <Text style={styles.regionBadgeText}>{regionName}</Text>
+            </View>
+          )}
+          
           {/* 画面上部のステータスバー */}
           <View style={styles.gameStatusBar} pointerEvents="box-none">
             <View style={styles.statusColumn} pointerEvents="auto">
@@ -1093,7 +1237,7 @@ const HintModal = ({ visible, hints, onPurchase, onClose, costMultiplier }) => {
                 <View style={styles.hintHeader}>
                   <Text style={styles.hintTitle}>{hint.title}</Text>
                   <Text style={[styles.hintCost, 
-                    tokenBalance < BigInt(hint.cost) && !hint.unlocked && styles.hintCostInsufficient
+                    tokenBalance < BigInt(Math.round(hint.cost)) && !hint.unlocked && styles.hintCostInsufficient
                   ]}>
                     {hint.unlocked ? '購入済み' : `${(hint.cost / 100).toFixed(2)} SPOT`}
                   </Text>
@@ -1609,5 +1753,23 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     backgroundColor: '#666',
+  },
+  regionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(78, 205, 196, 0.2)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginBottom: 10,
+    marginHorizontal: 15,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(78, 205, 196, 0.3)',
+  },
+  regionBadgeText: {
+    color: '#4ECDC4',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

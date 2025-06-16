@@ -28,7 +28,9 @@ import {
   CreatePhotoRequest,
   SceneKind
 } from '../services/photoV2';
+import { photoServiceV2Direct } from '../services/photoV2Direct';
 import { reverseGeocode } from '../services/photo'; // 一時的に旧サービスから流用
+import { compressImageAsync, formatFileSize } from '../utils/imageCompression';
 
 type PhotoUploadScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'PhotoUpload'>;
 type PhotoUploadScreenRouteProp = RouteProp<RootStackParamList, 'PhotoUpload'>;
@@ -73,6 +75,7 @@ export default function PhotoUploadScreenV2() {
   
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadPhase, setUploadPhase] = useState<'compressing' | 'uploading'>('uploading');
   const [showMapModal, setShowMapModal] = useState(false);
   const [displayLat, setDisplayLat] = useState(latitude.toFixed(6));
   const [displayLon, setDisplayLon] = useState(longitude.toFixed(6));
@@ -141,10 +144,25 @@ export default function PhotoUploadScreenV2() {
 
     setIsUploading(true);
     setUploadProgress(0);
+    setUploadPhase('compressing');
+    
+    // 圧縮結果を保持する変数
+    let compressionResult: { uri: string; compressed: boolean; originalSize: number; compressedSize: number } | null = null;
 
     try {
-      // 写真データをBase64に変換
-      const base64Data = await imageUriToBase64(photoUri);
+      // 画像を2MB以下に圧縮
+      compressionResult = await compressImageAsync(photoUri);
+      
+      if (compressionResult.compressed) {
+        console.log(`🎯 画像を圧縮しました: ${formatFileSize(compressionResult.originalSize)} → ${formatFileSize(compressionResult.compressedSize)}`);
+      }
+      
+      // アップロードフェーズに移行
+      setUploadPhase('uploading');
+      setUploadProgress(0);
+      
+      // 写真データをBase64に変換（圧縮済みのURIを使用）
+      const base64Data = await imageUriToBase64(compressionResult.uri);
 
       // デフォルトタイトル（タイトルフィールドが削除されたため常にデフォルトを使用）
       const defaultTitle = uploadDelay > 0 
@@ -193,15 +211,17 @@ export default function PhotoUploadScreenV2() {
         return;
       }
 
-      // 3段階アップロード実行
-      const result = await photoServiceV2.uploadPhotoWithChunks(
+      // 直接アップロード実行（チャンク処理なし）
+      const result = await photoServiceV2Direct.uploadPhotoDirect(
         {
           imageData: base64Data,
           metadata: photoRequest,
         },
-        identity,
-        (progress) => setUploadProgress(progress)
+        identity
       );
+      
+      // プログレスバーを100%に設定
+      setUploadProgress(1);
 
       if (result.err) {
         throw new Error(result.err);
@@ -215,6 +235,10 @@ export default function PhotoUploadScreenV2() {
           const savedPhotoMetadata = await photoServiceV2.getPhotoMetadata(photoId, identity);
           
           if (savedPhotoMetadata) {
+            const compressionInfo = compressionResult && compressionResult.compressed 
+              ? `\n🗜️ 圧縮: ${formatFileSize(compressionResult.originalSize)} → ${formatFileSize(compressionResult.compressedSize)}`
+              : '';
+            
             Alert.alert(
               '投稿成功 ✅',
               `写真がICP上に正常に保存されました\n\n` +
@@ -224,7 +248,8 @@ export default function PhotoUploadScreenV2() {
               `🏞️ シーン: ${sceneType}\n` +
               `📊 品質スコア: ${(savedPhotoMetadata.qualityScore * 100).toFixed(1)}%\n` +
               `📦 チャンク数: ${savedPhotoMetadata.chunkCount}\n` +
-              `💾 サイズ: ${(Number(savedPhotoMetadata.totalSize) / 1024).toFixed(1)} KB`,
+              `💾 サイズ: ${(Number(savedPhotoMetadata.totalSize) / 1024).toFixed(1)} KB` +
+              compressionInfo,
               [
                 {
                   text: 'プロフィールで確認',
@@ -467,7 +492,9 @@ export default function PhotoUploadScreenV2() {
               <View style={styles.uploadingContainer}>
                 <ActivityIndicator color="#fff" />
                 <Text style={styles.uploadButtonText}>
-                  アップロード中... {Math.round(uploadProgress * 100)}%
+                  {uploadPhase === 'compressing' 
+                    ? '画像を圧縮中...' 
+                    : `アップロード中... ${Math.round(uploadProgress * 100)}%`}
                 </Text>
               </View>
             ) : (

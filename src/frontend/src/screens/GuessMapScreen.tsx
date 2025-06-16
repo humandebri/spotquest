@@ -15,6 +15,8 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useGameStore } from '../store/gameStore';
+import { useAuth } from '../hooks/useAuth';
+import { gameService } from '../services/game';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -22,16 +24,55 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 export default function GuessMapScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'GuessMap'>>();
   const route = useRoute<RouteProp<RootStackParamList, 'GuessMap'>>();
-  const { setGuess: setGameGuess, currentPhoto, resetGame } = useGameStore();
+  const { setGuess: setGameGuess, currentPhoto, resetGame, sessionId, confidenceRadius } = useGameStore();
+  const { identity } = useAuth();
   
   const { 
     photoUrl, 
     difficulty, 
-    timeLeft, 
+    timeLeft: initialTimeLeft, 
     initialGuess,
   } = route.params || {};
 
   const [guess, setGuess] = useState<{ latitude: number; longitude: number } | null>(initialGuess || null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(initialTimeLeft || 180);
+
+  // Timer effect
+  useEffect(() => {
+    // Don't run timer if already at 0 or submitting
+    if (timeLeft <= 0 || isSubmitting) return;
+
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [isSubmitting]);
+
+  // Handle timeout
+  useEffect(() => {
+    if (timeLeft === 0 && !isSubmitting) {
+      // Time's up - auto submit with current guess or random location
+      if (guess) {
+        handleSubmit();
+      } else {
+        // Set a random guess and submit
+        const randomGuess = {
+          latitude: Math.random() * 180 - 90,
+          longitude: Math.random() * 360 - 180,
+        };
+        setGuess(randomGuess);
+        // handleSubmit will be called after guess state updates
+        setTimeout(() => handleSubmit(), 100);
+      }
+    }
+  }, [timeLeft]);
 
   // Calculate distance using Haversine formula (in meters)
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -65,45 +106,131 @@ export default function GuessMapScreen() {
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!guess) {
-      console.warn('No guess provided');
+      console.warn('🗺️ No guess provided');
       return;
     }
 
+    if (!sessionId) {
+      console.error('🗺️ No sessionId available');
+      return;
+    }
+
+    setIsSubmitting(true);
+    
     try {
-      // Save guess to store
-      setGameGuess(guess, 1000); // Fixed confidence radius
+      console.log('🗺️ Submitting guess to backend:', {
+        sessionId,
+        guess,
+        confidenceRadius: confidenceRadius || 1000
+      });
+
+      // Initialize game service if needed
+      if (identity) {
+        await gameService.init(identity);
+      }
+
+      // Submit guess to backend - this is the key fix!
+      const result = await gameService.submitGuess(
+        sessionId,
+        guess.latitude,
+        guess.longitude,
+        null, // azimuth guess
+        confidenceRadius || 1000
+      );
+
+      console.log('🗺️ Backend submitGuess result:', result);
+
+      if (result.ok) {
+        // Backend submission successful - use backend data
+        const backendResult = result.ok;
+        
+        console.log('🗺️ Backend returned result:', backendResult);
+        
+        // Save guess to store
+        setGameGuess(guess, confidenceRadius || 1000);
+        
+        // Navigate to GameResult with backend data
+        const resultParams = {
+          guess: {
+            latitude: guess.latitude,
+            longitude: guess.longitude,
+          },
+          actualLocation: {
+            latitude: backendResult.actualLocation.lat,
+            longitude: backendResult.actualLocation.lon,
+          },
+          score: backendResult.displayScore, // Use backend score
+          timeUsed: Math.max(0, 180 - (timeLeft || 180)),
+          difficulty: difficulty || 'NORMAL',
+          photoUrl: photoUrl || 'https://picsum.photos/800/600',
+        };
+
+        console.log('🗺️ Navigating to GameResult with backend data:', {
+          ...resultParams,
+          photoUrl: resultParams.photoUrl ? '[BASE64_IMAGE_DATA]' : undefined
+        });
+        
+        // Reset the guess in the store
+        setGameGuess(null, confidenceRadius || 1000);
+        
+        // Navigate to GameResult
+        navigation.replace('GameResult', resultParams);
+      } else {
+        console.error('🗺️ Backend error:', result.err);
+        
+        // Fallback to local calculation for now
+        console.log('🗺️ Falling back to local calculation');
+        const actualLocation = currentPhoto?.actualLocation || { latitude: 35.6762, longitude: 139.6503 };
+        const distance = calculateDistance(
+          guess.latitude,
+          guess.longitude,
+          actualLocation.latitude,
+          actualLocation.longitude
+        );
+        const score = calculateScore(distance);
+        
+        const resultParams = {
+          guess: {
+            latitude: guess.latitude,
+            longitude: guess.longitude,
+          },
+          actualLocation: {
+            latitude: actualLocation.latitude,
+            longitude: actualLocation.longitude,
+          },
+          score: score,
+          timeUsed: Math.max(0, 180 - (timeLeft || 180)),
+          difficulty: difficulty || 'NORMAL',
+          photoUrl: photoUrl || 'https://picsum.photos/800/600',
+        };
+
+        setGameGuess(guess, confidenceRadius || 1000);
+        setGameGuess(null, confidenceRadius || 1000);
+        navigation.replace('GameResult', resultParams);
+      }
+    } catch (error) {
+      console.error('🗺️ Error submitting guess:', error);
       
-      // Default location if currentPhoto is undefined (Tokyo)
+      // Fallback to local calculation on network error
       const actualLocation = currentPhoto?.actualLocation || { latitude: 35.6762, longitude: 139.6503 };
-      
-      // Calculate distance and score
       const distance = calculateDistance(
-        guess.latitude || 0,
-        guess.longitude || 0,
-        actualLocation.latitude || 0,
-        actualLocation.longitude || 0
+        guess.latitude,
+        guess.longitude,
+        actualLocation.latitude,
+        actualLocation.longitude
       );
       const score = calculateScore(distance);
       
-      console.log('Distance and score calculation:', {
-        guess: { lat: guess.latitude, lon: guess.longitude },
-        actual: { lat: actualLocation.latitude, lon: actualLocation.longitude },
-        distanceMeters: distance,
-        distanceKm: distance / 1000,
-        score: score,
-      });
-      
-      // Ensure all required parameters are defined
       const resultParams = {
         guess: {
-          latitude: guess.latitude || 0,
-          longitude: guess.longitude || 0,
+          latitude: guess.latitude,
+          longitude: guess.longitude,
         },
         actualLocation: {
-          latitude: actualLocation.latitude || 35.6762,
-          longitude: actualLocation.longitude || 139.6503,
+          latitude: actualLocation.latitude,
+          longitude: actualLocation.longitude,
         },
         score: score,
         timeUsed: Math.max(0, 180 - (timeLeft || 180)),
@@ -111,15 +238,11 @@ export default function GuessMapScreen() {
         photoUrl: photoUrl || 'https://picsum.photos/800/600',
       };
 
-      console.log('Navigating to GameResult with params:', resultParams);
-      
-      // Reset the guess in the store
-      setGameGuess(null, 1000);
-      
-      // Navigate to GameResult and remove this screen from stack
+      setGameGuess(guess, confidenceRadius || 1000);
+      setGameGuess(null, confidenceRadius || 1000);
       navigation.replace('GameResult', resultParams);
-    } catch (error) {
-      console.error('Error submitting guess:', error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -183,16 +306,16 @@ export default function GuessMapScreen() {
       {/* 送信ボタン */}
       <View style={styles.submitContainer}>
         <TouchableOpacity
-          style={[styles.submitButton, !guess && styles.submitButtonDisabled]}
+          style={[styles.submitButton, (!guess || isSubmitting) && styles.submitButtonDisabled]}
           onPress={handleSubmit}
-          disabled={!guess}
+          disabled={!guess || isSubmitting}
         >
           <LinearGradient
-            colors={guess ? ['#4CAF50', '#45A049'] : ['#64748b', '#475569']}
+            colors={guess && !isSubmitting ? ['#4CAF50', '#45A049'] : ['#64748b', '#475569']}
             style={styles.submitGradient}
           >
             <Text style={styles.submitText}>
-              {guess ? '推測を送信' : '地図をタップして推測'}
+              {isSubmitting ? '送信中...' : guess ? '推測を送信' : '地図をタップして推測'}
             </Text>
           </LinearGradient>
         </TouchableOpacity>

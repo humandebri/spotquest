@@ -47,7 +47,10 @@ export default function GameResultScreen() {
     console.error('Error getting params:', error);
   }
   
-  console.log('GameResult route params:', params);
+  console.log('GameResult route params:', {
+    ...params,
+    photoUrl: params.photoUrl ? '[BASE64_IMAGE_DATA]' : undefined
+  });
   
   // Ensure all values have defaults
   const guess = params.guess || { latitude: 0, longitude: 0 };
@@ -155,15 +158,38 @@ export default function GameResultScreen() {
     }).start();
   }, []);
 
+  // Get distance-appropriate initial zoom level
+  const getInitialZoom = () => {
+    const distanceKm = distance / 1000;
+    
+    if (distanceKm < 1) {
+      // Very close - start with detailed zoom
+      return { latitudeDelta: 0.01, longitudeDelta: 0.01 };
+    } else if (distanceKm < 10) {
+      // Close - start with city-level zoom
+      return { latitudeDelta: 0.05, longitudeDelta: 0.05 };
+    } else if (distanceKm < 100) {
+      // Medium distance - start with regional zoom
+      return { latitudeDelta: 0.5, longitudeDelta: 0.5 };
+    } else if (distanceKm < 1000) {
+      // Long distance - start with country-level zoom
+      return { latitudeDelta: 5, longitudeDelta: 5 };
+    } else {
+      // Very long distance - start with continental zoom
+      return { latitudeDelta: 20, longitudeDelta: 20 };
+    }
+  };
+
   // Map zoom animation
   useEffect(() => {
     if (mapReady && mapRef.current) {
-      // Start with zoomed in view on actual location
+      const initialZoom = getInitialZoom();
+      
+      // Start with distance-appropriate zoom on actual location
       const startRegion = {
         latitude: actualLocation.latitude,
         longitude: actualLocation.longitude,
-        latitudeDelta: 0.002, // Very zoomed in
-        longitudeDelta: 0.002,
+        ...initialZoom,
       };
       
       // Animate to final region after a delay
@@ -181,7 +207,7 @@ export default function GameResultScreen() {
         }).start();
       }, 500);
     }
-  }, [mapReady]);
+  }, [mapReady, distance]);
 
   // No token minting here - will be done at session completion
 
@@ -313,12 +339,12 @@ export default function GameResultScreen() {
             initialRegion={{
               latitude: actualLocation.latitude,
               longitude: actualLocation.longitude,
-              latitudeDelta: 0.002,
-              longitudeDelta: 0.002,
+              ...getInitialZoom(),
             }}
             onMapReady={() => {
               setMapReady(true);
-              calculateDashPattern({ latitudeDelta: 0.002 });
+              const initialZoom = getInitialZoom();
+              calculateDashPattern({ latitudeDelta: initialZoom.latitudeDelta });
             }}
             onRegionChangeComplete={(region) => {
               calculateDashPattern(region);

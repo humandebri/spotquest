@@ -32,6 +32,8 @@ export default function SessionSummaryScreen() {
   const [mapReady, setMapReady] = useState(false);
   const [sessionFinalized, setSessionFinalized] = useState(false);
   const [actualReward, setActualReward] = useState<number>(0);
+  const [isMinting, setIsMinting] = useState(false);
+  const [mintComplete, setMintComplete] = useState(false);
 
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -41,7 +43,22 @@ export default function SessionSummaryScreen() {
 
   // Calculate total score
   const totalScore = roundResults.reduce((sum, round) => sum + round.score, 0);
-  const maxPossibleScore = 25000; // 5 rounds * 5000 points
+  const maxPossibleScore = roundResults.length * 5000; // rounds * 5000 points per round
+  
+  // Calculate reward based on simple formula: 1 SPOT per round (max)
+  // Each round can earn up to 1 SPOT based on score (0-5000)
+  // Total max reward = rounds * 1 SPOT
+  const calculateReward = () => {
+    let totalReward = 0;
+    roundResults.forEach(round => {
+      // Each round: (score / 5000) * 1.0 SPOT
+      const roundReward = (round.score / 5000) * 1.0;
+      totalReward += roundReward;
+    });
+    return totalReward;
+  };
+  
+  const estimatedReward = calculateReward();
 
   useEffect(() => {
     // Entrance animations
@@ -95,49 +112,80 @@ export default function SessionSummaryScreen() {
   // Finalize session and mint tokens
   useEffect(() => {
     const finalizeSession = async () => {
-      if (!sessionId || sessionFinalized) {
+      // 防止重複実行
+      if (!sessionId || sessionFinalized || isMinting || mintComplete) {
+        console.log('🚫 Finalize session skipped:', { sessionId, sessionFinalized, isMinting, mintComplete });
         return;
       }
       
+      console.log('💰 Starting session finalization:', { sessionId, roundResults: roundResults.length });
+      setIsMinting(true);
+      
       try {
+        // セッションの終了処理
+        console.log('📞 Calling gameService.finalizeSession with sessionId:', sessionId);
         const result = await gameService.finalizeSession(sessionId);
+        
+        console.log('📋 FinalizeSession result:', result);
         
         if (result.ok) {
           setSessionFinalized(true);
           
-          // Get actual reward from the result
-          const playerReward = Number(result.ok.playerReward) / 100; // Convert to decimal
-          setActualReward(playerReward);
+          // バックエンドからの実際の報酬を取得
+          const backendReward = Number(result.ok.playerReward) / 100; // Convert to decimal SPOT
           
-          // Update token balance
-          if (identity?.constructor.name === 'Ed25519KeyIdentity') {
-            // Dev mode: calculate reward based on total score (1.0 SPOT max for perfect score)
-            const scoreBasedReward = Math.floor((totalScore / maxPossibleScore) * 100); // 0-100 units based on total score (1.00 SPOT)
-            const rewardUnits = BigInt(scoreBasedReward);
-            const newBalance = tokenBalance + rewardUnits;
-            setTokenBalance(newBalance);
-            console.log('Dev mode: Session-based token minting:', {
-              totalScore: totalScore,
-              maxScore: maxPossibleScore,
-              rewardUnits: rewardUnits.toString(),
-              oldBalance: tokenBalance.toString(),
-              newBalance: newBalance.toString()
-            });
-          } else {
-            // Production mode
-            if (principal) {
-              const newBalance = await gameService.getTokenBalance(principal);
-              setTokenBalance(newBalance);
-            }
+          // 報酬計算（バックエンドと一致させる）
+          const calculatedReward = calculateReward();
+          const finalReward = backendReward > 0 ? backendReward : calculatedReward;
+          setActualReward(finalReward);
+          
+          console.log('💎 Reward calculation:', {
+            backendRewardRaw: result.ok.playerReward,
+            backendReward: backendReward.toFixed(4),
+            calculatedReward: calculatedReward.toFixed(4),
+            finalReward: finalReward.toFixed(4)
+          });
+          
+          // Debug: Check backend reward calculation details
+          const debugResult = await gameService.debugCalculatePlayerReward(sessionId);
+          if (debugResult) {
+            console.log('🔍 Backend reward calculation debug:', debugResult);
           }
+          
+          // バックエンドからトークンバランスを取得（バックエンドで既にmint済み）
+          if (principal) {
+            console.log('💳 Fetching token balance for principal:', principal.toString());
+            const oldBalance = tokenBalance;
+            const newBalance = await gameService.getTokenBalance(principal);
+            setTokenBalance(newBalance);
+            setMintComplete(true);
+            
+            console.log('✅ Session reward minting completed:', {
+              rounds: roundResults.length,
+              totalScore: totalScore,
+              calculatedReward: calculatedReward.toFixed(2),
+              backendReward: backendReward.toFixed(2),
+              finalReward: finalReward.toFixed(2),
+              oldBalance: oldBalance.toString(),
+              newBalance: newBalance.toString(),
+              balanceIncrease: (Number(newBalance) - Number(oldBalance)).toString()
+            });
+          }
+        } else {
+          console.error('❌ FinalizeSession failed:', result.err);
+          setMintComplete(true);
         }
       } catch (error) {
-        console.error('Error finalizing session:', error);
+        console.error('💥 Error finalizing session:', error);
+        // エラーが発生してもmintCompleteをtrueにして再実行を防ぐ
+        setMintComplete(true);
+      } finally {
+        setIsMinting(false);
       }
     };
     
     finalizeSession();
-  }, [sessionId, sessionFinalized, principal, identity, tokenBalance, totalScore]);
+  }, [sessionId]); // 依存配列を最小限にして無限ループを防ぐ
 
   const handleShare = async () => {
     try {
@@ -328,7 +376,7 @@ export default function SessionSummaryScreen() {
             {/* Token Rewards */}
             <View style={styles.rewardContainer}>
               <Text style={styles.rewardText}>
-                Total earned: +{((totalScore / 5000) * 1.0).toFixed(2)} SPOT
+                Total earned: +{actualReward > 0 ? actualReward.toFixed(2) : estimatedReward.toFixed(2)} SPOT
               </Text>
             </View>
 

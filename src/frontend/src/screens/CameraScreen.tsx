@@ -16,6 +16,7 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
+import { Ionicons } from '@expo/vector-icons';
 
 type CameraScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Camera'>;
 
@@ -208,6 +209,11 @@ export default function CameraScreen() {
     }
   };
 
+  // ギャラリーへの遷移
+  const openPhotoLibrary = () => {
+    navigation.navigate('PhotoLibrary');
+  };
+
   // 写真を撮影
   const takePicture = async () => {
     if (!cameraRef.current) return;
@@ -335,6 +341,15 @@ export default function CameraScreen() {
 
           {/* カメラコントロール */}
           <View style={styles.controls}>
+            {/* ギャラリーボタン */}
+            <TouchableOpacity
+              style={styles.galleryButton}
+              onPress={openPhotoLibrary}
+            >
+              <Ionicons name="images" size={24} color="#ffffff" />
+            </TouchableOpacity>
+
+            {/* 撮影ボタン */}
             <TouchableOpacity
               style={[styles.captureButton, isCapturing && styles.captureButtonDisabled]}
               onPress={takePicture}
@@ -342,6 +357,9 @@ export default function CameraScreen() {
             >
               <View style={styles.captureButtonInner} />
             </TouchableOpacity>
+
+            {/* スペーサー（バランス調整用） */}
+            <View style={styles.galleryButton} />
           </View>
         </View>
       </View>
@@ -377,10 +395,19 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   controls: {
-    justifyContent: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
     paddingBottom: 30,
     paddingHorizontal: 30,
+  },
+  galleryButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   captureButton: {
     width: 70,

@@ -5,6 +5,188 @@
 ### 開発方針
 変更を行う際は必ず方針を日本語で説明してから着手して下さい
 
+## 🔄 最新の作業状況 (2025-06-16 PM) - 地域選択モード実装完了 + 依存関係修正
+
+### 地域選択モード実装状況 ✅
+**完了した実装**:
+1. ✅ **RegionSelectScreen.tsx** - 地域選択画面の完全実装
+   - `photoServiceV2.getPhotoStats()`から利用可能な地域を取得
+   - 国・地域別のフィルタリング機能（すべて/国/地域タブ）
+   - リアルタイム検索機能（地域名・コードで検索）
+   - 各地域の写真枚数表示
+   - ランダム選択オプション（全地域から出題）
+   - 地域名の日本語表示マッピング（JP→日本、JP-15→新潟など）
+
+2. ✅ **ナビゲーション更新**
+   - `GameModeScreen` → `RegionSelect` → `GamePlay`への遷移フロー
+   - `AppNavigator.tsx`に`RegionSelect`画面を追加
+   - `GamePlay`パラメータに`regionFilter`と`regionName`を追加
+
+3. ✅ **GamePlayScreenの地域対応**
+   - 選択した地域名をバッジで表示（UI表示完了）
+   - 地域フィルタパラメータの受け渡し
+   - `photoServiceV2`との統合（写真メタデータ取得）
+   - 地域マッチング検証ログの追加
+
+4. ✅ **依存関係の修正**
+   - `expo-image-manipulator`のインストール（`--legacy-peer-deps`使用）
+   - 画像圧縮機能の依存関係解決
+
+### 実装の詳細
+
+#### RegionSelectScreen.tsx の機能
+```typescript
+// 地域情報の取得と表示
+const stats = await photoServiceV2.getPhotoStats(identity);
+stats.photosByCountry.forEach(([countryCode, count]) => {
+  // 写真が存在する地域のみ表示
+  if (Number(count) > 0) {
+    regionData.push({
+      code: countryCode,
+      name: REGION_NAMES[countryCode] || countryCode,
+      photoCount: Number(count),
+    });
+  }
+});
+
+// GamePlayScreenへの遷移
+navigation.navigate('GamePlay', {
+  mode: 'classic',
+  regionFilter: region.code,
+  regionName: region.name,
+});
+```
+
+#### GamePlayScreenの地域対応
+```typescript
+// 地域フィルタの処理（現在はログ出力のみ）
+if (regionFilter) {
+  const photoRegion = photoMeta.region;
+  const photoCountry = photoMeta.country;
+  
+  console.log('🎮 Region filter check:', {
+    requested: regionFilter,
+    photoRegion,
+    photoCountry,
+    matches: regionFilter === photoRegion || regionFilter === photoCountry
+  });
+}
+
+// 地域バッジの表示
+{regionName && (
+  <View style={styles.regionBadge}>
+    <Ionicons name="location" size={16} color="#fff" />
+    <Text style={styles.regionBadgeText}>{regionName}</Text>
+  </View>
+)}
+```
+
+5. ✅ **バックエンド地域フィルタ実装** (2025-06-16 PM 追加)
+   - `main.mo`の`getNextRound`関数にregionFilterパラメータ追加
+   - Photo V2検索機能を使用した地域フィルタリングロジック実装
+   - `game.ts`のIDL定義とAPIメソッドを地域フィルタ対応に更新
+   - メインネットデプロイ完了（77fv5-oiaaa-aaaal-qsoea-cai）
+
+### 実装完了した機能
+**現在の状況**:
+- ✅ フロントエンド地域選択UI完全実装
+- ✅ バックエンド地域フィルタリング完全実装
+- ✅ フロントエンド・バックエンド統合完了
+- ✅ メインネットデプロイ完了
+
+**実装済みのバックエンド機能**:
+```motoko
+// main.mo - 実装完了（2025-06-16）
+public shared(msg) func getNextRound(
+  sessionId: Text, 
+  regionFilter: ?Text // 地域フィルタパラメータ
+) : async Result.Result<GameV2.RoundState, Text> {
+  let selectedPhoto = switch(regionFilter) {
+    case null {
+      // 既存処理（全写真からランダム）
+      photoManagerV2.getRandomPhoto()
+    };
+    case (?region) {
+      // 地域フィルタリング実装
+      let filter: Photo.SearchFilter = {
+        status = ?#Active;
+        country = if (Text.size(region) == 2) { ?region } else { null };
+        region = if (Text.contains(region, #char '-')) { ?region } else { null };
+        sceneKind = null; tags = null; nearLocation = null;
+        owner = null; difficulty = null;
+      };
+      
+      let searchResult = photoManagerV2.search(filter, null, 100);
+      let photos = searchResult.photos;
+      if (photos.size() > 0) {
+        // ランダムに1枚選択
+        let entropy = await Random.blob();
+        let randomValue = Random.rangeFrom(32, entropy);
+        let randomIndex = randomValue % photos.size();
+        ?photos[randomIndex]
+      } else {
+        Debug.print("🎮 No photos found in region: " # region);
+        null
+      }
+    };
+  };
+  
+  // selectedPhotoを使用してゲームラウンドを作成
+  switch(selectedPhoto) {
+    case null { #err("No photos found in selected region") };
+    case (?photoV2) {
+      switch(gameEngineManager.getNextRound(sessionId, msg.caller, photoV2.id)) {
+        case (#err(e)) { #err(e) };
+        case (#ok(roundState)) { #ok(roundState) };
+      }
+    };
+  }
+}
+```
+
+**フロントエンド対応**:
+```typescript
+// game.ts - 実装完了
+async getNextRound(sessionId: string, regionFilter?: string): Promise<any> {
+  const result = await this.actor.getNextRound(
+    sessionId, 
+    regionFilter ? [regionFilter] : []
+  );
+  return result;
+}
+
+// GamePlayScreen.tsx - 実装完了
+const roundResult = await gameService.getNextRound(currentSessionId, regionFilter);
+```
+
+### 技術的な成果
+1. **検索ベースの地域選択**: Photo V2の検索機能を活用した効率的な地域表示
+2. **UX最適化**: 写真が存在しない地域は表示しない（ユーザビリティ向上）
+3. **多言語対応**: 地域コードから日本語名への変換マッピング
+4. **依存関係管理**: Expo Go環境での複雑な依存関係を解決
+5. **エンドツーエンド実装**: フロントエンド→バックエンドの完全な地域フィルタリング機能
+6. **型安全な実装**: MotokoとTypeScriptでの厳密な型チェック
+7. **エラーハンドリング**: 地域に写真が存在しない場合の適切なメッセージ表示
+
+### 地域選択モード完全実装完了 ✅ (2025-06-16 PM)
+**完了した機能**:
+- フロントエンド地域選択UI
+- バックエンド地域フィルタリングロジック
+- フロントエンド・バックエンド統合
+- メインネットデプロイ
+- エラーハンドリングとロギング
+
+**使用可能な地域フィルタ**:
+- 国コード（2文字）: JP, US, FR など
+- 地域コード（ハイフン付き）: JP-13, US-CA など
+- フィルタなし（全地域からランダム）
+
+**実装の品質**:
+- コンパイル警告あり（modulo演算）だが機能的に問題なし
+- Photo V2検索機能の効率的な活用
+- ランダム選択の実装（Random.rangeFrom使用）
+- デバッグログによる動作確認機能
+
 ## 🔄 最新の作業状況 (2025-06-14 PM) - Photo V2への完全移行とデプロイ完了 ✅
 
 ### Photo V1からV2への完全移行
@@ -106,12 +288,10 @@ public shared(msg) func migratePhotoToV2(photoId: Nat) : async Result.Result<Nat
                     };
                     
                     // アップロード完了
-                    ignore photoManagerV2.finalizePhotoUpload(newPhotoId);
-                    
-                    // V1の写真をマーク（削除はしない）
-                    ignore photoManager.markAsMigrated(photoId);
-                    
-                    #ok(newPhotoId)
+                    switch(photoManagerV2.finalizePhotoUpload(newPhotoId)) {
+                        case (#err(e)) { #err(e) };
+                        case (#ok()) { #ok(newPhotoId) };
+                    };
                 };
             };
         };
@@ -119,255 +299,61 @@ public shared(msg) func migratePhotoToV2(photoId: Nat) : async Result.Result<Nat
 };
 ```
 
-#### 2. バッチマイグレーション関数
+#### 2. バッチマイグレーション
 ```motoko
-public shared(msg) func migratePhotoBatch(start: Nat, count: Nat) : async {
-    success: Nat;
+public shared(msg) func batchMigratePhotos(startId: Nat, count: Nat) : async {
+    succeeded: Nat;
     failed: Nat;
-    errors: [Text];
+    errors: [(Nat, Text)];
 } {
     if (msg.caller != owner) {
-        return { success = 0; failed = 0; errors = ["Unauthorized"] };
+        return { succeeded = 0; failed = 0; errors = [] };
     };
     
-    var successCount = 0;
-    var failedCount = 0;
-    var errors = Buffer.Buffer<Text>(10);
+    var succeeded = 0;
+    var failed = 0;
+    let errors = Buffer.Buffer<(Nat, Text)>(10);
     
-    for (i in Iter.range(start, start + count - 1)) {
+    for (i in Iter.range(startId, startId + count - 1)) {
         switch(await migratePhotoToV2(i)) {
-            case (#ok(_)) { successCount += 1; };
+            case (#ok(_)) { succeeded += 1; };
             case (#err(e)) { 
-                failedCount += 1;
-                errors.add("Photo " # Nat.toText(i) # ": " # e);
+                failed += 1;
+                errors.add((i, e));
             };
         };
     };
     
     {
-        success = successCount;
-        failed = failedCount;
+        succeeded = succeeded;
+        failed = failed;
         errors = Buffer.toArray(errors);
     }
 };
 ```
 
-#### 3. マイグレーション実行計画
-1. **テスト環境での検証**
-   - 少数の写真（10-20枚）でテスト
-   - マイグレーション後の動作確認
+#### 3. 地域情報の補完
+**問題**: V1写真には国・地域情報がない
 
-2. **本番環境での段階的実行**
-   - 100枚ずつバッチ処理
-   - 各バッチ後に動作確認
-   - エラー率が5%を超えたら停止
-
-3. **検証項目**
-   - ✅ 写真メタデータの整合性
-   - ✅ チャンクデータの完全性
-   - ✅ ゲームでの写真表示
-   - ✅ 所有者情報の保持
-
-#### 4. ロールバック計画
-- V1データは削除せず、`migrated`フラグで管理
-- 問題発生時はV2データを削除してV1に戻す
-- マイグレーション完了後1週間はV1データを保持
-
-### マイグレーション後の対応
-1. **データ検証**
-   - 全写真の表示テスト
-   - ゲームプレイテスト
-   - パフォーマンス測定
-
-2. **V1システムの削除**
-   - マイグレーション完了確認後
-   - PhotoModuleの削除
-   - 関連するstable変数の削除
-
-3. **ユーザー通知**
-   - マイグレーション完了のアナウンス
-   - 新機能（検索、タグ付け）の案内
-
-## 🔄 最新の作業状況 (2025-06-14) - Photo V2 API実装完了 ✅
-
-### Photo V2 実装状況
-**背景**: 検索機能と大容量写真対応のため、写真管理システムをV1からV2へ移行
-
-**実装内容**:
-1. **バックエンド実装** ✅
-   - PhotoModuleV2: 検索対応の新写真管理システム
-   - チャンクアップロード対応（256KB単位）
-   - セカンダリインデックス（国、地域、シーン、タグ、GeoHash）
-   - 検索API（複数フィルター対応）
-   - Haversine距離計算による近傍検索
-
-2. **フロントエンド移行** ✅
-   - **PhotoUploadScreenV2**: 完全にV2 APIに移行
-     - 国・地域自動検出（Nominatim API使用）
-     - シーンタイプ選択UI（自然/建物/店舗/施設/その他）
-     - チャンクアップロード進捗表示
-   - **ProfileScreen**: V2 APIに移行
-     - getUserPhotosV2使用
-     - PhotoMetaV2型対応
-   - **ナビゲーション**: PhotoUploadScreenV2を使用
-   - 旧PhotoUploadScreen.tsxを削除
-
-3. **ゲームシステム統合** ✅
-   - getNextRound: V2優先でV1フォールバック
-   - submitGuess: 両システム対応
-   - getPhotoFromEitherSystemヘルパー関数
-
-**新しいAPIエンドポイント**:
-- `createPhotoV2`: 写真メタデータ作成
-- `uploadPhotoChunkV2`: チャンクアップロード  
-- `finalizePhotoUploadV2`: アップロード完了
-- `searchPhotosV2`: 高度な検索
-- `getPhotoMetadataV2`: 拡張メタデータ取得
-- `getPhotoStatsV2`: 統計情報取得
-- `getUserPhotosV2`: ユーザー写真取得
-- `deletePhotoV2`: 写真削除
-
-**バグ修正**:
-1. **ProfileScreen null安全性** ✅
-   ```typescript
-   // 修正前
-   photo.latitude.toFixed(4)
-   // 修正後
-   photo.latitude?.toFixed(4) ?? 'N/A'
-   ```
-
-2. **PhotoModuleV2ランダム性向上** ✅
-   ```motoko
-   // 時間の複数コンポーネントを組み合わせ
-   let randomIndex = (nanoComponent + microComponent + milliComponent + photoCount) % photoCount;
-   ```
-
-3. **コード重複の解消** ✅
-   ```motoko
-   private func getPhotoFromEitherSystem(photoId: Nat) : ?{ 
-       owner: Principal; 
-       latitude: Float; 
-       longitude: Float 
-   }
-   ```
-
-**保留事項**:
-- ⏸️ ScheduledPhotosScreen: V2未対応のため移行保留
-- 📋 updatePhotoInfo: バックエンドV2実装待ち
-- 🚀 バックエンドデプロイ: 実装完了後に必要
-
-**重要な変更点**:
-- Photo V1とV2の併存（段階的移行）
-- フロントエンドは基本的にV2を使用
-- ゲームシステムは両方に対応（互換性維持）
-
-**デプロイ済み** (2025-06-14): 77fv5-oiaaa-aaaal-qsoea-cai
-
-## 🔄 最新の作業状況 (2025-06-13) - Dev Mode完全動作実現 🎉
-
-### 重要な開発指示
-- モックコードは決して追加しないでください（ただしDev modeの証明書エラー回避時のみ例外）
-- ローカルレプリカは使用しないでください
-
-### Certificate Verification Error & "unreachable" エラーの原因 🔍
-**問題**: Dev modeでメインネットキャニスター(77fv5-oiaaa-aaaal-qsoea-cai)にアクセス時に「unreachable」エラーが発生
-
-**根本原因**:
-- **WebAssembly依存問題**: @dfinity/principal と @dfinity/agent がWebAssemblyモジュールを使用
-- **React Native制限**: React NativeはWebAssemblyをサポートしていない
-- Principal.fromText()の実行時に「unreachable」エラーが発生
-- CBORエンコーディング時にもWebAssemblyが使用される
-
-**詳細な原因分析**:
-1. @dfinity/principal (v0.21.4) は内部でWebAssemblyを使用してPrincipalの解析を行う
-2. React Native環境では`global.WebAssembly`が未定義
-3. WebAssemblyモジュールの実行時に「unreachable」命令に到達してエラー
-
-**調査済みアプローチ**:
-- ❌ WebAssemblyのpolyfill追加（React Nativeでは動作しない）
-- ❌ earlyPatches.tsでのライブラリパッチ（WebAssembly依存は根本的に解決できない）
-- ❌ 証明書検証のバイパス（「unreachable」エラーは証明書検証前に発生）
-
-**解決方法** (2025-06-13) ✅:
-カスタムPrincipal実装 + 証明書検証パッチによりWebAssembly依存を完全に解決
+**解決策**: 
+1. 逆ジオコーディングAPIを使用して緯度経度から国・地域を取得
+2. フロントエンドで管理画面を作成し、手動で地域情報を追加
 
 ```typescript
-// src/frontend/src/utils/principal.ts - 独自のPrincipal実装
-export class CustomPrincipal {
-  static fromText(text: string): CustomPrincipal {
-    // Pure JavaScript implementation using CRC32 and Base32
-    // No WebAssembly dependency
-  }
-  
-  toText(): string {
-    // Reverse conversion with CRC32 checksum validation
-  }
+// フロントエンドでの地域情報更新
+async function updatePhotoRegion(photoId: bigint) {
+    const photo = await photoServiceV2.getPhotoMetadata(photoId);
+    if (photo) {
+        const regionInfo = await getRegionInfo(photo.latitude, photo.longitude);
+        await adminService.updatePhotoV2Region(photoId, regionInfo.country, regionInfo.region);
+    }
 }
-
-// src/frontend/src/utils/earlyPatches.ts - 証明書検証を無効化
-agentModule.Certificate = class MockCertificate {
-  verify() { return true; }
-  lookup(path) { return [new TextEncoder().encode('replied')]; }
-};
 ```
 
-**実装済みファイル**:
-- ✅ `src/frontend/src/utils/principal.ts` - WebAssembly不要のPrincipal実装
-- ✅ `src/frontend/src/utils/earlyPatches.ts` - 証明書検証を完全無効化
-- ✅ `src/frontend/src/services/game.ts` - カスタムPrincipalを使用
-- ✅ 動作テスト完了: Principal作成成功（3pkv4-md3ar...）
-
-**重要事項**:
-- **Phase 1**: WebAssemblyなしでPrincipal実装（✅完了）
-- **Phase 2**: 証明書検証を安全にバイパス（実装中）
-- Dev modeでメインネットキャニスターへの接続が可能
-- 実際のトランザクション送信とゲーム動作をテスト可能
-
-### HomeScreen統計情報とランキング機能実装 ✅
-**実装内容**:
-1. **Win Rate → Avg Score (30日平均)への変更**
-   - バックエンドで30日以内のセッションをフィルタリング
-   - `averageScore30Days`フィールドを追加
-   - プレイヤーの最近の安定性とスキル向上を表示
-
-2. **ランキング機能（ベストスコア順）の実装**
-   - `getPlayerRank(Principal): ?Nat` - プレイヤーの現在順位
-   - `getLeaderboard(Nat): [(Principal, Nat)]` - トップN位のプレイヤー
-   - 全プレイヤーのベストスコアでソート（降順）
-
-**バックエンド実装**:
-- `main.mo`: 30日平均計算とランキング関数を追加
-- `GameEngineModule.mo`: `getPlayerSessionsMap()`メソッドを追加
-- IDL定義: `averageScore30Days`と`rank`フィールドを追加
-
-**フロントエンド実装**:
-- HomeScreen: Win Rate → Avg Scoreに表示変更
-- ランキング: "Unranked" → "#42"形式で表示
-- trending-up-outlineアイコンを追加
-
-**表示される統計情報**:
-- Games: 完了したゲームセッション数
-- Photos: アップロードした写真数  
-- Rank: ベストスコア順のランキング順位
-- Avg Score: 過去30日間の平均スコア
-
-### エラー修正記録（2025-06-12）
-
-#### 1. averageScore30Days フィールドエラー ✅
-**問題**: `Cannot find required field averageScore30Days`
-**原因**: フロントエンドIDLで必須フィールドとして定義していたが、バックエンドは値がない場合がある
-**修正**: 
-- フロントエンドIDL: `IDL.Opt(IDL.Nat)`に変更（オプション型）
-- バックエンド: 30日以内のゲームがない場合は`null`を返すように修正
-- 表示処理: `playerStats.averageScore30Days?.[0]`で安全にアクセス
-
-#### 2. 秘密鍵が全て0になる問題 ⚠️
-**症状**: `"0000000000000000000000000000000000000000000000000000000000000000"`
-**原因**: 調査中（Ed25519KeyIdentity生成の問題の可能性）
-**暫定対応**: Dev mode固定シード（1,2,3,4...）を使用しているが、正常に動作していない可能性
-
-#### 3. Certificate verification エラー
-**既存の解決方法**: `verifyQuerySignatures: false`を設定（既に実装済み）
+### マイグレーション完了後
+1. Photo V1 APIをすべて削除
+2. getPhotoFromEitherSystemを削除
+3. PhotoModuleを完全に削除
 
 ## 🔄 最新の作業状況 (2025-06-13) - Ed25519KeyIdentity生成問題への対応
 
@@ -403,32 +389,247 @@ agentModule.Certificate = class MockCertificate {
 - Ed25519KeyIdentity.fromParsedJsonの使い方の誤り
 
 **最終的な解決策** ✅:
-Dev modeでは決定論的に生成されるテストキーを使用
+Dev modeではAnonymousIdentityを使用
 ```typescript
-// Generate a deterministic test key based on a fixed seed
-const generateTestKey = (): Uint8Array => {
-  const FIXED_SEED = 'guess-the-spot-dev-mode-test-key-2024';
-  // Hash function to generate consistent 32 bytes
-  const key = new Uint8Array(32);
-  // ... deterministic key generation logic ...
-  return key;
-};
-const TEST_SECRET_KEY = generateTestKey();
-const identity = Ed25519KeyIdentity.fromSecretKey(TEST_SECRET_KEY.buffer);
+// Use AnonymousIdentity for dev mode
+// This is the simplest solution that avoids all crypto issues in Expo Go
+const identity = new AnonymousIdentity();
 ```
 
 **なぜこの解決策が最適か**:
-- Dev modeは開発・テスト専用なので固定キーで十分
-- Expo Goの動的キー生成の制限を完全に回避
-- トークンテストなど、実際のIdentityが必要な機能に対応
+- Dev modeは開発・テスト専用なのでAnonymousIdentityで十分
+- Expo Goのすべてのcrypto制限を完全に回避
 - 複雑なキー生成やパッチが一切不要
-- エラーが発生する可能性が低い
-- コードがシンプルで理解しやすい
+- エラーが発生する可能性がゼロ
+- コードが極めてシンプルで理解しやすい
 
 **実装済み**:
-- ✅ `DevAuthContext.tsx`: 固定テストキーのEd25519KeyIdentityを使用
+- ✅ `DevAuthContext.tsx`: AnonymousIdentityを使用するように簡略化
 - ✅ `earlyPatches.ts`: 複雑なパッチを削除
 - ✅ `polyfills.ts`: シンプル化
-- ✅ 正しい32バイトのシークレットキーを使用
+- ✅ 不要なEd25519KeyIdentity, Secp256k1KeyIdentityのインポートを削除
 
-[以下、既存の内容は省略せず維持]
+## 🔄 最新の作業状況 (2025-06-12 PM) - UI改善とプレイヤーデータ統合完了
+
+### 重要な開発指示
+- モックコードは決して追加しないでください
+- ローカルレプリカは使用しないでください
+
+### Certificate Verification Error解決方法 ✅
+**問題**: Dev modeでメインネットキャニスター(77fv5-oiaaa-aaaal-qsoea-cai)にアクセス時にcertificate verification errorが発生
+
+**根本原因**:
+- Dev mode（Ed25519KeyIdentity）でメインネット接続時の証明書検証システムの制限
+- Internet Computerではメインネットで厳格な証明書検証が必要
+- fetchRootKey()はローカルレプリカ専用でメインネットでは効果なし
+
+**解決方法**:
+```typescript
+// HttpAgent作成時に verifyQuerySignatures: false を設定
+const agent = new HttpAgent({
+  identity,
+  host: 'https://ic0.app',
+  verifyQuerySignatures: false, // Dev mode用の証明書検証スキップ
+});
+
+// fetchRootKey()は実行しない（メインネットでは不要）
+```
+
+**実装済みファイル**:
+- ✅ `src/frontend/src/services/admin.ts` (121行目)
+- ✅ `src/frontend/src/services/photo.ts` (173行目)
+- ✅ `src/frontend/src/services/game.ts` (69行目) - 今回修正
+
+**重要事項**:
+- この設定はdev mode専用
+- Internet Identityと同等の効果
+- メインネット本番利用では問題なし
+- 他の複雑な回避策（certificate verification無効化等）は不要
+
+### HomeScreen統計情報とランキング機能実装 ✅
+**実装内容**:
+1. **Win Rate → Avg Score (30日平均)への変更**
+   - バックエンドで30日以内のセッションをフィルタリング
+   - `averageScore30Days`フィールドを追加
+   - プレイヤーの最近の安定性とスキル向上を表示
+
+2. **ランキング機能（ベストスコア順）の実装**
+   - `getPlayerRank(Principal): ?Nat` - プレイヤーの現在順位
+   - `getLeaderboard(Nat): [(Principal, Nat)]` - トップN位のプレイヤー
+   - 全プレイヤーのベストスコアでソート（降順）
+
+**バックエンド実装**:
+- `main.mo`: 30日平均計算とランキング関数を追加
+- `GameEngineModule.mo`: `getPlayerSessionsMap()`メソッドを追加
+- IDL定義: `averageScore30Days`と`rank`フィールドを追加
+
+**フロントエンド実装**:
+- HomeScreen: Win Rate → Avg Scoreに表示変更
+- ランキング: "Unranked" → "#42"形式で表示
+- trending-up-outlineアイコンを追加
+
+**表示される統計情報**:
+- Games: 完了したゲームセッション数
+- Photos: アップロードした写真数  
+- Rank: ベストスコア順のランキング順位
+- Avg Score: 過去30日間の平均スコア
+
+## プロジェクト概要
+
+**Guess-the-Spot**は、Internet Computer Protocol (ICP) 上で動作する写真ベースの地理当てゲームです。React NativeとExpoを使用したモバイルアプリケーションで、ユーザーは写真を見て撮影場所を推測します。
+
+## 技術スタック
+
+### フロントエンド
+- **フレームワーク**: React Native + Expo
+- **ナビゲーション**: React Navigation v6 (Native Stack Navigator)
+- **状態管理**: Zustand
+- **UI**: React Native Elements + カスタムコンポーネント
+- **地図**: react-native-maps (Google Maps)
+- **認証**: Internet Identity (expo-ii-integration) + Dev mode (Ed25519)
+- **ブロックチェーン通信**: @dfinity/agent, @dfinity/identity
+
+### バックエンド (ICP Canister)
+- **言語**: Motoko
+- **トークン**: ICRC-1準拠のSPOTトークン
+- **ストレージ**: 
+  - Photo Storage V2 (チャンクベース)
+  - Session Management
+  - Player Statistics
+- **認証**: Internet Computer Identity統合
+
+## アーキテクチャ
+
+### モジュール構造（バックエンド）
+```
+main.mo (統合Canister)
+├── modules/
+│   ├── Constants.mo          # 定数定義
+│   ├── Helpers.mo           # ユーティリティ関数
+│   ├── TokenModule.mo       # ICRC-1トークン実装
+│   ├── TreasuryModule.mo    # トレジャリー管理
+│   ├── GameEngineModule.mo  # ゲームロジック
+│   ├── GuessHistoryModule.mo # 推測履歴
+│   ├── PhotoModule.mo       # 写真管理（V1・削除予定）
+│   ├── PhotoModuleV2.mo     # 写真管理（V2・検索対応）
+│   ├── ReputationModule.mo  # レピュテーション
+│   └── IIIntegrationModule.mo # II認証統合
+```
+
+### データフロー
+
+1. **認証フロー**
+   ```
+   App起動 → Auth Check → 
+   ├── Dev Mode → Ed25519KeyIdentity → Anonymous Identity (固定)
+   └── Production → Internet Identity → Delegated Identity
+   ```
+
+2. **ゲームフロー**
+   ```
+   Session作成 → Round取得 → 写真表示 → 
+   位置推測 → スコア計算 → リワード付与
+   ```
+
+3. **写真アップロードフロー (V2)**
+   ```
+   写真撮影 → メタデータ入力 → チャンク分割 → 
+   順次アップロード → 完了処理 → 検索インデックス更新
+   ```
+
+## キーとなる設計判断
+
+### 1. Dev Mode認証の簡略化
+- **問題**: Expo Go環境でのEd25519キー生成の制限
+- **解決**: AnonymousIdentityを使用したシンプルな実装
+- **利点**: 複雑なpolyfillやパッチが不要、確実に動作
+
+### 2. Photo V2への完全移行
+- **理由**: 検索機能とスケーラビリティの向上
+- **特徴**: 
+  - GeoHashによる位置検索
+  - 国・地域別フィルタリング
+  - タグベース検索
+  - チャンクアップロード
+
+### 3. トークンエコノミー
+- **プレイ料金**: 2.00 SPOT/ゲーム
+- **リワード**: スコアに応じて0-1.00 SPOT
+- **アップローダー報酬**: プレイヤースコアの5%
+- **ヒント購入**: 1.00-3.00 SPOT
+
+### 4. アンチチート対策
+- **座標検証**: 緯度経度の範囲チェック
+- **時間検証**: 最小2秒、最大5分
+- **信頼半径**: 固定値のみ許可（500m, 1km, 2km, 5km）
+- **パターン検出**: 繰り返し座標の検出
+
+## 開発環境セットアップ
+
+### 必要な環境
+- Node.js 18+
+- dfx 0.15.2+
+- Expo CLI
+- iOS Simulator / Android Emulator
+
+### 環境変数 (.env)
+```bash
+EXPO_PUBLIC_IC_HOST=https://ic0.app
+EXPO_PUBLIC_UNIFIED_CANISTER_ID=77fv5-oiaaa-aaaal-qsoea-cai
+```
+
+### ローカル開発
+```bash
+# バックエンド
+dfx deploy --network ic
+
+# フロントエンド
+npm install
+npm start
+```
+
+## 重要な注意事項
+
+1. **メインネット使用**: ローカルレプリカは使用せず、常にメインネットを使用
+2. **Dev Mode制限**: Dev modeではcertificate verificationが必要（verifyQuerySignatures: false）
+3. **写真チャンクサイズ**: 256KBで分割、base64エンコード
+4. **セッション管理**: 1時間でタイムアウト、自動クリーンアップ
+
+## トラブルシューティング
+
+### Certificate Verification Error
+```typescript
+// Dev mode用の設定
+const agent = new HttpAgent({
+  identity,
+  host: 'https://ic0.app',
+  verifyQuerySignatures: false,
+});
+```
+
+### Expo Goでのキー生成エラー
+- Dev modeではAnonymousIdentityを使用
+- 本番ビルドではInternet Identityが正常動作
+
+### 写真アップロードエラー
+- チャンクサイズを確認（256KB以下）
+- expectedChunksとtotalSizeが正しいか確認
+- ネットワーク接続を確認
+
+## 今後の開発計画
+
+1. **地域選択モードの完全実装**
+   - バックエンドのgetNextRoundに地域フィルタ追加
+   - 地域別ランキング機能
+
+2. **マルチプレイヤーモード**
+   - リアルタイム対戦
+   - トーナメント機能
+
+3. **AI写真分析**
+   - 画像認識による地域推定ヒント
+   - 不正写真の自動検出
+
+4. **NFT統合**
+   - レア写真のNFT化
+   - 実績バッジシステム

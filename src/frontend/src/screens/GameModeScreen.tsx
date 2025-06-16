@@ -23,10 +23,8 @@ export default function GameModeScreen() {
   const [selectedDifficulty, setSelectedDifficulty] = useState('NORMAL');
 
   const startGamePlay = (difficulty: string) => {
-    navigation.navigate('GamePlay', {
-      gameMode: 'normal',
-      difficulty: difficulty as any,
-    });
+    // Navigate to region selection for classic mode
+    navigation.navigate('RegionSelect');
   };
 
   const gameModes = [
