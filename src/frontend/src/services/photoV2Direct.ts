@@ -134,13 +134,18 @@ class PhotoServiceV2Direct {
       
       console.log('🚀 Direct uploading photo, size:', bytes.length, 'bytes');
       
-      // 即座にアップロード（現在時刻から1秒後に設定）
+      // 即座にアップロード（現在時刻から10秒後に設定）
+      // ネットワーク遅延を考慮して10秒のマージンを設ける
       const now = Date.now(); // ミリ秒
-      const immediatePublishTime = Math.floor((now + 1000) * 1000000); // 1秒後をナノ秒で (ミリ秒 * 1,000,000 = ナノ秒)
+      const immediatePublishTime = (now + 10000) * 1_000_000; // 10秒後をナノ秒で (ミリ秒 * 1,000,000 = ナノ秒)
+      
+      console.log('🚀 Scheduling upload for:', new Date(now + 10000).toISOString());
+      console.log('🚀 Timestamp in nanoseconds:', immediatePublishTime);
+      
       const result = await this.actor.schedulePhotoUploadV2(
         idlRequest,
         bytes,
-        BigInt(immediatePublishTime) // 1秒後に公開
+        BigInt(immediatePublishTime) // 10秒後に公開
       );
       
       console.log('🚀 Direct upload result:', result);

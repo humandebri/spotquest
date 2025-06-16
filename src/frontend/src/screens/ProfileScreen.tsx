@@ -69,6 +69,21 @@ const getDifficulty = (diff: any): 'EASY' | 'NORMAL' | 'HARD' | 'EXTREME' => {
 export default function ProfileScreen() {
   const navigation = useNavigation<NavigationProp>();
   const { principal, logout, identity } = useAuth();
+  
+  // Early return if not authenticated
+  if (!principal || !identity) {
+    return (
+      <LinearGradient colors={['#0f172a', '#1e293b']} style={styles.container}>
+        <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+            <ActivityIndicator size="large" color="#3b82f6" />
+            <Text style={{ color: '#fff', marginTop: 16 }}>Loading profile...</Text>
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
+    );
+  }
+  
   const [currentTab, setCurrentTab] = useState<'stats' | 'photos' | 'achievements'>('stats');
   const [isServiceInitialized, setIsServiceInitialized] = useState(false);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
@@ -106,7 +121,6 @@ export default function ProfileScreen() {
   const [isLoadingPhotos, setIsLoadingPhotos] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [editingPhoto, setEditingPhoto] = useState<PhotoMetadata | null>(null);
   const [editForm, setEditForm] = useState<{
     title: string;
     description: string;
@@ -120,7 +134,6 @@ export default function ProfileScreen() {
     hint: '',
     tags: [],
   });
-  const [isUpdating, setIsUpdating] = useState(false);
 
   // Load username from storage
   const loadUsername = useCallback(async () => {
@@ -310,14 +323,6 @@ export default function ProfileScreen() {
       loadPlayerStats();
     }
   }, [isServiceInitialized, currentTab, loadPlayerStats]);
-  
-  // Refresh all data
-  const refreshData = async () => {
-    await Promise.all([
-      loadPlayerStats(),
-      loadTokenBalance()
-    ]);
-  };
 
   // Load user photos
   const loadUserPhotos = async (showRefreshing = false) => {
@@ -341,10 +346,10 @@ export default function ProfileScreen() {
   };
 
   useEffect(() => {
-    if (currentTab === 'photos') {
+    if (currentTab === 'photos' && identity) {
       loadUserPhotos();
     }
-  }, [currentTab]);
+  }, [currentTab, identity]);
 
   const handleLogout = () => {
     Alert.alert(
@@ -595,7 +600,6 @@ export default function ProfileScreen() {
                     key={photo.id.toString()}
                     photo={photo}
                     onEdit={() => {
-                      setEditingPhoto(photo);
                       setEditForm({
                         title: photo.title || '',
                         description: photo.description || '',
@@ -910,14 +914,25 @@ export default function ProfileScreen() {
 }
 
 // PhotoImageLoader Component - 画像を非同期で読み込むコンポーネント
-const PhotoImageLoader = ({ photoId }: { photoId: bigint }) => {
+const PhotoImageLoader = React.memo(({ photoId }: { photoId: bigint }) => {
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { identity } = useAuth();
+  
+  // prevent multiple simultaneous loads
+  const [isLoadingRef, setIsLoadingRef] = useState(false);
 
   useEffect(() => {
+    // Reset state when photoId changes
+    setImageUri(null);
+    setIsLoading(true);
+    
     const loadImage = async () => {
+      if (!identity || isLoadingRef) return;
+      
       try {
+        setIsLoadingRef(true);
+        
         // 写真のメタデータを取得
         const metadata = await photoServiceV2.getPhotoMetadata(photoId, identity);
         if (!metadata) {
@@ -937,7 +952,13 @@ const PhotoImageLoader = ({ photoId }: { photoId: bigint }) => {
           }
         }
 
-        // チャンクを結合してBase64文字列に変換
+        if (chunks.length === 0) {
+          console.log('❌ No chunks received for photo:', photoId);
+          setIsLoading(false);
+          return;
+        }
+
+        // チャンクを結合
         const allChunks = chunks.reduce((acc, chunk) => {
           const newArray = new Uint8Array(acc.length + chunk.length);
           newArray.set(acc);
@@ -945,20 +966,109 @@ const PhotoImageLoader = ({ photoId }: { photoId: bigint }) => {
           return newArray;
         }, new Uint8Array(0));
 
-        // Uint8Arrayを文字列に変換（Base64データとして）
-        const base64String = new TextDecoder().decode(allChunks);
-        
-        // data URLとして設定
-        setImageUri(`data:image/jpeg;base64,${base64String}`);
+        console.log('📷 Image data loaded:', {
+          photoId: photoId.toString(),
+          chunkCount,
+          totalSize: allChunks.length,
+          firstBytes: Array.from(allChunks.slice(0, 10)).map(b => b.toString(16)).join(' ')
+        });
+
+        // より安全なBase64変換アプローチ
+        try {
+          // まず小さなチャンクで試してみる
+          const testChunk = allChunks.slice(0, Math.min(1000, allChunks.length));
+          const decoder = new TextDecoder();
+          const asText = decoder.decode(testChunk);
+          
+          console.log('📷 Testing data format, first 100 chars:', asText.substring(0, 100));
+          
+          // データがテキスト（Base64）かどうかをチェック
+          if (asText.includes('data:image') || /^[A-Za-z0-9+/]/.test(asText)) {
+            console.log('📷 Data appears to be text/base64');
+            const fullText = decoder.decode(allChunks);
+            
+            if (fullText.startsWith('data:')) {
+              setImageUri(fullText);
+            } else {
+              setImageUri(`data:image/jpeg;base64,${fullText}`);
+            }
+          } else {
+            console.log('📷 Data appears to be binary, size:', allChunks.length);
+            
+            // React Native環境でバイナリデータをBase64に変換
+            // Base64は3バイトを4文字に変換するため、3の倍数のチャンクサイズを使用
+            const chunkSize = 3 * 1024; // 3KB (3の倍数)
+            
+            try {
+              // 方法1: 文字列連結を避けて配列を使用
+              const base64Chunks: string[] = [];
+              
+              for (let i = 0; i < allChunks.length; i += chunkSize) {
+                const end = Math.min(i + chunkSize, allChunks.length);
+                const chunk = allChunks.slice(i, end);
+                
+                // Uint8Arrayをバイナリ文字列に変換
+                const binaryStrings: string[] = [];
+                for (let j = 0; j < chunk.length; j++) {
+                  binaryStrings.push(String.fromCharCode(chunk[j]));
+                }
+                
+                // チャンクをBase64エンコード
+                const base64Chunk = btoa(binaryStrings.join(''));
+                base64Chunks.push(base64Chunk);
+              }
+              
+              const finalBase64 = base64Chunks.join('');
+              console.log('📷 Binary to Base64 conversion successful, chunks:', base64Chunks.length, 'total length:', finalBase64.length);
+              
+              // 最初の数バイトを確認してJPEGヘッダーを検証
+              const header = Array.from(allChunks.slice(0, 4)).map(b => b.toString(16).padStart(2, '0')).join(' ');
+              console.log('📷 Image header:', header);
+              
+              setImageUri(`data:image/jpeg;base64,${finalBase64}`);
+            } catch (conversionError) {
+              console.error('📷 Manual Base64 conversion error:', conversionError);
+              
+              // フォールバック: より小さなチャンクで再試行
+              try {
+                console.log('📷 Trying fallback conversion with smaller chunks...');
+                const smallChunkSize = 512; // 512バイト
+                let base64String = '';
+                
+                for (let i = 0; i < allChunks.length; i += smallChunkSize) {
+                  const end = Math.min(i + smallChunkSize, allChunks.length);
+                  const chunk = allChunks.slice(i, end);
+                  
+                  // 小さなチャンクを処理
+                  const bytes = Array.from(chunk);
+                  const binaryString = bytes.map(byte => String.fromCharCode(byte)).join('');
+                  base64String += btoa(binaryString);
+                }
+                
+                console.log('📷 Fallback conversion successful, length:', base64String.length);
+                setImageUri(`data:image/jpeg;base64,${base64String}`);
+              } catch (fallbackError) {
+                console.error('📷 Fallback conversion also failed:', fallbackError);
+                setImageUri(null);
+              }
+            }
+          }
+        } catch (conversionError) {
+          console.error('📷 Base64 conversion error:', conversionError);
+          setImageUri(null);
+        }
       } catch (error) {
         console.error('Failed to load photo:', error);
       } finally {
         setIsLoading(false);
+        setIsLoadingRef(false);
       }
     };
 
-    loadImage();
-  }, [photoId, identity]);
+    if (photoId && identity && !isLoadingRef) {
+      loadImage();
+    }
+  }, [photoId]);
 
   if (isLoading) {
     return (
@@ -991,7 +1101,7 @@ const PhotoImageLoader = ({ photoId }: { photoId: bigint }) => {
       />
     </View>
   );
-};
+});
 
 // PhotoCard Component
 const PhotoCard = ({ photo, onEdit, onDelete }: any) => {

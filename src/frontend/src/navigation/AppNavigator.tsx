@@ -18,12 +18,14 @@ import ProfileScreen from '../screens/ProfileScreen';
 import LoginScreen from '../screens/LoginScreen';
 import AdminScreen from '../screens/AdminScreen';
 import RegionSelectScreen from '../screens/RegionSelectScreen';
+import PhotoLibraryScreen from '../screens/PhotoLibraryScreen';
 // import ScheduledPhotosScreen from '../screens/ScheduledPhotosScreen';
 
 export type RootStackParamList = {
   Home: undefined;
   Game: undefined;
   RegionSelect: undefined;
+  PhotoLibrary: undefined;
   GamePlay: {
     gameMode?: string;
     difficulty?: 'EASY' | 'NORMAL' | 'HARD' | 'EXTREME';
@@ -155,6 +157,11 @@ export default function AppNavigator() {
             name="Camera"
             component={CameraScreen}
             options={{ title: 'Take Photo' }}
+          />
+          <Stack.Screen
+            name="PhotoLibrary"
+            component={PhotoLibraryScreen}
+            options={{ headerShown: false }}
           />
           <Stack.Screen
             name="PhotoUpload"

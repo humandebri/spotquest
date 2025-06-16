@@ -8,7 +8,6 @@ import {
   Image,
   ScrollView,
   ActivityIndicator,
-  Platform,
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -62,17 +61,31 @@ export default function PhotoLibraryScreen() {
     // MediaLibraryの権限をリクエスト
     const { status } = await MediaLibrary.requestPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('権限が必要です', 'メディアライブラリへのアクセス権限が必要です。');
+      Alert.alert(
+        '権限が必要です', 
+        'メディアライブラリへのアクセス権限が必要です。',
+        [
+          { text: '戻る', onPress: () => navigation.goBack() }
+        ]
+      );
+      return false;
     }
+    return true;
   };
 
   // 写真を選択
   const pickImage = async () => {
+    // 権限の再確認
+    const hasPermission = await checkPermissions();
+    if (!hasPermission) {
+      return;
+    }
+    
     setIsLoading(true);
     try {
       // ImagePickerで写真を選択
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         quality: 1,
         exif: true, // EXIF情報を含める
         allowsEditing: false,
@@ -89,24 +102,50 @@ export default function PhotoLibraryScreen() {
       let photoLocation: PhotoLocation | undefined = undefined;
       
       try {
-        // まず、選択された写真のURIからMediaLibraryのアセットを検索
-        const assets = await MediaLibrary.getAssetsAsync({
-          first: 100,
-          mediaType: 'photo',
-          sortBy: [MediaLibrary.SortBy.creationTime],
-        });
+        // より効率的な検索: 選択された写真のファイル名から検索
+        const fileName = pickedPhoto.uri.split('/').pop() || '';
+        let matchingAsset = null;
+        let hasNextPage = true;
+        let endCursor = null;
+        
+        // ページネーションで全アセットを検索（最大5ページまで）
+        let pageCount = 0;
+        const maxPages = 5;
+        
+        while (hasNextPage && !matchingAsset && pageCount < maxPages) {
+          const assetOptions: any = {
+            first: 50,
+            mediaType: 'photo',
+            sortBy: [MediaLibrary.SortBy.creationTime],
+          };
+          
+          if (endCursor) {
+            assetOptions.after = endCursor;
+          }
+          
+          const assets = await MediaLibrary.getAssetsAsync(assetOptions);
+          
+          matchingAsset = assets.assets.find(asset => 
+            asset.uri === pickedPhoto.uri || 
+            asset.filename === fileName ||
+            asset.uri.includes(fileName) ||
+            pickedPhoto.uri.includes(asset.filename)
+          );
+          
+          hasNextPage = assets.hasNextPage;
+          endCursor = assets.endCursor;
+          pageCount++;
+        }
+        
+        if (!matchingAsset && pageCount >= maxPages) {
+          console.log('⚠️ 検索を制限しました（250枚まで）');
+        }
 
-        // URIが一致するアセットを探す
-        const matchingAsset = assets.assets.find(asset => 
-          asset.uri === pickedPhoto.uri || 
-          asset.uri.includes(pickedPhoto.uri.split('/').pop() || '') ||
-          pickedPhoto.uri.includes(asset.uri.split('/').pop() || '')
-        );
-
-        if (matchingAsset?.location) {
+        if (matchingAsset && (matchingAsset as any).location) {
+          const assetLocation = (matchingAsset as any).location;
           photoLocation = {
-            latitude: matchingAsset.location.latitude,
-            longitude: matchingAsset.location.longitude,
+            latitude: assetLocation.latitude,
+            longitude: assetLocation.longitude,
             timestamp: matchingAsset.creationTime || Date.now(),
           };
           console.log('📍 位置情報を取得:', photoLocation);
@@ -117,13 +156,24 @@ export default function PhotoLibraryScreen() {
         console.error('MediaLibrary location extraction error:', error);
         
         // フォールバック: ImagePickerのEXIF情報をチェック
-        if (pickedPhoto.exif?.GPSLatitude && pickedPhoto.exif?.GPSLongitude) {
-          photoLocation = {
-            latitude: pickedPhoto.exif.GPSLatitude,
-            longitude: pickedPhoto.exif.GPSLongitude,
-            timestamp: Date.now(),
-          };
-          console.log('📍 EXIF位置情報を取得:', photoLocation);
+        const exif = (pickedPhoto as any).exif;
+        if (exif?.GPSLatitude && exif?.GPSLongitude) {
+          // EXIF GPS座標を数値に変換
+          const latitude = typeof exif.GPSLatitude === 'number' 
+            ? exif.GPSLatitude 
+            : parseFloat(exif.GPSLatitude);
+          const longitude = typeof exif.GPSLongitude === 'number' 
+            ? exif.GPSLongitude 
+            : parseFloat(exif.GPSLongitude);
+            
+          if (!isNaN(latitude) && !isNaN(longitude)) {
+            photoLocation = {
+              latitude,
+              longitude,
+              timestamp: Date.now(),
+            };
+            console.log('📍 EXIF位置情報を取得:', photoLocation);
+          }
         }
       }
 
@@ -267,6 +317,18 @@ export default function PhotoLibraryScreen() {
                     <Text style={styles.buttonText}>次へ進む</Text>
                   </TouchableOpacity>
                 )}
+
+                {/* 再選択ボタン */}
+                <TouchableOpacity
+                  style={styles.reselectButton}
+                  onPress={() => {
+                    setSelectedPhoto(null);
+                    setManualLocation(null);
+                  }}
+                >
+                  <Ionicons name="refresh" size={20} color="#fff" />
+                  <Text style={styles.buttonText}>別の写真を選択</Text>
+                </TouchableOpacity>
               </View>
             </View>
           ) : (
@@ -332,6 +394,13 @@ export default function PhotoLibraryScreen() {
                   longitude,
                   timestamp: Date.now(),
                 });
+                // 選択した位置に地図を移動
+                mapRef.current?.animateToRegion({
+                  latitude,
+                  longitude,
+                  latitudeDelta: 0.005,
+                  longitudeDelta: 0.005,
+                }, 300);
               }}
             >
               {manualLocation && (
@@ -463,6 +532,18 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     justifyContent: 'center',
     gap: 8,
+  },
+  reselectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   buttonText: {
     color: '#fff',
