@@ -337,7 +337,11 @@ export default function ProfileScreen() {
     try {
       // Use V2 API to get user photos
       const result = await photoServiceV2.getUserPhotos(undefined, 100, identity);
-      setUserPhotos(result.photos);
+      // 新しい写真が上に来るように降順ソート
+      const sortedPhotos = result.photos.sort((a, b) => {
+        return Number(b.uploadTime) - Number(a.uploadTime);
+      });
+      setUserPhotos(sortedPhotos);
     } catch (error) {
       console.error('Failed to load user photos:', error);
       Alert.alert('Error', 'Failed to load photos');
