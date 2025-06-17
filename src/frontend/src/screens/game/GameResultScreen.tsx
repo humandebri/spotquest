@@ -61,7 +61,7 @@ export default function GameResultScreen() {
   // Ensure all values have defaults
   const guess = params.guess || { latitude: 0, longitude: 0 };
   const actualLocation = params.actualLocation || { latitude: 35.6762, longitude: 139.6503 };
-  const score = params.score ?? 0;
+  const score = typeof params.score === 'bigint' ? Number(params.score) : (params.score ?? 0);
   const timeUsed = params.timeUsed ?? 0;
   const azimuthGuess = params.azimuthGuess ?? 0;
   const actualAzimuth = params.actualAzimuth ?? 0;
@@ -488,15 +488,6 @@ const BreakdownItem = ({
   </View>
 );
 
-const getDifficultyMultiplier = (difficulty: string): number => {
-  const multipliers: { [key: string]: number } = {
-    EASY: 0.8,
-    NORMAL: 1.0,
-    HARD: 1.5,
-    EXTREME: 2.0,
-  };
-  return multipliers[difficulty] || 1.0;
-};
 
 const styles = StyleSheet.create({
   container: {
