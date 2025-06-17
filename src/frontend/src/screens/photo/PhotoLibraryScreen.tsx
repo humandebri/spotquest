@@ -47,10 +47,10 @@ export default function PhotoLibraryScreen() {
   const [showLocationPicker, setShowLocationPicker] = useState(false);
   const [manualLocation, setManualLocation] = useState<PhotoLocation | null>(null);
   const [mapRegion, setMapRegion] = useState({
-    latitude: 35.6762,
-    longitude: 139.6503,
-    latitudeDelta: 0.01,
-    longitudeDelta: 0.01,
+    latitude: 20, // 世界全体が見やすい中央付近
+    longitude: 0, // 経度0度（グリニッジ子午線）
+    latitudeDelta: 120, // 世界全体が見える程度の拡大率
+    longitudeDelta: 180, // 世界全体が見える程度の拡大率
   });
 
   // 権限の確認とリクエスト
@@ -219,8 +219,8 @@ export default function PhotoLibraryScreen() {
         setMapRegion({
           latitude: currentLocation.coords.latitude,
           longitude: currentLocation.coords.longitude,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
+          latitudeDelta: 10, // 地域レベルで表示（県・州レベル）
+          longitudeDelta: 10, // 地域レベルで表示
         });
       }
     } catch (error) {
@@ -404,8 +404,8 @@ export default function PhotoLibraryScreen() {
                 mapRef.current?.animateToRegion({
                   latitude,
                   longitude,
-                  latitudeDelta: 0.005,
-                  longitudeDelta: 0.005,
+                  latitudeDelta: 2, // 市レベル程度にズーム
+                  longitudeDelta: 2, // 市レベル程度にズーム
                 }, 300);
               }}
             >
