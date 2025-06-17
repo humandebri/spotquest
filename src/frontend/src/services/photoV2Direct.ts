@@ -33,6 +33,14 @@ class PhotoServiceV2Direct {
 
       console.log('🚀 Direct uploading photo (single chunk), size:', data.imageData.length, 'bytes');
       
+      // ICPの2MB制限チェック
+      const MAX_ICP_SIZE = 2 * 1024 * 1024; // 2MB
+      if (data.imageData.length > MAX_ICP_SIZE) {
+        return { 
+          err: `画像サイズが${(data.imageData.length / 1024 / 1024).toFixed(2)}MBでICPの2MB制限を超えています。画質を下げて再試行してください。` 
+        };
+      }
+      
       // 1. 写真を作成（単一チャンクとして設定）
       const createRequest: CreatePhotoRequest = {
         ...data.metadata,

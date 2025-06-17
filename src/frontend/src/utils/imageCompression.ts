@@ -1,10 +1,10 @@
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system';
 
-const MAX_FILE_SIZE = 1.8 * 1024 * 1024; // 1.8MB (バイナリアップロード用: ICPの2MB制限内)
+const MAX_FILE_SIZE = 1.5 * 1024 * 1024; // 1.5MB (ICPの2MB制限に余裕を持たせて確実に収める)
 
 /**
- * 画像を1.8MB以下に圧縮する（バイナリアップロード対応）
+ * 画像を1.5MB以下に圧縮する（ICPの2MB制限対応）
  * バイナリ形式で直接アップロードするため、Base64の33%オーバーヘッドなし
  * @param uri 画像のURI
  * @returns 圧縮された画像のURI
@@ -17,9 +17,9 @@ export async function compressImageAsync(uri: string): Promise<{ uri: string; co
     
     console.log('🖼️ Original image size:', (originalSize / 1024 / 1024).toFixed(2), 'MB');
     
-    // 1.8MB以下の場合は圧縮不要
+    // 1.5MB以下の場合は圧縮不要
     if (originalSize <= MAX_FILE_SIZE) {
-      console.log('✅ Image is already under 1.8MB, no compression needed');
+      console.log('✅ Image is already under 1.5MB, no compression needed');
       return { 
         uri, 
         compressed: false, 
@@ -28,7 +28,7 @@ export async function compressImageAsync(uri: string): Promise<{ uri: string; co
       };
     }
     
-    console.log('🔧 Image exceeds 1.8MB, starting compression...');
+    console.log('🔧 Image exceeds 1.5MB, starting compression...');
     
     // 元画像の情報を取得
     const originalImageInfo = await ImageManipulator.manipulateAsync(
@@ -43,21 +43,21 @@ export async function compressImageAsync(uri: string): Promise<{ uri: string; co
     let attempts = 0;
     const maxAttempts = 10;
     
-    // 初回は幅を1920pxに制限（Full HD相当）、ただし元画像がそれより小さい場合は元のサイズを使用
-    let targetWidth = Math.min(1920, originalImageInfo.width);
+    // 初回は幅を1600pxに制限（より積極的な圧縮）、ただし元画像がそれより小さい場合は元のサイズを使用
+    let targetWidth = Math.min(1600, originalImageInfo.width);
     
     while (attempts < maxAttempts) {
       attempts++;
       console.log(`🔄 Compression attempt ${attempts}: quality=${compressQuality}, width=${targetWidth}`);
       
       // アスペクト比を保持したリサイズ
-      // heightに大きな値を設定することで、アスペクト比に基づいて自動調整される
+      // widthのみ指定することで、アスペクト比が自動的に保持される
       const manipulated = await ImageManipulator.manipulateAsync(
         resizedUri,
         [{ 
           resize: { 
-            width: targetWidth,
-            height: 10000 // 十分に大きな値を設定（アスペクト比に基づいて自動調整される）
+            width: targetWidth
+            // heightを指定しない = アスペクト比が自動的に保持される
           } 
         }],
         { compress: compressQuality, format: ImageManipulator.SaveFormat.JPEG }
@@ -82,25 +82,26 @@ export async function compressImageAsync(uri: string): Promise<{ uri: string; co
       // 次の試行のために調整
       resizedUri = manipulated.uri;
       
-      // 品質を段階的に下げる
-      if (compressQuality > 0.5) {
-        compressQuality -= 0.1;
-      } else if (targetWidth > 1024) {
-        // 品質が0.5以下になったら、画像サイズを小さくする
+      // より積極的な圧縮アルゴリズム
+      if (attempts <= 3) {
+        // 最初の3回は品質を下げる
+        compressQuality -= 0.15;
+      } else if (attempts <= 6) {
+        // 次の3回はサイズを小さくする
         targetWidth = Math.floor(targetWidth * 0.8);
-        compressQuality = 0.7; // 品質をリセット
+        compressQuality = 0.6; // 品質をリセット
       } else {
-        // それでもダメなら、より積極的に圧縮
-        compressQuality -= 0.05;
-        targetWidth = Math.floor(targetWidth * 0.9);
+        // 残りの試行では両方を調整
+        compressQuality -= 0.1;
+        targetWidth = Math.floor(targetWidth * 0.85);
       }
       
-      // 最小値の制限（品質を上げて画像の劣化を防ぐ）
-      if (compressQuality < 0.3) {
-        compressQuality = 0.3; // 最低でも30%の品質を保つ
+      // 最小値の制限（ただし、より柔軟に）
+      if (compressQuality < 0.2) {
+        compressQuality = 0.2; // 最低でも20%の品質（より積極的）
       }
-      if (targetWidth < 800) {
-        targetWidth = 800; // 最小幅を800pxに上げる
+      if (targetWidth < 640) {
+        targetWidth = 640; // 最小幅を640pxに下げる
       }
     }
     
