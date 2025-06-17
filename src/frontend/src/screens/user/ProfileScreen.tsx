@@ -17,9 +17,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Principal } from '@dfinity/principal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { 
-  Ionicons, 
-  MaterialCommunityIcons, 
+import {
+  Ionicons,
+  MaterialCommunityIcons,
   FontAwesome5,
   Feather,
   Foundation
@@ -57,13 +57,13 @@ const getDifficulty = (diff: any): 'EASY' | 'NORMAL' | 'HARD' | 'EXTREME' => {
     console.warn('Invalid difficulty value:', diff);
     return 'NORMAL';
   }
-  
+
   // Check for variant properties (e.g., { EASY: null })
   if ('EASY' in diff) return 'EASY';
   if ('NORMAL' in diff) return 'NORMAL';
   if ('HARD' in diff) return 'HARD';
   if ('EXTREME' in diff) return 'EXTREME';
-  
+
   console.warn('Unknown difficulty variant:', diff);
   return 'NORMAL';
 };
@@ -71,7 +71,7 @@ const getDifficulty = (diff: any): 'EASY' | 'NORMAL' | 'HARD' | 'EXTREME' => {
 export default function ProfileScreen() {
   const navigation = useNavigation<NavigationProp>();
   const { principal, logout, identity } = useAuth();
-  
+
   // Early return if not authenticated
   if (!principal || !identity) {
     return (
@@ -85,26 +85,26 @@ export default function ProfileScreen() {
       </LinearGradient>
     );
   }
-  
+
   const [currentTab, setCurrentTab] = useState<'stats' | 'photos' | 'achievements'>('stats');
   const [isServiceInitialized, setIsServiceInitialized] = useState(false);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
-  
+
   // Username state
   const [username, setUsername] = useState('Anonymous User');
   const [showUsernameModal, setShowUsernameModal] = useState(false);
   const [tempUsername, setTempUsername] = useState('');
-  
+
   // Token balance state
   const [tokenBalance, setTokenBalance] = useState<bigint>(BigInt(0));
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
-  
+
   // Withdraw modal state
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [withdrawTo, setWithdrawTo] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [isWithdrawing, setIsWithdrawing] = useState(false);
-  
+
   const [stats, setStats] = useState<UserStats>({
     totalGamesPlayed: 0,
     totalPhotosUploaded: 0,
@@ -150,7 +150,7 @@ export default function ProfileScreen() {
       }
     }
   }, [principal]);
-  
+
   // Save username to storage
   const saveUsername = useCallback(async (newUsername: string) => {
     if (principal && newUsername.trim()) {
@@ -163,11 +163,11 @@ export default function ProfileScreen() {
       }
     }
   }, [principal]);
-  
+
   // Load token balance
   const loadTokenBalance = useCallback(async () => {
     if (!principal || !isServiceInitialized) return;
-    
+
     setIsLoadingBalance(true);
     try {
       const balance = await gameService.getTokenBalance(principal);
@@ -178,7 +178,7 @@ export default function ProfileScreen() {
       setIsLoadingBalance(false);
     }
   }, [principal, isServiceInitialized]);
-  
+
   // Initialize game service
   React.useEffect(() => {
     const initService = async () => {
@@ -193,12 +193,12 @@ export default function ProfileScreen() {
     };
     initService();
   }, [identity, isServiceInitialized]);
-  
+
   // Load username when principal is available
   React.useEffect(() => {
     loadUsername();
   }, [loadUsername]);
-  
+
   // Load token balance when service is initialized
   React.useEffect(() => {
     if (isServiceInitialized) {
@@ -209,7 +209,7 @@ export default function ProfileScreen() {
   // Load player stats
   const loadPlayerStats = React.useCallback(async () => {
     if (!principal || !isServiceInitialized) return;
-    
+
     setIsLoadingStats(true);
     try {
       const playerStats = await gameService.getPlayerStats(principal);
@@ -248,37 +248,37 @@ export default function ProfileScreen() {
       setIsLoadingStats(false);
     }
   }, [principal, isServiceInitialized]);
-  
+
   // Withdraw tokens function
   const handleWithdraw = async () => {
     if (!identity || !principal) {
       Alert.alert('Error', 'Not authenticated');
       return;
     }
-    
+
     if (!withdrawTo.trim()) {
       Alert.alert('Error', 'Please enter a destination principal');
       return;
     }
-    
+
     if (!withdrawAmount.trim() || isNaN(Number(withdrawAmount)) || Number(withdrawAmount) <= 0) {
       Alert.alert('Error', 'Please enter a valid amount');
       return;
     }
-    
+
     const amountUnits = BigInt(Math.floor(Number(withdrawAmount) * 100)); // Convert to units
     const transferFee = BigInt(1); // 1 unit transfer fee
-    
+
     if (amountUnits + transferFee > tokenBalance) {
       Alert.alert('Error', 'Insufficient balance (including transfer fee)');
       return;
     }
-    
+
     try {
       const toPrincipal = Principal.fromText(withdrawTo.trim());
-      
+
       setIsWithdrawing(true);
-      
+
       // Add icrc1_transfer method to game service temporarily
       const transferArgs = {
         to: { owner: toPrincipal, subaccount: [] },
@@ -288,21 +288,21 @@ export default function ProfileScreen() {
         from_subaccount: [],
         created_at_time: []
       };
-      
+
       const result = await (gameService as any).actor.icrc1_transfer(transferArgs);
-      
+
       if (result.Err) {
         throw new Error(`Transfer failed: ${Object.keys(result.Err)[0]}`);
       }
-      
+
       Alert.alert('Success', `Transferred ${withdrawAmount} SPOT`);
       setShowWithdrawModal(false);
       setWithdrawTo('');
       setWithdrawAmount('');
-      
+
       // Reload balance
       loadTokenBalance();
-      
+
     } catch (error) {
       console.error('Withdraw error:', error);
       Alert.alert('Error', error instanceof Error ? error.message : 'Transfer failed');
@@ -310,7 +310,7 @@ export default function ProfileScreen() {
       setIsWithdrawing(false);
     }
   };
-  
+
   // Handle max button for withdraw
   const handleMaxWithdraw = () => {
     const transferFee = BigInt(1);
@@ -375,33 +375,33 @@ export default function ProfileScreen() {
   };
 
   const achievements = [
-    { 
+    {
       icon: 'target',
-      name: 'Sharpshooter', 
+      name: 'Sharpshooter',
       description: 'Guess within 100m',
       unlocked: true,
       progress: 100,
       color: '#3b82f6',
     },
-    { 
+    {
       icon: 'camera',
-      name: 'Photographer', 
+      name: 'Photographer',
       description: 'Upload 10 photos',
       unlocked: true,
       progress: 100,
       color: '#8b5cf6',
     },
-    { 
+    {
       icon: 'fire',
-      name: 'On Fire', 
+      name: 'On Fire',
       description: '5 game win streak',
       unlocked: false,
       progress: 60,
       color: '#f59e0b',
     },
-    { 
+    {
       icon: 'star',
-      name: 'Rising Star', 
+      name: 'Rising Star',
       description: 'Reach top 100',
       unlocked: false,
       progress: 30,
@@ -410,41 +410,41 @@ export default function ProfileScreen() {
   ];
 
   const statItems = [
-    { 
-      icon: 'game-controller', 
-      value: stats.totalGamesPlayed || 0, 
-      label: 'Games', 
-      color: '#3b82f6' 
+    {
+      icon: 'game-controller',
+      value: stats.totalGamesPlayed || 0,
+      label: 'Games',
+      color: '#3b82f6'
     },
-    { 
-      icon: 'camera', 
-      value: stats.totalPhotosUploaded || 0, 
-      label: 'Photos', 
-      color: '#8b5cf6' 
+    {
+      icon: 'camera',
+      value: stats.totalPhotosUploaded || 0,
+      label: 'Photos',
+      color: '#8b5cf6'
     },
-    { 
-      icon: 'trophy', 
-      value: stats.bestScore || 0, 
-      label: 'Best Score', 
-      color: '#f59e0b' 
+    {
+      icon: 'trophy',
+      value: stats.bestScore || 0,
+      label: 'Best Score',
+      color: '#f59e0b'
     },
-    { 
-      icon: 'analytics', 
-      value: stats.averageScore30Days || stats.averageScore || 0, 
-      label: 'Avg Score (30d)', 
-      color: '#10b981' 
+    {
+      icon: 'analytics',
+      value: stats.averageScore30Days || stats.averageScore || 0,
+      label: 'Avg Score (30d)',
+      color: '#10b981'
     },
-    { 
-      icon: 'medal', 
-      value: stats.rank ? `#${stats.rank}` : 'Unranked', 
-      label: 'Rank', 
-      color: '#ef4444' 
+    {
+      icon: 'medal',
+      value: stats.rank ? `#${stats.rank}` : 'Unranked',
+      label: 'Rank',
+      color: '#ef4444'
     },
-    { 
-      icon: 'flame', 
-      value: stats.totalRewardsEarned ? Math.floor(stats.totalRewardsEarned / 100) : 0, 
-      label: 'Rewards', 
-      color: '#f97316' 
+    {
+      icon: 'flame',
+      value: stats.totalRewardsEarned ? Math.floor(stats.totalRewardsEarned / 100) : 0,
+      label: 'Rewards',
+      color: '#f97316'
     },
   ];
 
@@ -482,7 +482,7 @@ export default function ProfileScreen() {
                     {isLoadingBalance ? '...' : (Number(tokenBalance) / 100).toFixed(2)}
                   </Text>
                 </View>
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.withdrawButton}
                   onPress={() => setShowWithdrawModal(true)}
                 >
@@ -506,10 +506,10 @@ export default function ProfileScreen() {
                 style={[styles.tab, currentTab === tab.id && styles.tabActive]}
                 onPress={() => setCurrentTab(tab.id)}
               >
-                <Ionicons 
-                  name={tab.icon as any} 
-                  size={18} 
-                  color={currentTab === tab.id ? '#ffffff' : '#94a3b8'} 
+                <Ionicons
+                  name={tab.icon as any}
+                  size={18}
+                  color={currentTab === tab.id ? '#ffffff' : '#94a3b8'}
                 />
                 <Text style={[
                   styles.tabText,
@@ -524,7 +524,7 @@ export default function ProfileScreen() {
 
         {/* Content */}
         {currentTab === 'stats' && (
-          <ScrollView 
+          <ScrollView
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
@@ -554,7 +554,7 @@ export default function ProfileScreen() {
                   <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
                 </TouchableOpacity>
 
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.logoutButton}
                   onPress={handleLogout}
                 >
@@ -582,7 +582,7 @@ export default function ProfileScreen() {
                 <Text style={styles.emptyText}>
                   Start uploading photos to contribute to the game
                 </Text>
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.primaryButton}
                   onPress={() => navigation.navigate('Camera')}
                 >
@@ -602,7 +602,7 @@ export default function ProfileScreen() {
                 showsVerticalScrollIndicator={false}
               >
                 {userPhotos.map((photo) => (
-                  <PhotoCard 
+                  <PhotoCard
                     key={photo.id.toString()}
                     photo={photo}
                     onEdit={() => {
@@ -646,14 +646,14 @@ export default function ProfileScreen() {
         )}
 
         {currentTab === 'achievements' && (
-          <ScrollView 
+          <ScrollView
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
             <Text style={styles.sectionTitle}>Your Achievements</Text>
             {achievements.map((achievement, index) => (
-              <View 
-                key={index} 
+              <View
+                key={index}
                 style={[styles.achievementCard, !achievement.unlocked && styles.achievementCardLocked]}
               >
                 <View style={[styles.achievementIcon, { backgroundColor: `${achievement.color}20` }]}>
@@ -674,7 +674,7 @@ export default function ProfileScreen() {
                   </View>
                   <Text style={styles.achievementDescription}>{achievement.description}</Text>
                   <View style={styles.progressBar}>
-                    <View 
+                    <View
                       style={[styles.progressFill, { width: `${achievement.progress}%` }]}
                     />
                   </View>
@@ -707,7 +707,7 @@ export default function ProfileScreen() {
                 <TextInput
                   style={styles.textInput}
                   value={editForm.title}
-                  onChangeText={(text) => setEditForm({...editForm, title: text})}
+                  onChangeText={(text) => setEditForm({ ...editForm, title: text })}
                   placeholder="Photo title"
                   placeholderTextColor="#64748b"
                 />
@@ -718,7 +718,7 @@ export default function ProfileScreen() {
                 <TextInput
                   style={[styles.textInput, styles.textArea]}
                   value={editForm.description}
-                  onChangeText={(text) => setEditForm({...editForm, description: text})}
+                  onChangeText={(text) => setEditForm({ ...editForm, description: text })}
                   placeholder="Photo description"
                   placeholderTextColor="#64748b"
                   multiline
@@ -736,7 +736,7 @@ export default function ProfileScreen() {
                         styles.difficultyOption,
                         editForm.difficulty === level && styles.difficultyOptionActive
                       ]}
-                      onPress={() => setEditForm({...editForm, difficulty: level})}
+                      onPress={() => setEditForm({ ...editForm, difficulty: level })}
                     >
                       <Text style={[
                         styles.difficultyOptionText,
@@ -754,7 +754,7 @@ export default function ProfileScreen() {
                 <TextInput
                   style={styles.textInput}
                   value={editForm.hint}
-                  onChangeText={(text) => setEditForm({...editForm, hint: text})}
+                  onChangeText={(text) => setEditForm({ ...editForm, hint: text })}
                   placeholder="Hint for players"
                   placeholderTextColor="#64748b"
                 />
@@ -801,7 +801,7 @@ export default function ProfileScreen() {
                 <Ionicons name="close" size={28} color="#94a3b8" />
               </TouchableOpacity>
             </View>
-            
+
             <View style={styles.modalBody}>
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Username</Text>
@@ -814,7 +814,7 @@ export default function ProfileScreen() {
                   maxLength={50}
                 />
               </View>
-              
+
               <View style={styles.modalActions}>
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalButtonPrimary]}
@@ -854,7 +854,7 @@ export default function ProfileScreen() {
                 <Ionicons name="close" size={28} color="#94a3b8" />
               </TouchableOpacity>
             </View>
-            
+
             <View style={styles.modalBody}>
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Destination Principal</Text>
@@ -868,7 +868,7 @@ export default function ProfileScreen() {
                   autoCorrect={false}
                 />
               </View>
-              
+
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Amount (SPOT)</Text>
                 <View style={styles.amountInputContainer}>
@@ -891,7 +891,7 @@ export default function ProfileScreen() {
                   Available: {(Number(tokenBalance) / 100).toFixed(2)} SPOT (Transfer fee: 0.01 SPOT)
                 </Text>
               </View>
-              
+
               <View style={styles.modalActions}>
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalButtonPrimary, isWithdrawing && styles.modalButtonDisabled]}
@@ -924,7 +924,7 @@ const PhotoImageLoader = React.memo(({ photoId }: { photoId: bigint }) => {
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { identity } = useAuth();
-  
+
   // prevent multiple simultaneous loads
   const [isLoadingRef, setIsLoadingRef] = useState(false);
 
@@ -932,13 +932,13 @@ const PhotoImageLoader = React.memo(({ photoId }: { photoId: bigint }) => {
     // Reset state when photoId changes
     setImageUri(null);
     setIsLoading(true);
-    
+
     const loadImage = async () => {
       if (!identity || isLoadingRef) return;
-      
+
       try {
         setIsLoadingRef(true);
-        
+
         // 写真のメタデータを取得
         const metadata = await photoServiceV2.getPhotoMetadata(photoId, identity);
         if (!metadata) {
@@ -981,18 +981,18 @@ const PhotoImageLoader = React.memo(({ photoId }: { photoId: bigint }) => {
         try {
           // BufferでUint8ArrayからBase64に簡単に変換
           const base64 = Buffer.from(allChunks).toString('base64');
-          
+
           // ローカルファイルに保存
           const localUri = `${FileSystem.cacheDirectory}photo_${photoId}.jpg`;
           await FileSystem.writeAsStringAsync(localUri, base64, {
             encoding: FileSystem.EncodingType.Base64,
           });
-          
+
           console.log('📷 Photo saved to local cache:', localUri);
-          
+
           // file://パスを設定（これでData-URIのサイズ制限を回避）
           setImageUri(localUri);
-          
+
         } catch (error) {
           console.error('📷 Failed to save photo:', error);
           setImageUri(null);
@@ -1034,8 +1034,8 @@ const PhotoImageLoader = React.memo(({ photoId }: { photoId: bigint }) => {
 
   return (
     <View style={styles.photoImageContainer}>
-      <Image 
-        source={{ uri: imageUri }} 
+      <Image
+        source={{ uri: imageUri }}
         style={styles.photoImage}
         resizeMode="cover"
       />
@@ -1062,7 +1062,7 @@ const PhotoCard = ({ photo, onEdit, onDelete }: any) => {
     HARD: '#f59e0b',
     EXTREME: '#ef4444',
   };
-  
+
   const getSceneLabel = (sceneKind: any): string => {
     if (!sceneKind) return 'Unknown';
     if (sceneKind.Nature) return '自然';
@@ -1078,7 +1078,7 @@ const PhotoCard = ({ photo, onEdit, onDelete }: any) => {
       <View style={styles.photoCardHeader}>
         <View style={styles.photoCardInfo}>
           <Text style={styles.photoCardTitle}>
-            {(photo.title || 'Untitled Photo').replace(/^写真-/, '')}
+            {(photo.title || 'Untitled Photo').replace(/^/, '')}
           </Text>
           <Text style={styles.photoCardDescription} numberOfLines={2}>
             {photo.description || 'No description'}
@@ -1112,7 +1112,7 @@ const PhotoCard = ({ photo, onEdit, onDelete }: any) => {
           <Text style={styles.photoCardMetaText}>{formatTime(photo.uploadTime)}</Text>
         </View>
       </View>
-      
+
       <View style={styles.photoCardMeta}>
         <View style={styles.photoCardMetaItem}>
           <Ionicons name="globe-outline" size={16} color="#94a3b8" />
@@ -1142,14 +1142,14 @@ const PhotoCard = ({ photo, onEdit, onDelete }: any) => {
       )}
 
       <View style={styles.photoCardActions}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.photoCardButton, styles.photoCardButtonEdit]}
           onPress={onEdit}
         >
           <Feather name="edit-2" size={16} color="#3b82f6" />
           <Text style={styles.photoCardButtonTextEdit}>Edit</Text>
         </TouchableOpacity>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.photoCardButton, styles.photoCardButtonDelete]}
           onPress={onDelete}
         >
