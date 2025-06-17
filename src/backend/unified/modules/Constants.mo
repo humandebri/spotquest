@@ -53,8 +53,6 @@ module {
     // ======================================
     public let MAX_PHOTOS_PER_USER : Nat = 1000;
     public let MAX_PHOTO_CHUNK_SIZE : Nat = 2097152; // 2MB
-    public let MAX_SCHEDULED_PHOTOS : Nat = 100;
-    public let MAX_SCHEDULED_PHOTOS_PER_USER : Nat = 10;
     
     // ======================================
     // REPUTATION CONSTANTS

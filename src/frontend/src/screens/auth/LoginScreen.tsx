@@ -12,16 +12,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
-import { useAuth } from '../hooks/useAuth';
-import { getSecureStorage, getRegularStorage } from '../storage';
-import { clearAllIIData } from '../utils/clearAllIIData';
-import { AuthPoller } from '../utils/authPoller';
-import { checkAndFixDelegation, createMockDelegation } from '../utils/delegationFix';
-import { useDevAuth } from '../contexts/DevAuthContext';
-import { DEBUG_CONFIG, debugLog, debugError } from '../utils/debugConfig';
-import { gameService } from '../services/game';
+import { useAuth } from '../../hooks/useAuth';
+import { getSecureStorage, getRegularStorage } from '../../storage';
+import { clearAllIIData } from '../../utils/clearAllIIData';
+import { AuthPoller } from '../../utils/authPoller';
+import { checkAndFixDelegation, createMockDelegation } from '../../utils/delegationFix';
+import { useDevAuth } from '../../contexts/DevAuthContext';
+import { DEBUG_CONFIG, debugLog, debugError } from '../../utils/debugConfig';
+import { gameService } from '../../services/game';
 import { Principal } from '@dfinity/principal';
-import { useIIAuthStore } from '../store/iiAuthStore';
+import { useIIAuthStore } from '../../store/iiAuthStore';
 
 export default function LoginScreen() {
   const { login, isLoading, error, clearError, isAuthenticated } = useAuth();

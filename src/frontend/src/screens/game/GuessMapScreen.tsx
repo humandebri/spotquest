@@ -13,10 +13,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../navigation/AppNavigator';
-import { useGameStore } from '../store/gameStore';
-import { useAuth } from '../hooks/useAuth';
-import { gameService } from '../services/game';
+import { RootStackParamList } from '../../navigation/AppNavigator';
+import { useGameStore } from '../../store/gameStore';
+import { useAuth } from '../../hooks/useAuth';
+import { gameService } from '../../services/game';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 

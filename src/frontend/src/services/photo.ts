@@ -2,6 +2,8 @@ import { Actor, HttpAgent, Identity } from '@dfinity/agent';
 import { Principal } from '@dfinity/principal';
 // Import CustomPrincipal as a fallback if needed
 import { CustomPrincipal } from '../utils/principal';
+import * as FileSystem from 'expo-file-system';
+import { Buffer } from 'buffer';
 
 // メインネット統合Canister ID設定
 const UNIFIED_CANISTER_ID = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || '77fv5-oiaaa-aaaal-qsoea-cai';
@@ -544,15 +546,19 @@ class PhotoService {
         offset += chunk.length;
       }
 
-      // Convert to base64 data URL
-      // For large arrays, we need to process in chunks to avoid stack overflow
-      let base64 = '';
-      const chunkSize = 0x8000; // 32KB chunks
-      for (let i = 0; i < combined.length; i += chunkSize) {
-        const chunk = combined.subarray(i, i + chunkSize);
-        base64 += btoa(String.fromCharCode.apply(null, Array.from(chunk)));
-      }
-      return `data:image/jpeg;base64,${base64}`;
+      // BufferでUint8ArrayからBase64に簡単に変換
+      const base64 = Buffer.from(combined).toString('base64');
+      
+      // ローカルファイルに保存
+      const localUri = `${FileSystem.cacheDirectory}photo_${photoId}.jpg`;
+      await FileSystem.writeAsStringAsync(localUri, base64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      
+      console.log('📷 Photo saved to local cache:', localUri);
+      
+      // file://パスを返す（Data-URIのサイズ制限を回避）
+      return localUri;
     } catch (error) {
       console.error('Get photo data URL error:', error);
       return null;

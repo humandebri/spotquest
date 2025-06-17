@@ -16,10 +16,10 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
-import { RootStackParamList } from '../navigation/AppNavigator';
-import { gameService } from '../services/game';
-import { photoService } from '../services/photo';
-import { useAuth } from '../hooks/useAuth';
+import { RootStackParamList } from '../../navigation/AppNavigator';
+import { gameService } from '../../services/game';
+import { photoService } from '../../services/photo';
+import { useAuth } from '../../hooks/useAuth';
 
 type SessionDetailsRouteProp = RouteProp<RootStackParamList, 'SessionDetails'>;
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'SessionDetails'>;

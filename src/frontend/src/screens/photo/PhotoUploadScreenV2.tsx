@@ -17,20 +17,21 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../navigation/AppNavigator';
+import { RootStackParamList } from '../../navigation/AppNavigator';
 import MapView, { Marker, Circle, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
-import { useAuth } from '../hooks/useAuth';
+import { useAuth } from '../../hooks/useAuth';
 import { 
-  photoServiceV2, 
-  imageUriToBase64, 
+  photoServiceV2,
+  imageUriToBlob,
+  blobToUint8Array,
   getRegionInfo,
   sceneKindFromString,
   CreatePhotoRequest,
   SceneKind
-} from '../services/photoV2';
-import { photoServiceV2Direct } from '../services/photoV2Direct';
-import { reverseGeocode } from '../services/photo'; // 一時的に旧サービスから流用
-import { compressImageAsync, formatFileSize } from '../utils/imageCompression';
+} from '../../services/photoV2';
+import { photoServiceV2Direct } from '../../services/photoV2Direct';
+import { reverseGeocode } from '../../services/photo'; // 一時的に旧サービスから流用
+import { compressImageAsync, formatFileSize } from '../../utils/imageCompression';
 
 type PhotoUploadScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'PhotoUpload'>;
 type PhotoUploadScreenRouteProp = RouteProp<RootStackParamList, 'PhotoUpload'>;
@@ -63,9 +64,6 @@ export default function PhotoUploadScreenV2() {
   const [difficulty, setDifficulty] = useState<'EASY' | 'NORMAL' | 'HARD' | 'EXTREME'>('NORMAL');
   const [hint, setHint] = useState('');
   const [tags, setTags] = useState('');
-  const [uploadDelay, setUploadDelay] = useState(0); // 分単位
-  const [scheduledTime, setScheduledTime] = useState(new Date());
-  const [showDatePicker, setShowDatePicker] = useState(false);
   
   // V2新規フィールド
   const [sceneType, setSceneType] = useState('nature');
@@ -104,13 +102,6 @@ export default function PhotoUploadScreenV2() {
     fetchLocationInfo();
   }, [latitude, longitude]);
 
-  useEffect(() => {
-    if (uploadDelay > 0) {
-      const delay = new Date();
-      delay.setMinutes(delay.getMinutes() + uploadDelay);
-      setScheduledTime(delay);
-    }
-  }, [uploadDelay]);
 
   const onPhotoDateChange = (event: any, selectedDate?: Date) => {
     setShowPhotoDatePicker(false);
@@ -119,12 +110,6 @@ export default function PhotoUploadScreenV2() {
     }
   };
 
-  const onScheduledTimeChange = (event: any, selectedDate?: Date) => {
-    setShowDatePicker(false);
-    if (selectedDate) {
-      setScheduledTime(selectedDate);
-    }
-  };
 
   const updateMapPosition = () => {
     const lat = parseFloat(displayLat);
@@ -150,7 +135,7 @@ export default function PhotoUploadScreenV2() {
     let compressionResult: { uri: string; compressed: boolean; originalSize: number; compressedSize: number } | null = null;
 
     try {
-      // 画像を2MB以下に圧縮
+      // 画像を1.4MB以下に圧縮（Base64膨張対応：1.4MB × 4/3 ≈ 1.87MB < 2MB）
       compressionResult = await compressImageAsync(photoUri);
       
       if (compressionResult.compressed) {
@@ -161,13 +146,17 @@ export default function PhotoUploadScreenV2() {
       setUploadPhase('uploading');
       setUploadProgress(0);
       
-      // 写真データをBase64に変換（圧縮済みのURIを使用）
-      const base64Data = await imageUriToBase64(compressionResult.uri);
+      // 写真データをバイナリデータに変換（圧縮済みのURIを使用）
+      const imageBlob = await imageUriToBlob(compressionResult.uri);
+      const imageData = await blobToUint8Array(imageBlob);
+      
+      console.log('📊 Data size comparison:');
+      console.log('  - Binary size:', imageData.length, 'bytes');
+      console.log('  - Base64 size (estimated):', Math.ceil(imageData.length * 4/3), 'bytes');
+      console.log('  - Savings:', Math.round((1 - (imageData.length / (imageData.length * 4/3))) * 100), '%');
 
-      // デフォルトタイトル（タイトルフィールドが削除されたため常にデフォルトを使用）
-      const defaultTitle = uploadDelay > 0 
-        ? `予約投稿 - ${new Date().toLocaleDateString('ja-JP')}`
-        : `写真 - ${new Date().toLocaleDateString('ja-JP')}`;
+      // デフォルトタイトル
+      const defaultTitle = `写真 - ${new Date().toLocaleDateString('ja-JP')}`;
 
       // 有効な方位角をチェックする関数
       const getValidAzimuth = (inputAzimuth: number | null, displayValue: string): number | null => {
@@ -200,21 +189,15 @@ export default function PhotoUploadScreenV2() {
         region,
         sceneKind: sceneKindFromString(sceneType),
         tags: tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0),
-        expectedChunks: BigInt(Math.ceil(base64Data.length / (256 * 1024))), // 256KB chunks
-        totalSize: BigInt(base64Data.length),
+        expectedChunks: BigInt(Math.ceil(imageData.length / (256 * 1024))), // 256KB chunks
+        totalSize: BigInt(imageData.length),
       };
 
-      // 予約投稿の処理（現在は未実装）
-      if (uploadDelay > 0) {
-        Alert.alert('準備中', '予約投稿機能は現在V2 APIでは準備中です');
-        setIsUploading(false);
-        return;
-      }
 
       // 直接アップロード実行（チャンク処理なし）
       const result = await photoServiceV2Direct.uploadPhotoDirect(
         {
-          imageData: base64Data,
+          imageData: imageData, // Uint8Arrayを直接渡す
           metadata: photoRequest,
         },
         identity
@@ -252,10 +235,6 @@ export default function PhotoUploadScreenV2() {
               compressionInfo,
               [
                 {
-                  text: 'プロフィールで確認',
-                  onPress: () => navigation.navigate('Profile'),
-                },
-                {
                   text: 'ホームに戻る',
                   onPress: () => navigation.navigate('Home'),
                 },
@@ -268,12 +247,8 @@ export default function PhotoUploadScreenV2() {
           console.error('Verification error:', verifyError);
           Alert.alert(
             '投稿完了',
-            '写真は投稿されましたが、保存状況の確認に失敗しました。\nプロフィール画面で確認してください。',
+            '写真は投稿されましたが、保存状況の確認に失敗しました。',
             [
-              {
-                text: 'プロフィールで確認',
-                onPress: () => navigation.navigate('Profile'),
-              },
               {
                 text: 'ホームに戻る',
                 onPress: () => navigation.navigate('Home'),
@@ -284,6 +259,7 @@ export default function PhotoUploadScreenV2() {
       }
     } catch (error) {
       console.error('Upload error:', error);
+      
       Alert.alert('エラー', '写真のアップロードに失敗しました');
     } finally {
       setIsUploading(false);
@@ -427,60 +403,6 @@ export default function PhotoUploadScreenV2() {
             />
           </View>
 
-          {/* 投稿タイミング */}
-          <View style={styles.inputSection}>
-            <Text style={styles.inputLabel}>投稿タイミング</Text>
-            <View style={styles.uploadDelayButtons}>
-              <TouchableOpacity
-                style={[
-                  styles.uploadDelayButton,
-                  uploadDelay === 0 && styles.uploadDelayButtonActive,
-                ]}
-                onPress={() => setUploadDelay(0)}
-              >
-                <Text
-                  style={[
-                    styles.uploadDelayButtonText,
-                    uploadDelay === 0 && styles.uploadDelayButtonTextActive,
-                  ]}
-                >
-                  今すぐ
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.uploadDelayButton,
-                  uploadDelay === 30 && styles.uploadDelayButtonActive,
-                ]}
-                onPress={() => setUploadDelay(30)}
-              >
-                <Text
-                  style={[
-                    styles.uploadDelayButtonText,
-                    uploadDelay === 30 && styles.uploadDelayButtonTextActive,
-                  ]}
-                >
-                  30分後
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.uploadDelayButton,
-                  uploadDelay === 60 && styles.uploadDelayButtonActive,
-                ]}
-                onPress={() => setUploadDelay(60)}
-              >
-                <Text
-                  style={[
-                    styles.uploadDelayButtonText,
-                    uploadDelay === 60 && styles.uploadDelayButtonTextActive,
-                  ]}
-                >
-                  1時間後
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
 
           {/* アップロードボタン */}
           <TouchableOpacity
@@ -499,7 +421,7 @@ export default function PhotoUploadScreenV2() {
               </View>
             ) : (
               <Text style={styles.uploadButtonText}>
-                {uploadDelay > 0 ? '予約投稿する' : '投稿する'}
+                投稿する
               </Text>
             )}
           </TouchableOpacity>
@@ -600,16 +522,6 @@ export default function PhotoUploadScreenV2() {
         />
       )}
 
-      {showDatePicker && DateTimePicker && (
-        <DateTimePicker
-          value={scheduledTime}
-          mode="datetime"
-          is24Hour={true}
-          display="default"
-          onChange={onScheduledTimeChange}
-          minimumDate={new Date()}
-        />
-      )}
     </SafeAreaView>
   );
 }
@@ -781,32 +693,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   difficultyButtonTextActive: {
-    color: '#fff',
-  },
-  uploadDelayButtons: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  uploadDelayButton: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    alignItems: 'center',
-  },
-  uploadDelayButtonActive: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
-  },
-  uploadDelayButtonText: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
-  },
-  uploadDelayButtonTextActive: {
     color: '#fff',
   },
   uploadButton: {

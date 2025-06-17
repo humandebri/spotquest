@@ -158,7 +158,8 @@ actor GameUnified {
         totalStorageSize: Nat;
     } = null;
     
-    private stable var photoV2ScheduledStable : ?{
+    // DEPRECATED: 予約投稿システム削除済み - 明示的にnullに設定
+    private stable var _photoV2ScheduledStable : ?{
         scheduledPhotos: [(Nat, PhotoModuleV2.ScheduledPhoto)];
         nextScheduledId: Nat;
         userScheduledPhotos: [(Principal, [Nat])];
@@ -768,27 +769,6 @@ actor GameUnified {
         photoManagerV2.deletePhoto(photoId, msg.caller)
     };
     
-    /// 写真の予約投稿（V2）
-    public shared(msg) func schedulePhotoUploadV2(
-        request: Photo.CreatePhotoRequest,
-        photoData: Blob,
-        scheduledPublishTime: Time.Time
-    ) : async Result.Result<Nat, Text> {
-        if (reputationManager.isBanned(msg.caller)) {
-            return #err("User is banned");
-        };
-        photoManagerV2.schedulePhotoUpload(request, photoData, scheduledPublishTime, msg.caller)
-    };
-    
-    /// スケジュール済み写真を取得（V2）
-    public shared query(msg) func getUserScheduledPhotosV2() : async [PhotoModuleV2.ScheduledPhoto] {
-        photoManagerV2.getScheduledPhotos(msg.caller)
-    };
-    
-    /// スケジュール済み写真をキャンセル（V2）
-    public shared(msg) func cancelScheduledPhotoV2(scheduledId: Nat) : async Result.Result<(), Text> {
-        photoManagerV2.cancelScheduledPhoto(scheduledId, msg.caller)
-    };
     
     // ======================================
     // REPUTATION FUNCTIONS
@@ -1359,7 +1339,6 @@ actor GameUnified {
     
     private func cleanupExpiredSessions() : async () {
         await gameEngineManager.cleanupExpiredSessions();
-        await photoManagerV2.processScheduledPhotos();
     };
     
     // ======================================
@@ -2002,11 +1981,6 @@ actor GameUnified {
             totalPhotos = v2Data.totalPhotos;
             totalStorageSize = v2Data.totalStorageSize;
         };
-        photoV2ScheduledStable := ?{
-            scheduledPhotos = v2Data.scheduledPhotos;
-            nextScheduledId = v2Data.nextScheduledId;
-            userScheduledPhotos = v2Data.userScheduledPhotos;
-        };
         reputationStable := ?reputationManager.toStable();
         iiIntegrationStable := ?iiIntegrationManager.preupgrade();
     };
@@ -2079,29 +2053,8 @@ actor GameUnified {
         switch(photoV2Stable) {
             case null { };
             case (?stableData) {
-                // Get scheduled data if available
-                let scheduledData = switch(photoV2ScheduledStable) {
-                    case null { {
-                        scheduledPhotos = [];
-                        nextScheduledId = 1;
-                        userScheduledPhotos = [];
-                    } };
-                    case (?s) { s };
-                };
-                
-                let v2Data = {
-                    photos = stableData.photos;
-                    photoChunks = stableData.photoChunks;
-                    nextPhotoId = stableData.nextPhotoId;
-                    totalPhotos = stableData.totalPhotos;
-                    totalStorageSize = stableData.totalStorageSize;
-                    scheduledPhotos = scheduledData.scheduledPhotos;
-                    nextScheduledId = scheduledData.nextScheduledId;
-                    userScheduledPhotos = scheduledData.userScheduledPhotos;
-                };
-                photoManagerV2.fromStable(v2Data);
+                photoManagerV2.fromStable(stableData);
                 photoV2Stable := null;
-                photoV2ScheduledStable := null;
             };
         };
         

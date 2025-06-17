@@ -103,10 +103,13 @@ class PhotoServiceV2Direct {
   /**
    * 写真を直接アップロード（チャンク処理なし）
    * 1.8MB以下に圧縮済みの画像データを想定
+   * 
+   * @param data.imageData - Uint8Array形式の画像データ（Base64から移行済み）
+   * @param data.metadata - 写真のメタデータ
    */
   async uploadPhotoDirect(
     data: {
-      imageData: string; // Base64
+      imageData: Uint8Array; // バイナリデータ（Base64から移行）
       metadata: CreatePhotoRequest;
     },
     identity?: Identity
@@ -116,12 +119,8 @@ class PhotoServiceV2Direct {
     }
 
     try {
-      // Base64をUint8Arrayに変換
-      const binaryString = atob(data.imageData);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
+      // Uint8Arrayを直接使用
+      const bytes = data.imageData;
 
       // IDL variant型とOptional型用の変換を行う
       const idlRequest = {

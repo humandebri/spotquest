@@ -18,9 +18,9 @@ import {
   FontAwesome5,
   MaterialCommunityIcons,
 } from '@expo/vector-icons';
-import { useAuth } from '../hooks/useAuth';
+import { useAuth } from '../../hooks/useAuth';
 import { LinearGradient } from 'expo-linear-gradient';
-import { adminService } from '../services/admin';
+import { adminService } from '../../services/admin';
 
 // タブの定義
 const TABS = [

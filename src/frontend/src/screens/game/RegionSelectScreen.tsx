@@ -14,9 +14,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../navigation/AppNavigator';
-import { photoServiceV2 } from '../services/photoV2';
-import { useAuth } from '../hooks/useAuth';
+import { RootStackParamList } from '../../navigation/AppNavigator';
+import { photoServiceV2 } from '../../services/photoV2';
+import { useAuth } from '../../hooks/useAuth';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'RegionSelect'>;
 

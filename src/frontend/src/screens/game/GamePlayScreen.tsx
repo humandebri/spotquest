@@ -20,11 +20,11 @@ import { BlurView } from 'expo-blur';
 import Slider from '@react-native-community/slider';
 import { useNavigation, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../navigation/AppNavigator';
-import { useGameStore } from '../store/gameStore';
-import { useAuth } from '../hooks/useAuth';
-import { gameService, HintType as ServiceHintType, HintData, HintContent } from '../services/game';
-import { photoServiceV2, SearchFilter } from '../services/photoV2';
+import { RootStackParamList } from '../../navigation/AppNavigator';
+import { useGameStore } from '../../store/gameStore';
+import { useAuth } from '../../hooks/useAuth';
+import { gameService, HintType as ServiceHintType, HintData, HintContent } from '../../services/game';
+import { photoServiceV2 } from '../../services/photoV2';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -142,17 +142,10 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   // タイマー管理を改善
   const [hasTimeoutBeenHandled, setHasTimeoutBeenHandled] = useState(false);
   
-  // Initialize gameService with identity
-  useEffect(() => {
-    if (identity) {
-      gameService.init(identity).catch(console.error);
-    }
-  }, [identity]);
-  
-  // Initialize session and photo
+  // Combined initialization - gameService and game session
   useEffect(() => {
     const initializeGame = async () => {
-      // Wait for gameService to be initialized
+      // Wait for both identity and principal
       if (!identity || !principal) {
         return;
       }
@@ -165,27 +158,19 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
       try {
         console.log('🎮 Starting game initialization...');
         
-        // Step 1: Check for existing sessions
-        const sessionsResult = await gameService.getUserSessions(principal);
-        console.log('🎮 User sessions result:', sessionsResult);
+        // Initialize gameService first
+        await gameService.init(identity);
+        console.log('🎮 GameService initialized');
         
-        // Handle both cases: existing sessions or no sessions
-        if (sessionsResult.ok) {
-          setUserSessions(sessionsResult.ok);
-          const activeSessions = sessionsResult.ok.filter(session => session.status === 'Active');
-          console.log('🎮 Found', activeSessions.length, 'active sessions');
-        } else if (sessionsResult.err) {
-          console.log('🎮 No existing sessions or error fetching sessions:', sessionsResult.err);
-          // It's OK if there are no sessions, we'll create a new one
-          setUserSessions([]);
-        }
+        // Skip getUserSessions - always create new session for game
+        // This saves one API call
+        setUserSessions([]);
         
-        // Step 2: Always create new session with cleanup
-        // This ensures old sessions are properly finalized before starting new game
+        // Create new session directly
         let newSessionId: string | null = null;
         
         if (!sessionId) {
-          console.log('🎮 Creating new session with cleanup...');
+          console.log('🎮 Creating new session...');
           const result = await gameService.createSessionWithCleanup();
           
           if (result.err) {
@@ -211,11 +196,29 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
           }
         }
         
-        // Step 3: Get round data for current session
+        // Step 3: Get round data and token balance in parallel
         const currentSessionId = sessionId || newSessionId;
         if (currentSessionId) {
-          console.log('🎮 Getting round data for session:', currentSessionId);
-          const roundResult = await gameService.getNextRound(currentSessionId, regionFilter);
+          console.log('🎮 Getting round data and token balance for session:', currentSessionId);
+          
+          // Parallelize round data and token balance fetching with error handling
+          const promises = await Promise.allSettled([
+            gameService.getNextRound(currentSessionId, regionFilter),
+            gameService.getTokenBalance(principal)
+          ]);
+          
+          // Handle round result
+          const roundResult = promises[0].status === 'fulfilled' ? promises[0].value : null;
+          if (!roundResult) {
+            throw new Error('Failed to get round data');
+          }
+          
+          // Handle balance (non-critical, so just log if failed)
+          if (promises[1].status === 'fulfilled') {
+            setTokenBalance(promises[1].value);
+          } else {
+            console.warn('Failed to fetch token balance:', promises[1].reason);
+          }
           
           if (roundResult.err) {
             throw new Error(roundResult.err);
@@ -225,10 +228,13 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
             const photoId = roundResult.ok.photoId;
             console.log('🎮 Round photo ID:', photoId);
             
-            // Get photo metadata
-            const photoMeta = await photoServiceV2.getPhotoMetadata(photoId, identity);
+            // Fetch photo metadata and chunk in parallel (only once!)
+            const [photoMeta, photoChunk] = await Promise.all([
+              photoServiceV2.getPhotoMetadata(photoId, identity),
+              photoServiceV2.getPhotoChunk(photoId, BigInt(0), identity)
+            ]);
             
-            if (photoMeta) {
+            if (photoMeta && photoChunk) {
               // ✅ Region filtering implementation completed (2025-06-16)
               // Backend's getNextRound function now supports region filtering.
               // Photos are selected from the specified region at the backend level.
@@ -245,27 +251,45 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
                 });
               }
               
-              // Get photo chunks to construct URL
-              const chunks: Uint8Array[] = [];
-              
-              for (let i = 0; i < Number(photoMeta.chunkCount); i++) {
-                const chunk = await photoServiceV2.getPhotoChunk(photoId, BigInt(i), identity);
-                if (chunk) {
-                  chunks.push(chunk);
-                }
-              }
-              
-              // Combine chunks and convert to base64
-              const combinedChunks = new Uint8Array(chunks.reduce((acc, chunk) => acc + chunk.length, 0));
-              let offset = 0;
-              for (const chunk of chunks) {
-                combinedChunks.set(chunk, offset);
-                offset += chunk.length;
-              }
+              // Use the already fetched photoChunk (no need to fetch again!)
+              const combinedChunks = photoChunk;
               
               // Convert to base64 data URL
-              const base64String = new TextDecoder().decode(combinedChunks);
-              const photoUrl = `data:image/jpeg;base64,${base64String}`;
+              // まず、データがすでにBase64かバイナリかを確認
+              const decoder = new TextDecoder();
+              const testChunk = combinedChunks.slice(0, Math.min(100, combinedChunks.length));
+              const asText = decoder.decode(testChunk);
+              
+              let photoUrl = '';
+              
+              if (asText.includes('data:image') || /^[A-Za-z0-9+/]/.test(asText)) {
+                // すでにBase64の場合
+                const base64String = decoder.decode(combinedChunks);
+                if (base64String.startsWith('data:')) {
+                  photoUrl = base64String;
+                } else {
+                  photoUrl = `data:image/jpeg;base64,${base64String}`;
+                }
+              } else {
+                // バイナリデータの場合、Base64に変換
+                const CHUNK_SIZE = 1024; // 1KB chunks
+                const binaryChunks: string[] = [];
+                
+                for (let i = 0; i < combinedChunks.length; i += CHUNK_SIZE) {
+                  const end = Math.min(i + CHUNK_SIZE, combinedChunks.length);
+                  const chunk = combinedChunks.slice(i, end);
+                  
+                  let binaryString = '';
+                  for (let j = 0; j < chunk.length; j++) {
+                    binaryString += String.fromCharCode(chunk[j]);
+                  }
+                  binaryChunks.push(binaryString);
+                }
+                
+                const fullBinaryString = binaryChunks.join('');
+                const base64String = btoa(fullBinaryString);
+                photoUrl = `data:image/jpeg;base64,${base64String}`;
+              }
               
               setCurrentPhoto({
                 id: photoMeta.id.toString(),
@@ -295,9 +319,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
           }
         }
         
-        // Step 5: Update token balance
-        const balance = await gameService.getTokenBalance(principal);
-        setTokenBalance(balance);
+        // Token balance already updated in parallel fetch above
         
         setIsLoading(false);
         setSessionLoading(false);
@@ -338,7 +360,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     };
     
     initializeGame();
-  }, [principal, identity]); // Removed sessionId dependency to avoid infinite loop
+  }, [principal, identity]); // Removed regionFilter to avoid re-initialization
   
   // Cleanup on unmount
   useEffect(() => {
@@ -564,20 +586,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
         timerRef.current = null;
       }
     };
-  }, [timeLeft, hasTimeoutBeenHandled, handleTimeout, currentPhoto, isLoading]);
-  
-  const handleTimeout = React.useCallback(() => {
-    // 既にナビゲート中の場合は何もしない
-    if (isNavigatingAway.current) {
-      return;
-    }
-    
-    console.log('⏰ Game timeout occurred');
-    
-    Alert.alert('時間切れ！', 'ランダムな場所で推測を送信します。', [
-      { text: 'OK', onPress: () => submitGuess(true) }
-    ]);
-  }, [submitGuess]);
+  }, [timeLeft, hasTimeoutBeenHandled, currentPhoto, isLoading]);
   
   // Calculate distance using Haversine formula (in meters)
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -611,7 +620,24 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     }
   };
   
-  const submitGuess = async (isTimeout = false) => {
+  // Forward declaration of submitGuess for handleTimeout
+  const submitGuessRef = useRef<(isTimeout?: boolean) => Promise<void>>();
+  
+  // Define handleTimeout
+  const handleTimeout = () => {
+    // 既にナビゲート中の場合は何もしない
+    if (isNavigatingAway.current) {
+      return;
+    }
+    
+    console.log('⏰ Game timeout occurred');
+    
+    Alert.alert('時間切れ！', 'ランダムな場所で推測を送信します。', [
+      { text: 'OK', onPress: () => submitGuessRef.current?.(true) }
+    ]);
+  };
+  
+  submitGuessRef.current = async (isTimeout = false) => {
     if (isTimeout) {
       console.log('⏰ submitGuess called from TIMEOUT:', { sessionId, currentGuess, isNavigatingAway: isNavigatingAway.current });
     } else {
@@ -714,6 +740,8 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
       photoUrl: currentPhoto!.url,
     });
   };
+  
+  const submitGuess = submitGuessRef.current;
   
   const purchaseHint = async (hint: Hint) => {
     if (!sessionId) {

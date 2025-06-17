@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -16,12 +16,12 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../navigation/AppNavigator';
+import { RootStackParamList } from '../../navigation/AppNavigator';
 import { BlurView } from 'expo-blur';
-import { useGameStore } from '../store/gameStore';
+import { useGameStore } from '../../store/gameStore';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { gameService } from '../services/game';
-import { useAuth } from '../hooks/useAuth';
+import { gameService } from '../../services/game';
+import { useAuth } from '../../hooks/useAuth';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -47,10 +47,16 @@ export default function GameResultScreen() {
     console.error('Error getting params:', error);
   }
   
-  console.log('GameResult route params:', {
+  console.log('🎯 GameResult route params:', {
     ...params,
-    photoUrl: params.photoUrl ? '[BASE64_IMAGE_DATA]' : undefined
+    photoUrl: params.photoUrl ? `[IMAGE_DATA_${(params.photoUrl?.length || 0 / 1024).toFixed(0)}KB]` : undefined,
+    isTimeout: timeUsed >= 180 // Detect timeout condition
   });
+  
+  // Performance monitoring for timeout scenarios
+  if (timeUsed >= 180) {
+    console.warn('⏰ Timeout detected in GameResult - using optimized rendering');
+  }
   
   // Ensure all values have defaults
   const guess = params.guess || { latitude: 0, longitude: 0 };
@@ -60,7 +66,16 @@ export default function GameResultScreen() {
   const azimuthGuess = params.azimuthGuess ?? 0;
   const actualAzimuth = params.actualAzimuth ?? 0;
   const difficulty = params.difficulty || 'NORMAL';
-  const photoUrl = params.photoUrl || 'https://picsum.photos/800/600';
+  // Optimize photo URL handling for performance
+  const photoUrl = useMemo(() => {
+    const url = params.photoUrl;
+    // For very large Base64 strings, use placeholder to avoid memory issues
+    if (url && url.length > 2000000) { // 2MB
+      console.warn('📸 Large photo data detected, using placeholder');
+      return 'https://picsum.photos/800/600';
+    }
+    return url || 'https://picsum.photos/800/600';
+  }, [params.photoUrl]);
 
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -69,8 +84,8 @@ export default function GameResultScreen() {
   const scoreAnim = useRef(new Animated.Value(0)).current;
   const markerScaleAnim = useRef(new Animated.Value(0)).current;
 
-  // Calculate distance using Haversine formula (in meters)
-  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+  // Calculate distance using Haversine formula (in meters) - memoized
+  const calculateDistance = useCallback((lat1: number, lon1: number, lat2: number, lon2: number): number => {
     const R = 6371000; // Earth's radius in meters
     const dLat = (lat2 - lat1) * (Math.PI / 180);
     const dLon = (lon2 - lon1) * (Math.PI / 180);
@@ -80,20 +95,23 @@ export default function GameResultScreen() {
       Math.sin(dLon / 2) * Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
-  };
+  }, []);
 
-  const distance = (guess && actualLocation && 
-    typeof guess.latitude === 'number' && 
-    typeof guess.longitude === 'number' && 
-    typeof actualLocation.latitude === 'number' && 
-    typeof actualLocation.longitude === 'number') 
-    ? calculateDistance(
+  const distance = useMemo(() => {
+    if (guess && actualLocation && 
+        typeof guess.latitude === 'number' && 
+        typeof guess.longitude === 'number' && 
+        typeof actualLocation.latitude === 'number' && 
+        typeof actualLocation.longitude === 'number') {
+      return calculateDistance(
         guess.latitude,
         guess.longitude,
         actualLocation.latitude,
         actualLocation.longitude
-      ) 
-    : 0;
+      );
+    }
+    return 0;
+  }, [guess, actualLocation, calculateDistance]);
 
   const azimuthError = Math.abs((azimuthGuess || 0) - (actualAzimuth || 0));
   const normalizedAzimuthError = Math.min(azimuthError, 360 - azimuthError);
@@ -128,86 +146,57 @@ export default function GameResultScreen() {
       });
     }
 
-    // Entrance animations
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        friction: 8,
-        tension: 40,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        delay: 300,
-        friction: 5,
-        tension: 40,
-        useNativeDriver: true,
-      }),
-    ]).start();
-
-    // Score counter animation
-    Animated.timing(scoreAnim, {
-      toValue: score || 0,
-      duration: 1500,
-      useNativeDriver: false,
+    // Simplified entrance animation
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true,
     }).start();
+
+    // Delayed score animation to reduce initial load
+    const scoreTimer = setTimeout(() => {
+      Animated.timing(scoreAnim, {
+        toValue: score || 0,
+        duration: 1000,
+        useNativeDriver: false,
+      }).start();
+    }, 200);
+
+    return () => clearTimeout(scoreTimer);
   }, []);
 
-  // Get distance-appropriate initial zoom level
-  const getInitialZoom = () => {
+  // Get distance-appropriate initial zoom level - memoized
+  const getInitialZoom = useMemo(() => {
     const distanceKm = distance / 1000;
     
     if (distanceKm < 1) {
-      // Very close - start with detailed zoom
       return { latitudeDelta: 0.01, longitudeDelta: 0.01 };
     } else if (distanceKm < 10) {
-      // Close - start with city-level zoom
       return { latitudeDelta: 0.05, longitudeDelta: 0.05 };
     } else if (distanceKm < 100) {
-      // Medium distance - start with regional zoom
       return { latitudeDelta: 0.5, longitudeDelta: 0.5 };
     } else if (distanceKm < 1000) {
-      // Long distance - start with country-level zoom
       return { latitudeDelta: 5, longitudeDelta: 5 };
     } else {
-      // Very long distance - start with continental zoom
       return { latitudeDelta: 20, longitudeDelta: 20 };
     }
-  };
+  }, [distance]);
 
-  // Map zoom animation
+  // Simplified map animation
   useEffect(() => {
-    if (mapReady && mapRef.current) {
-      const initialZoom = getInitialZoom();
-      
-      // Start with distance-appropriate zoom on actual location
-      const startRegion = {
-        latitude: actualLocation.latitude,
-        longitude: actualLocation.longitude,
-        ...initialZoom,
-      };
-      
-      // Animate to final region after a delay
-      setTimeout(() => {
-        const finalRegion = getMapRegion();
-        mapRef.current?.animateToRegion(finalRegion, 2000);
-        calculateDashPattern(finalRegion);
+    if (mapReady && mapRef.current && actualLocation && guess) {
+      // Delayed animation to avoid blocking UI
+      const mapTimer = setTimeout(() => {
+        mapRef.current?.animateToRegion(getMapRegion, 1500);
+        calculateDashPattern(getMapRegion);
         
-        // Animate markers appearing
-        Animated.spring(markerScaleAnim, {
-          toValue: 1,
-          friction: 4,
-          tension: 40,
-          useNativeDriver: true,
-        }).start();
-      }, 500);
+        // Simple marker appearance
+        markerScaleAnim.setValue(1);
+      }, 300);
+      
+      return () => clearTimeout(mapTimer);
     }
-  }, [mapReady, distance]);
+  }, [mapReady, getMapRegion, actualLocation, guess]);
 
   // No token minting here - will be done at session completion
 
@@ -247,8 +236,8 @@ export default function GameResultScreen() {
     });
   };
 
-  // Map region that includes both markers
-  const getMapRegion = () => {
+  // Map region that includes both markers - memoized
+  const getMapRegion = useMemo(() => {
     // Safety checks
     if (!guess || !actualLocation) {
       return {
@@ -275,7 +264,7 @@ export default function GameResultScreen() {
       latitudeDelta: deltaLat,
       longitudeDelta: deltaLon,
     };
-  };
+  }, [guess, actualLocation]);
 
   // Calculate dash pattern based on map zoom level
   const calculateDashPattern = (region: any) => {
@@ -296,42 +285,16 @@ export default function GameResultScreen() {
         end={{ x: 1, y: 1 }}
       />
       
-      {/* Mesh Pattern Overlay */}
-      <View style={styles.meshOverlay} pointerEvents="none">
-        {Array.from({ length: 20 }).map((_, i) => (
-          <View
-            key={`h-${i}`}
-            style={[
-              styles.meshLine,
-              {
-                top: `${i * 5}%`,
-                width: '100%',
-                height: 1,
-                opacity: 0.1,
-              },
-            ]}
-          />
-        ))}
-        {Array.from({ length: 20 }).map((_, i) => (
-          <View
-            key={`v-${i}`}
-            style={[
-              styles.meshLine,
-              {
-                left: `${i * 5}%`,
-                height: '100%',
-                width: 1,
-                opacity: 0.1,
-              },
-            ]}
-          />
-        ))}
-      </View>
+      {/* Simplified Background Pattern - Removed heavy mesh overlay */}
+      <View style={styles.simpleOverlay} pointerEvents="none" />
       
       {/* Map Section - Full Width */}
       <View style={styles.mapContainer}>
-        {guess && actualLocation && guess.latitude != null && guess.longitude != null && 
-         actualLocation.latitude != null && actualLocation.longitude != null ? (
+        {guess && actualLocation && 
+         typeof guess.latitude === 'number' && typeof guess.longitude === 'number' &&
+         typeof actualLocation.latitude === 'number' && typeof actualLocation.longitude === 'number' &&
+         !isNaN(guess.latitude) && !isNaN(guess.longitude) &&
+         !isNaN(actualLocation.latitude) && !isNaN(actualLocation.longitude) ? (
           <MapView
             ref={mapRef}
             style={styles.fullMap}
@@ -339,7 +302,7 @@ export default function GameResultScreen() {
             initialRegion={{
               latitude: actualLocation.latitude,
               longitude: actualLocation.longitude,
-              ...getInitialZoom(),
+              ...getInitialZoom,
             }}
             onMapReady={() => {
               setMapReady(true);
@@ -547,12 +510,13 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
   },
-  meshOverlay: {
+  simpleOverlay: {
     position: 'absolute',
     left: 0,
     right: 0,
     top: 0,
     bottom: 0,
+    backgroundColor: 'rgba(147, 51, 234, 0.05)',
   },
   meshLine: {
     position: 'absolute',

@@ -4,22 +4,32 @@ import { useAuth } from '../hooks/useAuth';
 import { DEBUG_CONFIG, debugLog } from '../utils/debugConfig';
 
 // スクリーンのインポート
-import HomeScreen from '../screens/HomeScreen';
-import GameModeScreen from '../screens/GameModeScreen';
-import GamePlayScreen from '../screens/GamePlayScreen';
-import GuessMapScreen from '../screens/GuessMapScreen';
-import GameResultScreen from '../screens/GameResultScreen';
-import SessionSummaryScreen from '../screens/SessionSummaryScreen';
-import SessionDetailsScreen from '../screens/SessionDetailsScreen';
-import CameraScreen from '../screens/CameraScreen';
-import PhotoUploadScreen from '../screens/PhotoUploadScreenV2';
-import LeaderboardScreen from '../screens/LeaderboardScreen';
-import ProfileScreen from '../screens/ProfileScreen';
-import LoginScreen from '../screens/LoginScreen';
-import AdminScreen from '../screens/AdminScreen';
-import RegionSelectScreen from '../screens/RegionSelectScreen';
-import PhotoLibraryScreen from '../screens/PhotoLibraryScreen';
-// import ScheduledPhotosScreen from '../screens/ScheduledPhotosScreen';
+// Home
+import HomeScreen from '../screens/home/HomeScreen';
+
+// Auth
+import LoginScreen from '../screens/auth/LoginScreen';
+
+// Game
+import GameModeScreen from '../screens/game/GameModeScreen';
+import GamePlayScreen from '../screens/game/GamePlayScreen';
+import GuessMapScreen from '../screens/game/GuessMapScreen';
+import GameResultScreen from '../screens/game/GameResultScreen';
+import SessionSummaryScreen from '../screens/game/SessionSummaryScreen';
+import SessionDetailsScreen from '../screens/game/SessionDetailsScreen';
+import RegionSelectScreen from '../screens/game/RegionSelectScreen';
+
+// Photo
+import CameraScreen from '../screens/photo/CameraScreen';
+import PhotoUploadScreen from '../screens/photo/PhotoUploadScreenV2';
+import PhotoLibraryScreen from '../screens/photo/PhotoLibraryScreen';
+
+// User
+import LeaderboardScreen from '../screens/user/LeaderboardScreen';
+import ProfileScreen from '../screens/user/ProfileScreen';
+
+// Admin
+import AdminScreen from '../screens/admin/AdminScreen';
 
 export type RootStackParamList = {
   Home: undefined;
@@ -183,11 +193,6 @@ export default function AppNavigator() {
             component={AdminScreen}
             options={{ title: 'Admin Dashboard' }}
           />
-          {/* <Stack.Screen
-            name="ScheduledPhotos"
-            component={ScheduledPhotosScreen}
-            options={{ title: 'Scheduled Posts' }}
-          /> */}
         </Stack.Group>
       ) : (
         <Stack.Screen

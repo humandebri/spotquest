@@ -1,10 +1,11 @@
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system';
 
-const MAX_FILE_SIZE = 1.8 * 1024 * 1024; // 1.8MB (ICPのmax_response_bytesの制限を考慮)
+const MAX_FILE_SIZE = 1.8 * 1024 * 1024; // 1.8MB (バイナリアップロード用: ICPの2MB制限内)
 
 /**
- * 画像を1.8MB以下に圧縮する（ICPのmax_response_bytes制限対応）
+ * 画像を1.8MB以下に圧縮する（バイナリアップロード対応）
+ * バイナリ形式で直接アップロードするため、Base64の33%オーバーヘッドなし
  * @param uri 画像のURI
  * @returns 圧縮された画像のURI
  */
@@ -29,21 +30,36 @@ export async function compressImageAsync(uri: string): Promise<{ uri: string; co
     
     console.log('🔧 Image exceeds 1.8MB, starting compression...');
     
+    // 元画像の情報を取得
+    const originalImageInfo = await ImageManipulator.manipulateAsync(
+      uri,
+      [],
+      { compress: 1, format: ImageManipulator.SaveFormat.JPEG }
+    );
+    console.log(`📐 Original image dimensions: ${originalImageInfo.width}x${originalImageInfo.height}`);
+    
     let compressQuality = 0.9;
     let resizedUri = uri;
     let attempts = 0;
     const maxAttempts = 10;
     
-    // 初回は幅を1920pxに制限（Full HD相当）
-    let targetWidth = 1920;
+    // 初回は幅を1920pxに制限（Full HD相当）、ただし元画像がそれより小さい場合は元のサイズを使用
+    let targetWidth = Math.min(1920, originalImageInfo.width);
     
     while (attempts < maxAttempts) {
       attempts++;
       console.log(`🔄 Compression attempt ${attempts}: quality=${compressQuality}, width=${targetWidth}`);
       
+      // アスペクト比を保持したリサイズ
+      // heightに大きな値を設定することで、アスペクト比に基づいて自動調整される
       const manipulated = await ImageManipulator.manipulateAsync(
         resizedUri,
-        [{ resize: { width: targetWidth } }],
+        [{ 
+          resize: { 
+            width: targetWidth,
+            height: 10000 // 十分に大きな値を設定（アスペクト比に基づいて自動調整される）
+          } 
+        }],
         { compress: compressQuality, format: ImageManipulator.SaveFormat.JPEG }
       );
       
@@ -51,6 +67,7 @@ export async function compressImageAsync(uri: string): Promise<{ uri: string; co
       const currentSize = fileInfo.exists && 'size' in fileInfo ? fileInfo.size : 0;
       
       console.log(`📊 Compressed size: ${(currentSize / 1024 / 1024).toFixed(2)} MB`);
+      console.log(`📐 Image dimensions: ${manipulated.width}x${manipulated.height}`);
       
       if (currentSize <= MAX_FILE_SIZE) {
         console.log(`✅ Successfully compressed to ${(currentSize / 1024 / 1024).toFixed(2)} MB (${Math.round((1 - currentSize / originalSize) * 100)}% reduction)`);
@@ -78,12 +95,12 @@ export async function compressImageAsync(uri: string): Promise<{ uri: string; co
         targetWidth = Math.floor(targetWidth * 0.9);
       }
       
-      // 最小値の制限
-      if (compressQuality < 0.1) {
-        compressQuality = 0.1;
+      // 最小値の制限（品質を上げて画像の劣化を防ぐ）
+      if (compressQuality < 0.3) {
+        compressQuality = 0.3; // 最低でも30%の品質を保つ
       }
-      if (targetWidth < 640) {
-        targetWidth = 640;
+      if (targetWidth < 800) {
+        targetWidth = 800; // 最小幅を800pxに上げる
       }
     }
     

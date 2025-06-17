@@ -16,10 +16,10 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
-import { RootStackParamList } from '../navigation/AppNavigator';
-import { useAuth } from '../hooks/useAuth';
-import { gameService } from '../services/game';
-import { useGameStore } from '../store/gameStore';
+import { RootStackParamList } from '../../navigation/AppNavigator';
+import { useAuth } from '../../hooks/useAuth';
+import { gameService } from '../../services/game';
+import { useGameStore } from '../../store/gameStore';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 

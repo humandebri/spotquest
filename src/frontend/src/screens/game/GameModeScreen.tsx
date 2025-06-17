@@ -16,7 +16,7 @@ import {
   FontAwesome5,
   MaterialIcons 
 } from '@expo/vector-icons';
-import { RootStackParamList } from '../navigation/AppNavigator';
+import { RootStackParamList } from '../../navigation/AppNavigator';
 
 export default function GameModeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'Game'>>();

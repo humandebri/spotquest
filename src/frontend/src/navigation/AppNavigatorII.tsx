@@ -3,17 +3,28 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useIIAuthStore } from '../store/iiAuthStore';
 
 // スクリーンのインポート
-import HomeScreen from '../screens/HomeScreen';
-import GameModeScreen from '../screens/GameModeScreen';
-import GamePlayScreen from '../screens/GamePlayScreen';
-import GuessMapScreen from '../screens/GuessMapScreen';
-import GameResultScreen from '../screens/GameResultScreen';
-import CameraScreen from '../screens/CameraScreen';
-import PhotoUploadScreen from '../screens/PhotoUploadScreenV2';
-import LeaderboardScreen from '../screens/LeaderboardScreen';
-import ProfileScreen from '../screens/ProfileScreen';
-import LoginScreenII from '../screens/LoginScreenII';
-import AdminScreen from '../screens/AdminScreen';
+// Home
+import HomeScreen from '../screens/home/HomeScreen';
+
+// Auth
+import LoginScreenII from '../screens/LoginScreenII'; // TODO: このファイルが存在しない場合は修正が必要
+
+// Game
+import GameModeScreen from '../screens/game/GameModeScreen';
+import GamePlayScreen from '../screens/game/GamePlayScreen';
+import GuessMapScreen from '../screens/game/GuessMapScreen';
+import GameResultScreen from '../screens/game/GameResultScreen';
+
+// Photo
+import CameraScreen from '../screens/photo/CameraScreen';
+import PhotoUploadScreen from '../screens/photo/PhotoUploadScreenV2';
+
+// User
+import LeaderboardScreen from '../screens/user/LeaderboardScreen';
+import ProfileScreen from '../screens/user/ProfileScreen';
+
+// Admin
+import AdminScreen from '../screens/admin/AdminScreen';
 
 export type RootStackParamList = {
   Home: undefined;

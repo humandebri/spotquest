@@ -24,15 +24,17 @@ import {
   Feather,
   Foundation
 } from '@expo/vector-icons';
-import { useAuth } from '../hooks/useAuth';
+import { useAuth } from '../../hooks/useAuth';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../navigation/AppNavigator';
-import { photoServiceV2, PhotoMetaV2 } from '../services/photoV2';
+import { RootStackParamList } from '../../navigation/AppNavigator';
+import { photoServiceV2, PhotoMetaV2 } from '../../services/photoV2';
+import * as FileSystem from 'expo-file-system';
+import { Buffer } from 'buffer';
 
 // Use V2 types
 type PhotoMetadata = PhotoMetaV2;
-import { gameService } from '../services/game';
+import { gameService } from '../../services/game';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Profile'>;
 
@@ -969,92 +971,26 @@ const PhotoImageLoader = React.memo(({ photoId }: { photoId: bigint }) => {
         console.log('📷 Image data loaded:', {
           photoId: photoId.toString(),
           chunkCount,
-          totalSize: allChunks.length,
-          firstBytes: Array.from(allChunks.slice(0, 10)).map(b => b.toString(16)).join(' ')
+          totalSize: allChunks.length
         });
 
-        // より安全なBase64変換アプローチ
         try {
-          // まず小さなチャンクで試してみる
-          const testChunk = allChunks.slice(0, Math.min(1000, allChunks.length));
-          const decoder = new TextDecoder();
-          const asText = decoder.decode(testChunk);
+          // BufferでUint8ArrayからBase64に簡単に変換
+          const base64 = Buffer.from(allChunks).toString('base64');
           
-          console.log('📷 Testing data format, first 100 chars:', asText.substring(0, 100));
+          // ローカルファイルに保存
+          const localUri = `${FileSystem.cacheDirectory}photo_${photoId}.jpg`;
+          await FileSystem.writeAsStringAsync(localUri, base64, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
           
-          // データがテキスト（Base64）かどうかをチェック
-          if (asText.includes('data:image') || /^[A-Za-z0-9+/]/.test(asText)) {
-            console.log('📷 Data appears to be text/base64');
-            const fullText = decoder.decode(allChunks);
-            
-            if (fullText.startsWith('data:')) {
-              setImageUri(fullText);
-            } else {
-              setImageUri(`data:image/jpeg;base64,${fullText}`);
-            }
-          } else {
-            console.log('📷 Data appears to be binary, size:', allChunks.length);
-            
-            // React Native環境でバイナリデータをBase64に変換
-            // Base64は3バイトを4文字に変換するため、3の倍数のチャンクサイズを使用
-            const chunkSize = 3 * 1024; // 3KB (3の倍数)
-            
-            try {
-              // 方法1: 文字列連結を避けて配列を使用
-              const base64Chunks: string[] = [];
-              
-              for (let i = 0; i < allChunks.length; i += chunkSize) {
-                const end = Math.min(i + chunkSize, allChunks.length);
-                const chunk = allChunks.slice(i, end);
-                
-                // Uint8Arrayをバイナリ文字列に変換
-                const binaryStrings: string[] = [];
-                for (let j = 0; j < chunk.length; j++) {
-                  binaryStrings.push(String.fromCharCode(chunk[j]));
-                }
-                
-                // チャンクをBase64エンコード
-                const base64Chunk = btoa(binaryStrings.join(''));
-                base64Chunks.push(base64Chunk);
-              }
-              
-              const finalBase64 = base64Chunks.join('');
-              console.log('📷 Binary to Base64 conversion successful, chunks:', base64Chunks.length, 'total length:', finalBase64.length);
-              
-              // 最初の数バイトを確認してJPEGヘッダーを検証
-              const header = Array.from(allChunks.slice(0, 4)).map(b => b.toString(16).padStart(2, '0')).join(' ');
-              console.log('📷 Image header:', header);
-              
-              setImageUri(`data:image/jpeg;base64,${finalBase64}`);
-            } catch (conversionError) {
-              console.error('📷 Manual Base64 conversion error:', conversionError);
-              
-              // フォールバック: より小さなチャンクで再試行
-              try {
-                console.log('📷 Trying fallback conversion with smaller chunks...');
-                const smallChunkSize = 512; // 512バイト
-                let base64String = '';
-                
-                for (let i = 0; i < allChunks.length; i += smallChunkSize) {
-                  const end = Math.min(i + smallChunkSize, allChunks.length);
-                  const chunk = allChunks.slice(i, end);
-                  
-                  // 小さなチャンクを処理
-                  const bytes = Array.from(chunk);
-                  const binaryString = bytes.map(byte => String.fromCharCode(byte)).join('');
-                  base64String += btoa(binaryString);
-                }
-                
-                console.log('📷 Fallback conversion successful, length:', base64String.length);
-                setImageUri(`data:image/jpeg;base64,${base64String}`);
-              } catch (fallbackError) {
-                console.error('📷 Fallback conversion also failed:', fallbackError);
-                setImageUri(null);
-              }
-            }
-          }
-        } catch (conversionError) {
-          console.error('📷 Base64 conversion error:', conversionError);
+          console.log('📷 Photo saved to local cache:', localUri);
+          
+          // file://パスを設定（これでData-URIのサイズ制限を回避）
+          setImageUri(localUri);
+          
+        } catch (error) {
+          console.error('📷 Failed to save photo:', error);
           setImageUri(null);
         }
       } catch (error) {

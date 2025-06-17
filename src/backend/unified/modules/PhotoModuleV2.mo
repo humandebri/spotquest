@@ -152,16 +152,23 @@ module {
         photosBySceneKind: [(SceneKind, Nat)];
         popularTags: [(Text, Nat)];
     };
-    
-    /// スケジュール済み写真
+
+    // DEPRECATED: 予約投稿システム削除のため - 互換性のためのダミー型
     public type ScheduledPhoto = {
         id: Nat;
-        request: CreatePhotoRequest;
-        photoData: Blob; // Base64エンコードされた写真データ
+        photoMeta: { latitude: Float; longitude: Float; };
+        imageChunks: [Blob];
         scheduledPublishTime: Time.Time;
-        status: { #Pending; #Published; #Cancelled };
+        status: { #pending; #published; #cancelled; #failed };
+        title: Text;
+        description: Text;
+        difficulty: { #EASY; #NORMAL; #HARD; #EXTREME };
+        hint: Text;
+        tags: [Text];
         createdAt: Time.Time;
+        updatedAt: Time.Time;
     };
+    
 
     // ======================================
     // PhotoManagerクラス
@@ -191,10 +198,6 @@ module {
         private var totalPhotos : Nat = 0;
         private var totalStorageSize : Nat = 0;
         
-        // スケジュール済み写真
-        private var scheduledPhotos = TrieMap.TrieMap<Nat, ScheduledPhoto>(Nat.equal, Hash.hash);
-        private var nextScheduledId : Nat = 1;
-        private var userScheduledPhotos = TrieMap.TrieMap<Principal, Buffer.Buffer<Nat>>(Principal.equal, Principal.hash);
         
         // ======================================
         // PUBLIC FUNCTIONS
@@ -730,178 +733,9 @@ module {
             }
         };
         
-        /// スケジュール済み写真を作成
-        public func schedulePhotoUpload(
-            request: CreatePhotoRequest,
-            photoData: Blob,
-            scheduledPublishTime: Time.Time,
-            owner: Principal
-        ) : Result.Result<Nat, Text> {
-            // 入力検証
-            if (not Helpers.isValidLatitude(request.latitude)) {
-                return #err("Invalid latitude");
-            };
-            
-            if (not Helpers.isValidLongitude(request.longitude)) {
-                return #err("Invalid longitude");
-            };
-            
-            if (scheduledPublishTime <= Time.now()) {
-                return #err("Scheduled time must be in the future");
-            };
-            
-            // ユーザーのスケジュール済み写真数制限チェック
-            let userScheduled = switch(userScheduledPhotos.get(owner)) {
-                case null { 
-                    let buffer = Buffer.Buffer<Nat>(10);
-                    userScheduledPhotos.put(owner, buffer);
-                    buffer
-                };
-                case (?buffer) { buffer };
-            };
-            
-            if (userScheduled.size() >= 10) { // 最大10件のスケジュール済み写真
-                return #err("Maximum scheduled photos limit reached");
-            };
-            
-            let scheduledId = nextScheduledId;
-            
-            let scheduledPhoto : ScheduledPhoto = {
-                id = scheduledId;
-                request = request;
-                photoData = photoData;
-                scheduledPublishTime = scheduledPublishTime;
-                status = #Pending;
-                createdAt = Time.now();
-            };
-            
-            scheduledPhotos.put(scheduledId, scheduledPhoto);
-            userScheduled.add(scheduledId);
-            nextScheduledId += 1;
-            
-            #ok(scheduledId)
-        };
         
-        /// スケジュール済み写真を取得
-        public func getScheduledPhotos(owner: Principal) : [ScheduledPhoto] {
-            switch(userScheduledPhotos.get(owner)) {
-                case null { [] };
-                case (?buffer) {
-                    let photos = Buffer.Buffer<ScheduledPhoto>(buffer.size());
-                    for (id in buffer.vals()) {
-                        switch(scheduledPhotos.get(id)) {
-                            case null { };
-                            case (?photo) {
-                                if (photo.status == #Pending) {
-                                    photos.add(photo);
-                                };
-                            };
-                        };
-                    };
-                    Buffer.toArray(photos)
-                };
-            }
-        };
         
-        /// スケジュール済み写真をキャンセル
-        public func cancelScheduledPhoto(scheduledId: Nat, requestor: Principal) : Result.Result<(), Text> {
-            switch(scheduledPhotos.get(scheduledId)) {
-                case null { #err("Scheduled photo not found") };
-                case (?photo) {
-                    // 所有者確認
-                    var isOwner = false;
-                    switch(userScheduledPhotos.get(requestor)) {
-                        case null { };
-                        case (?buffer) {
-                            for (id in buffer.vals()) {
-                                if (id == scheduledId) {
-                                    isOwner := true;
-                                };
-                            };
-                        };
-                    };
-                    
-                    if (not isOwner) {
-                        return #err("Unauthorized");
-                    };
-                    
-                    if (photo.status != #Pending) {
-                        return #err("Can only cancel pending photos");
-                    };
-                    
-                    // 5分前以降はキャンセル不可
-                    if (photo.scheduledPublishTime - Time.now() < 5 * 60 * 1000_000_000) {
-                        return #err("Cannot cancel within 5 minutes of scheduled time");
-                    };
-                    
-                    let cancelledPhoto = {
-                        photo with
-                        status = #Cancelled;
-                    };
-                    
-                    scheduledPhotos.put(scheduledId, cancelledPhoto);
-                    
-                    #ok()
-                };
-            }
-        };
         
-        /// スケジュール済み写真を公開（内部関数として呼ばれる）
-        public func processScheduledPhotos() : async () {
-            let now = Time.now();
-            
-            for ((id, photo) in scheduledPhotos.entries()) {
-                if (photo.status == #Pending and photo.scheduledPublishTime <= now) {
-                    // 写真を公開 - ownerフィールドはCreatePhotoRequest内にないので追加
-                    var photoOwner = Principal.fromText("aaaaa-aa");
-                    for ((owner, buffer) in userScheduledPhotos.entries()) {
-                        for (scheduledId in buffer.vals()) {
-                            if (scheduledId == id) {
-                                photoOwner := owner;
-                            };
-                        };
-                    };
-                    
-                    switch(createPhoto(photo.request, photoOwner)) {
-                        case (#err(e)) { 
-                            // エラーログ（本番環境では適切なログシステムを使用）
-                        };
-                        case (#ok(photoId)) {
-                            // 写真データをチャンクに分割してアップロード
-                            let chunkSize = 256 * 1024; // 256KB
-                            let dataSize = photo.photoData.size();
-                            var offset = 0;
-                            var chunkIndex = 0;
-                            
-                            while (offset < dataSize) {
-                                let end = Nat.min(offset + chunkSize, dataSize);
-                                let chunk = Blob.fromArray(
-                                    Array.tabulate<Nat8>(
-                                        end - offset,
-                                        func(i) = photo.photoData[offset + i]
-                                    )
-                                );
-                                
-                                ignore uploadPhotoChunk(photoId, chunkIndex, chunk);
-                                
-                                offset := end;
-                                chunkIndex += 1;
-                            };
-                            
-                            // アップロード完了
-                            ignore finalizePhotoUpload(photoId);
-                            
-                            // スケジュール済み写真のステータスを更新
-                            let publishedPhoto = {
-                                photo with
-                                status = #Published;
-                            };
-                            scheduledPhotos.put(id, publishedPhoto);
-                        };
-                    };
-                };
-            };
-        };
         
         // ======================================
         // PRIVATE HELPER FUNCTIONS
@@ -1119,9 +953,6 @@ module {
             nextPhotoId: Nat;
             totalPhotos: Nat;
             totalStorageSize: Nat;
-            scheduledPhotos: [(Nat, ScheduledPhoto)];
-            nextScheduledId: Nat;
-            userScheduledPhotos: [(Principal, [Nat])];
             
             // インデックスは再構築可能なので保存しない（メモリ節約）
             // 必要に応じて保存することも可能
@@ -1132,12 +963,6 @@ module {
                 nextPhotoId = nextPhotoId;
                 totalPhotos = totalPhotos;
                 totalStorageSize = totalStorageSize;
-                scheduledPhotos = Iter.toArray(scheduledPhotos.entries());
-                nextScheduledId = nextScheduledId;
-                userScheduledPhotos = Array.map<(Principal, Buffer.Buffer<Nat>), (Principal, [Nat])>(
-                    Iter.toArray(userScheduledPhotos.entries()),
-                    func(entry) = (entry.0, Buffer.toArray(entry.1))
-                );
             }
         };
         
@@ -1147,26 +972,12 @@ module {
             nextPhotoId: Nat;
             totalPhotos: Nat;
             totalStorageSize: Nat;
-            scheduledPhotos: [(Nat, ScheduledPhoto)];
-            nextScheduledId: Nat;
-            userScheduledPhotos: [(Principal, [Nat])];
         }) {
             photos := TrieMap.fromEntries(stableData.photos.vals(), Nat.equal, Hash.hash);
             photoChunks := TrieMap.fromEntries(stableData.photoChunks.vals(), Text.equal, Text.hash);
             nextPhotoId := stableData.nextPhotoId;
             totalPhotos := stableData.totalPhotos;
             totalStorageSize := stableData.totalStorageSize;
-            scheduledPhotos := TrieMap.fromEntries(stableData.scheduledPhotos.vals(), Nat.equal, Hash.hash);
-            nextScheduledId := stableData.nextScheduledId;
-            
-            userScheduledPhotos := TrieMap.TrieMap<Principal, Buffer.Buffer<Nat>>(Principal.equal, Principal.hash);
-            for ((user, scheduledIds) in stableData.userScheduledPhotos.vals()) {
-                let buffer = Buffer.Buffer<Nat>(scheduledIds.size());
-                for (id in scheduledIds.vals()) {
-                    buffer.add(id);
-                };
-                userScheduledPhotos.put(user, buffer);
-            };
             
             // インデックスを再構築
             rebuildIndices();

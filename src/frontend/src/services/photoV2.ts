@@ -16,19 +16,6 @@ export type SceneKind =
   | { Facility: null }
   | { Other: null };
 
-export type ScheduledPhotoStatus = 
-  | { Pending: null }
-  | { Published: null }
-  | { Cancelled: null };
-
-export interface ScheduledPhoto {
-  id: bigint;
-  request: CreatePhotoRequest;
-  photoData: Blob;
-  scheduledPublishTime: bigint;
-  status: ScheduledPhotoStatus;
-  createdAt: bigint;
-}
 
 export type CountryCode = string; // ISO-3166-1 alpha-2 (例: "JP")
 export type RegionCode = string;  // ISO-3166-2 (例: "JP-15")
@@ -244,20 +231,6 @@ const idlFactory = ({ IDL }: any) => {
     popularTags: IDL.Vec(IDL.Tuple(IDL.Text, IDL.Nat)),
   });
 
-  const ScheduledPhotoStatus = IDL.Variant({
-    'Pending': IDL.Null,
-    'Published': IDL.Null,
-    'Cancelled': IDL.Null,
-  });
-
-  const ScheduledPhoto = IDL.Record({
-    id: IDL.Nat,
-    request: CreatePhotoRequest,
-    photoData: IDL.Vec(IDL.Nat8),
-    scheduledPublishTime: IDL.Int,
-    status: ScheduledPhotoStatus,
-    createdAt: IDL.Int,
-  });
 
   const Result = IDL.Variant({
     'ok': IDL.Nat,
@@ -279,9 +252,6 @@ const idlFactory = ({ IDL }: any) => {
     getPhotoStatsV2: IDL.Func([], [PhotoStatsV2], ['query']),
     getUserPhotosV2: IDL.Func([IDL.Opt(IDL.Nat), IDL.Nat], [SearchResult], ['query']),
     deletePhotoV2: IDL.Func([IDL.Nat], [ResultEmpty], []),
-    schedulePhotoUploadV2: IDL.Func([CreatePhotoRequest, IDL.Vec(IDL.Nat8), IDL.Int], [Result], []),
-    getUserScheduledPhotosV2: IDL.Func([], [IDL.Vec(ScheduledPhoto)], ['query']),
-    cancelScheduledPhotoV2: IDL.Func([IDL.Nat], [ResultEmpty], []),
   });
 };
 
@@ -562,70 +532,6 @@ class PhotoServiceV2 {
     }
   }
 
-  /**
-   * 写真の予約投稿を作成
-   */
-  async schedulePhotoUpload(
-    request: CreatePhotoRequest,
-    photoData: Blob,
-    scheduledPublishTime: bigint,
-    identity?: Identity
-  ): Promise<{ ok?: bigint; err?: string }> {
-    if (!this.actor && identity) {
-      await this.init(identity);
-    }
-
-    try {
-      // IDL variant型とOptional型用の変換を行う
-      const idlRequest = {
-        ...request,
-        azimuth: request.azimuth !== null ? [request.azimuth] : [], // null → [] に変換
-        difficulty: difficultyFromString(request.difficulty), // 文字列 → variant型に変換
-      };
-      
-      console.log('📸 Scheduling photo upload:', { request, scheduledTime: scheduledPublishTime });
-      const result = await this.actor.schedulePhotoUploadV2(idlRequest, photoData, scheduledPublishTime);
-      console.log('📸 Scheduled photo created:', result);
-      return result;
-    } catch (error) {
-      console.error('❌ Schedule photo error:', error);
-      return { err: error instanceof Error ? error.message : 'Schedule failed' };
-    }
-  }
-
-  /**
-   * ユーザーのスケジュール済み写真を取得
-   */
-  async getUserScheduledPhotos(identity?: Identity): Promise<ScheduledPhoto[]> {
-    if (!this.actor && identity) {
-      await this.init(identity);
-    }
-
-    try {
-      const result = await this.actor.getUserScheduledPhotosV2();
-      return result;
-    } catch (error) {
-      console.error('❌ Get scheduled photos error:', error);
-      return [];
-    }
-  }
-
-  /**
-   * スケジュール済み写真をキャンセル
-   */
-  async cancelScheduledPhoto(scheduledId: bigint, identity?: Identity): Promise<{ ok?: null; err?: string }> {
-    if (!this.actor && identity) {
-      await this.init(identity);
-    }
-
-    try {
-      const result = await this.actor.cancelScheduledPhotoV2(scheduledId);
-      return result;
-    } catch (error) {
-      console.error('❌ Cancel scheduled photo error:', error);
-      return { err: error instanceof Error ? error.message : 'Cancel failed' };
-    }
-  }
 
   /**
    * 3段階アップロードヘルパー
@@ -728,6 +634,28 @@ export async function imageUriToBase64(uri: string): Promise<string> {
     };
     reader.onerror = reject;
     reader.readAsDataURL(blob);
+  });
+}
+
+// 画像URIをBlobに変換するヘルパー関数
+export async function imageUriToBlob(uri: string): Promise<Blob> {
+  const response = await fetch(uri);
+  return response.blob();
+}
+
+// BlobをUint8Arrayに変換するヘルパー関数（React Native対応）
+export async function blobToUint8Array(blob: Blob): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (reader.result instanceof ArrayBuffer) {
+        resolve(new Uint8Array(reader.result));
+      } else {
+        reject(new Error('Failed to convert blob to ArrayBuffer'));
+      }
+    };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(blob);
   });
 }
 

@@ -145,7 +145,7 @@ module {
                 case (?buffer) { buffer };
             };
             
-            if (userScheduled.size() >= Constants.MAX_SCHEDULED_PHOTOS_PER_USER) {
+            if (userScheduled.size() >= 10) {
                 return #err("Too many scheduled photos");
             };
             

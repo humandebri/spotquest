@@ -10,10 +10,11 @@ import {
   ActivityIndicator,
   Modal,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../navigation/AppNavigator';
+import { RootStackParamList } from '../../navigation/AppNavigator';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as Location from 'expo-location';
@@ -232,6 +233,9 @@ export default function PhotoLibraryScreen() {
   // 地図上の位置を確定
   const confirmLocation = () => {
     if (manualLocation && selectedPhoto) {
+      // 成功のハプティックフィードバック
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
       const updatedPhoto: SelectedPhoto = {
         ...selectedPhoto,
         location: manualLocation,
@@ -366,16 +370,13 @@ export default function PhotoLibraryScreen() {
           onRequestClose={() => setShowLocationPicker(false)}
         >
           <SafeAreaView style={styles.modalContainer} edges={['top', 'left', 'right', 'bottom']}>
+            {/* ヘッダー（確定ボタンを削除し、シンプルに） */}
             <View style={styles.modalHeader}>
               <TouchableOpacity onPress={() => setShowLocationPicker(false)}>
                 <Text style={styles.modalCloseButton}>キャンセル</Text>
               </TouchableOpacity>
               <Text style={styles.modalTitle}>撮影場所を選択</Text>
-              <TouchableOpacity onPress={confirmLocation} disabled={!manualLocation}>
-                <Text style={[styles.modalConfirmButton, !manualLocation && styles.disabledButton]}>
-                  確定
-                </Text>
-              </TouchableOpacity>
+              <View style={{ width: 60 }} />
             </View>
 
             <Text style={styles.mapInstruction}>
@@ -389,11 +390,16 @@ export default function PhotoLibraryScreen() {
               initialRegion={mapRegion}
               onPress={(event) => {
                 const { latitude, longitude } = event.nativeEvent.coordinate;
+                
+                // ハプティックフィードバック
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                
                 setManualLocation({
                   latitude,
                   longitude,
                   timestamp: Date.now(),
                 });
+                
                 // 選択した位置に地図を移動
                 mapRef.current?.animateToRegion({
                   latitude,
@@ -411,9 +417,47 @@ export default function PhotoLibraryScreen() {
                   }}
                   title="撮影場所"
                   description={`${manualLocation.latitude.toFixed(6)}, ${manualLocation.longitude.toFixed(6)}`}
+                  pinColor="#4CAF50"
                 />
               )}
             </MapView>
+
+            {/* 下部の確定ボタンエリア */}
+            <View style={styles.bottomButtonContainer}>
+              {manualLocation && (
+                <View style={styles.selectedLocationInfo}>
+                  <Ionicons name="location" size={16} color="#4CAF50" />
+                  <Text style={styles.coordinatesText}>
+                    {manualLocation.latitude.toFixed(6)}, {manualLocation.longitude.toFixed(6)}
+                  </Text>
+                </View>
+              )}
+              
+              <TouchableOpacity
+                style={[
+                  styles.confirmButton,
+                  !manualLocation && styles.confirmButtonDisabled
+                ]}
+                onPress={confirmLocation}
+                disabled={!manualLocation}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="選択した位置を確定してモーダルを閉じる"
+                accessibilityHint={manualLocation ? "タップして位置を確定" : "先に地図上で位置を選択してください"}
+              >
+                <Ionicons 
+                  name="checkmark-circle" 
+                  size={24} 
+                  color={manualLocation ? "#fff" : "#ccc"} 
+                />
+                <Text style={[
+                  styles.confirmButtonText,
+                  !manualLocation && styles.confirmButtonTextDisabled
+                ]}>
+                  この場所に決定
+                </Text>
+              </TouchableOpacity>
+            </View>
           </SafeAreaView>
         </Modal>
       </LinearGradient>
@@ -573,14 +617,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#333',
   },
-  modalConfirmButton: {
-    color: '#007AFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  disabledButton: {
-    color: '#ccc',
-  },
+  // modalConfirmButton and disabledButton styles removed
+  // (moved to bottom button area)
   mapInstruction: {
     backgroundColor: '#fff',
     padding: 16,
@@ -592,5 +630,63 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  bottomButtonContainer: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    paddingBottom: 34, // Safe area for home indicator
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 8,
+  },
+  selectedLocationInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+    backgroundColor: '#f8f9fa',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    gap: 6,
+  },
+  coordinatesText: {
+    fontSize: 14,
+    color: '#666',
+    fontFamily: 'monospace',
+  },
+  confirmButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#4CAF50',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    gap: 8,
+    shadowColor: '#4CAF50',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  confirmButtonDisabled: {
+    backgroundColor: '#e0e0e0',
+    shadowColor: 'transparent',
+    elevation: 0,
+  },
+  confirmButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  confirmButtonTextDisabled: {
+    color: '#999',
   },
 });
