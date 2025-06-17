@@ -1043,10 +1043,12 @@ const PhotoImageLoader = React.memo(({ photoId }: { photoId: bigint }) => {
 const PhotoCard = ({ photo, onEdit, onDelete }: any) => {
   const formatTime = (timestamp: bigint) => {
     const date = new Date(Number(timestamp) / 1000000);
-    return date.toLocaleDateString('en-US', {
+    return date.toLocaleString('ja-JP', {
       year: 'numeric',
-      month: 'short',
-      day: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
     });
   };
 
@@ -1072,7 +1074,7 @@ const PhotoCard = ({ photo, onEdit, onDelete }: any) => {
       <View style={styles.photoCardHeader}>
         <View style={styles.photoCardInfo}>
           <Text style={styles.photoCardTitle}>
-            {photo.title || 'Untitled Photo'}
+            {(photo.title || 'Untitled Photo').replace(/^写真-/, '')}
           </Text>
           <Text style={styles.photoCardDescription} numberOfLines={2}>
             {photo.description || 'No description'}
