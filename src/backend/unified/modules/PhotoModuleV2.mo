@@ -451,6 +451,26 @@ module {
                 };
             };
             
+            // オーナーフィルター
+            switch (filter.owner) {
+                case null { };
+                case (?owner) {
+                    switch (idxByOwner.get(owner)) {
+                        case null {
+                            return { photos = []; totalCount = 0; cursor = null; hasMore = false };
+                        };
+                        case (?ids) {
+                            if (firstFilter) {
+                                for (id in ids.vals()) { candidates.add(id) };
+                                firstFilter := false;
+                            } else {
+                                candidates := intersectBuffers(candidates, ids);
+                            };
+                        };
+                    };
+                };
+            };
+            
             // フィルターが何も指定されていない場合は全件対象
             if (firstFilter) {
                 for ((id, photo) in photos.entries()) {
@@ -474,6 +494,44 @@ module {
                                     photo.latitude, photo.longitude
                                 );
                                 if (distance <= location.radiusKm) {
+                                    filtered.add(id);
+                                };
+                            };
+                        };
+                    };
+                    candidates := filtered;
+                };
+            };
+            
+            // 難易度フィルター（後処理）
+            switch (filter.difficulty) {
+                case null { };
+                case (?difficulty) {
+                    let filtered = Buffer.Buffer<Nat>(candidates.size());
+                    for (id in candidates.vals()) {
+                        switch (photos.get(id)) {
+                            case null { };
+                            case (?photo) {
+                                if (photo.difficulty == difficulty) {
+                                    filtered.add(id);
+                                };
+                            };
+                        };
+                    };
+                    candidates := filtered;
+                };
+            };
+            
+            // ステータスフィルター（後処理）
+            switch (filter.status) {
+                case null { };
+                case (?status) {
+                    let filtered = Buffer.Buffer<Nat>(candidates.size());
+                    for (id in candidates.vals()) {
+                        switch (photos.get(id)) {
+                            case null { };
+                            case (?photo) {
+                                if (photo.status == status) {
                                     filtered.add(id);
                                 };
                             };
