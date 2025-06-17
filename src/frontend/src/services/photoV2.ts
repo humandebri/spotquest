@@ -112,6 +112,7 @@ export interface PhotoStatsV2 {
   activePhotos: bigint;
   totalSize: bigint;
   photosByCountry: Array<[CountryCode, bigint]>;
+  photosByRegion: Array<[RegionCode, bigint]>;
   photosBySceneKind: Array<[SceneKind, bigint]>;
   popularTags: Array<[string, bigint]>;
 }
@@ -227,6 +228,7 @@ const idlFactory = ({ IDL }: any) => {
     activePhotos: IDL.Nat,
     totalSize: IDL.Nat,
     photosByCountry: IDL.Vec(IDL.Tuple(CountryCode, IDL.Nat)),
+    photosByRegion: IDL.Vec(IDL.Tuple(RegionCode, IDL.Nat)),
     photosBySceneKind: IDL.Vec(IDL.Tuple(SceneKind, IDL.Nat)),
     popularTags: IDL.Vec(IDL.Tuple(IDL.Text, IDL.Nat)),
   });

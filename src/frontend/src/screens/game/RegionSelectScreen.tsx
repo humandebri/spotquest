@@ -86,8 +86,17 @@ export default function RegionSelectScreen() {
           }
         });
         
-        // Get region-specific data (for Japan prefectures, etc.)
-        // This would need additional API support to get prefecture-level data
+        // Process regions (prefectures, states, etc.)
+        stats.photosByRegion.forEach(([regionCode, count]) => {
+          if (Number(count) > 0) {
+            regionData.push({
+              code: regionCode,
+              name: REGION_NAMES[regionCode] || regionCode,
+              photoCount: Number(count),
+              popularTags: [],
+            });
+          }
+        });
         
         // Sort by photo count
         regionData.sort((a, b) => b.photoCount - a.photoCount);

@@ -149,6 +149,7 @@ module {
         activePhotos: Nat;
         totalSize: Nat;
         photosByCountry: [(CountryCode, Nat)];
+        photosByRegion: [(RegionCode, Nat)];
         photosBySceneKind: [(SceneKind, Nat)];
         popularTags: [(Text, Nat)];
     };
@@ -682,6 +683,7 @@ module {
         public func getPhotoStats() : PhotoStats {
             var activePhotos = 0;
             var countryStats = TrieMap.TrieMap<CountryCode, Nat>(Text.equal, Text.hash);
+            var regionStats = TrieMap.TrieMap<RegionCode, Nat>(Text.equal, Text.hash);
             var sceneStats = TrieMap.TrieMap<Text, Nat>(Text.equal, Text.hash);
             var tagStats = TrieMap.TrieMap<Text, Nat>(Text.equal, Text.hash);
             
@@ -693,6 +695,12 @@ module {
                     switch (countryStats.get(photo.country)) {
                         case null { countryStats.put(photo.country, 1) };
                         case (?count) { countryStats.put(photo.country, count + 1) };
+                    };
+                    
+                    // 地域別統計
+                    switch (regionStats.get(photo.region)) {
+                        case null { regionStats.put(photo.region, 1) };
+                        case (?count) { regionStats.put(photo.region, count + 1) };
                     };
                     
                     // シーン別統計
@@ -717,6 +725,7 @@ module {
                 activePhotos = activePhotos;
                 totalSize = totalStorageSize;
                 photosByCountry = Iter.toArray(countryStats.entries());
+                photosByRegion = Iter.toArray(regionStats.entries());
                 photosBySceneKind = Array.map<(Text, Nat), (SceneKind, Nat)>(
                     Iter.toArray(sceneStats.entries()),
                     func((key, count)) = (textToSceneKind(key), count)
