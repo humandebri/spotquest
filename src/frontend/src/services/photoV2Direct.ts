@@ -12,8 +12,8 @@ class PhotoServiceV2Direct {
   // PhotoServiceV2Directは既存のphotoServiceV2をラップして使用
 
   /**
-   * 写真を直接アップロード
-   * 正しいPhoto V2 APIを使用（予約投稿システム削除後）
+   * 写真を真の「直接アップロード」で送信
+   * 単一チャンクとして画像全体をアップロード（チャンク分割なし）
    * 
    * @param data.imageData - Uint8Array形式の画像データ
    * @param data.metadata - 写真のメタデータ
@@ -31,27 +31,46 @@ class PhotoServiceV2Direct {
         await photoServiceV2.init(identity);
       }
 
-      console.log('🚀 Direct uploading photo, size:', data.imageData.length, 'bytes');
+      console.log('🚀 Direct uploading photo (single chunk), size:', data.imageData.length, 'bytes');
       
-      // Base64に変換してuploadPhotoWithChunksメソッドを使用
-      const base64Data = Array.from(data.imageData)
-        .map(byte => String.fromCharCode(byte))
-        .join('');
-      const base64String = btoa(base64Data);
+      // 1. 写真を作成（単一チャンクとして設定）
+      const createRequest: CreatePhotoRequest = {
+        ...data.metadata,
+        expectedChunks: BigInt(1), // 単一チャンクに固定
+        totalSize: BigInt(data.imageData.length), // 正確なサイズ
+      };
       
-      const result = await photoServiceV2.uploadPhotoWithChunks(
-        {
-          imageData: base64String,
-          metadata: data.metadata,
-        },
-        identity,
-        (progress) => {
-          console.log(`🚀 Upload progress: ${Math.round(progress * 100)}%`);
-        }
+      const createResult = await photoServiceV2.createPhoto(createRequest, identity);
+      if (createResult.err) {
+        return createResult;
+      }
+      
+      const photoId = createResult.ok!;
+      console.log(`🚀 Created photo with ID: ${photoId} (single chunk mode)`);
+      
+      // 2. 画像データ全体を1つのチャンクとしてアップロード（chunkIndex: 0）
+      const uploadResult = await photoServiceV2.uploadChunk(
+        photoId, 
+        BigInt(0), // chunkIndex: 0（最初で最後のチャンク）
+        data.imageData, // Uint8Arrayを直接使用
+        identity
       );
       
-      console.log('🚀 Direct upload result:', result);
-      return result;
+      if (uploadResult.err) {
+        return { err: `Single chunk upload failed: ${uploadResult.err}` };
+      }
+      
+      console.log('🚀 Single chunk uploaded successfully');
+      
+      // 3. アップロードを完了
+      const finalizeResult = await photoServiceV2.finalizeUpload(photoId, identity);
+      if (finalizeResult.err) {
+        return { err: `Finalize failed: ${finalizeResult.err}` };
+      }
+      
+      console.log(`🚀 Successfully uploaded photo ${photoId} via direct upload`);
+      return { ok: photoId };
+      
     } catch (error) {
       console.error('❌ Direct upload error:', error);
       return { err: error instanceof Error ? error.message : 'Upload failed' };
