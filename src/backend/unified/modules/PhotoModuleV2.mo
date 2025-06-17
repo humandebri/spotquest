@@ -85,6 +85,12 @@ module {
         qualityScore: Float;
         timesUsed: Nat;
         lastUsedTime: ?Time.Time;
+        
+        // 統計情報
+        totalScore: Nat;      // 累計得点
+        averageScore: Float;  // 平均得点
+        bestScore: Nat;       // 最高得点
+        worstScore: Nat;      // 最低得点
     };
 
     /// チャンクデータ
@@ -267,6 +273,12 @@ module {
                 qualityScore = 0.5;
                 timesUsed = 0;
                 lastUsedTime = null;
+                
+                // 統計情報の初期化
+                totalScore = 0;
+                averageScore = 0.0;
+                bestScore = 0;
+                worstScore = 5000;  // 最高可能スコアで初期化
             };
             
             // メインストレージに保存
@@ -742,9 +754,36 @@ module {
             }
         };
         
-        
-        
-        
+        /// 写真の統計を更新（ゲーム結果を反映）
+        public func updatePhotoStats(photoId: Nat, score: Nat) : Result.Result<(), Text> {
+            switch (photos.get(photoId)) {
+                case null { #err("Photo not found") };
+                case (?photo) {
+                    let newTimesUsed = photo.timesUsed + 1;
+                    let newTotalScore = photo.totalScore + score;
+                    let newAverageScore = Float.fromInt(newTotalScore) / Float.fromInt(newTimesUsed);
+                    let newBestScore = Nat.max(photo.bestScore, score);
+                    let newWorstScore = if (photo.timesUsed == 0) { 
+                        score  // 初回プレイの場合
+                    } else { 
+                        Nat.min(photo.worstScore, score) 
+                    };
+                    
+                    let updatedPhoto = {
+                        photo with
+                        timesUsed = newTimesUsed;
+                        totalScore = newTotalScore;
+                        averageScore = newAverageScore;
+                        bestScore = newBestScore;
+                        worstScore = newWorstScore;
+                        lastUsedTime = ?Time.now();
+                    };
+                    
+                    photos.put(photoId, updatedPhoto);
+                    #ok()
+                };
+            }
+        };
         
         // ======================================
         // PRIVATE HELPER FUNCTIONS

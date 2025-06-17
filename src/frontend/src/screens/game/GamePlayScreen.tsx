@@ -138,6 +138,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   const [timeLeft, setTimeLeft] = useState(DifficultySettings[difficulty].timeLimit);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [photoMeta, setPhotoMeta] = useState<any>(null);
   
   // タイマー管理を改善
   const [hasTimeoutBeenHandled, setHasTimeoutBeenHandled] = useState(false);
@@ -235,6 +236,9 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
             ]);
             
             if (photoMeta && photoChunk) {
+              // Store photo metadata for UI display
+              setPhotoMeta(photoMeta);
+              
               // ✅ Region filtering implementation completed (2025-06-16)
               // Backend's getNextRound function now supports region filtering.
               // Photos are selected from the specified region at the backend level.
@@ -1152,6 +1156,18 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
                 : currentPhoto.uploader
               }
             </Text>
+            {/* 平均得点表示 */}
+            {photoMeta && photoMeta.timesUsed > 0 && (
+              <View style={styles.photoStats}>
+                <Ionicons name="analytics" size={12} color="#FFD700" />
+                <Text style={styles.averageScore}>
+                  平均: {Math.round(photoMeta.averageScore)}pts
+                </Text>
+                <Text style={styles.playCount}>
+                  ({Number(photoMeta.timesUsed)}回)
+                </Text>
+              </View>
+            )}
           </View>
         </View>
         
@@ -1799,5 +1815,21 @@ const styles = StyleSheet.create({
     color: '#4ECDC4',
     fontSize: 14,
     fontWeight: '600',
+  },
+  photoStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    gap: 4,
+  },
+  averageScore: {
+    color: '#FFD700',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  playCount: {
+    color: '#fff',
+    fontSize: 12,
+    opacity: 0.7,
   },
 });

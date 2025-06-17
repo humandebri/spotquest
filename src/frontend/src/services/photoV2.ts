@@ -83,6 +83,12 @@ export interface PhotoMetaV2 {
   qualityScore: number;
   timesUsed: bigint;
   lastUsedTime: bigint[] | []; // IDL Optional型は配列形式
+  
+  // 統計情報
+  totalScore: bigint;      // 累計得点
+  averageScore: number;    // 平均得点
+  bestScore: bigint;       // 最高得点
+  worstScore: bigint;      // 最低得点
 }
 
 export interface SearchFilter {
@@ -190,6 +196,10 @@ const idlFactory = ({ IDL }: any) => {
     qualityScore: IDL.Float64,
     timesUsed: IDL.Nat,
     lastUsedTime: IDL.Opt(IDL.Int),
+    totalScore: IDL.Nat,
+    averageScore: IDL.Float64,
+    bestScore: IDL.Nat,
+    worstScore: IDL.Nat,
   });
 
   const SearchFilter = IDL.Record({

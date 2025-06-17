@@ -445,6 +445,9 @@ actor GameUnified {
                                 let qualityScore = guessHistoryManager.getPhotoQualityScore(currentRound.photoId);
                                 ignore photoManager.updatePhotoQualityScore(currentRound.photoId, qualityScore);
                                 
+                                // Update photo statistics (V2) - track game usage and average score
+                                ignore photoManagerV2.updatePhotoStats(currentRound.photoId, roundState.score);
+                                
                                 // Return result
                                 #ok({
                                     displayScore = roundState.score;
@@ -767,6 +770,11 @@ actor GameUnified {
     /// 写真を削除（V2）
     public shared(msg) func deletePhotoV2(photoId: Nat) : async Result.Result<(), Text> {
         photoManagerV2.deletePhoto(photoId, msg.caller)
+    };
+    
+    /// Update photo statistics (V2)
+    public shared(msg) func updatePhotoStatsV2(photoId: Nat, score: Nat) : async Result.Result<(), Text> {
+        photoManagerV2.updatePhotoStats(photoId, score)
     };
     
     
