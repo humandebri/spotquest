@@ -23,6 +23,7 @@ import RegionSelectScreen from '../screens/game/RegionSelectScreen';
 import CameraScreen from '../screens/photo/CameraScreen';
 import PhotoUploadScreen from '../screens/photo/PhotoUploadScreenV2';
 import PhotoLibraryScreen from '../screens/photo/PhotoLibraryScreen';
+import PhotoLocationDebugScreen from '../screens/photo/PhotoLocationDebugScreen';
 
 // User
 import LeaderboardScreen from '../screens/user/LeaderboardScreen';
@@ -72,6 +73,7 @@ export type RootStackParamList = {
     azimuth: number | null;
     timestamp: number;
   };
+  PhotoLocationDebug: undefined;
   Leaderboard: undefined;
   Profile: undefined;
   Login: undefined;
@@ -176,6 +178,11 @@ export default function AppNavigator() {
           <Stack.Screen
             name="PhotoUpload"
             component={PhotoUploadScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="PhotoLocationDebug"
+            component={PhotoLocationDebugScreen}
             options={{ headerShown: false }}
           />
           <Stack.Screen

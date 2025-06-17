@@ -25,7 +25,7 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 
 export default function HomeScreen() {
   const navigation = useNavigation<NavigationProp>();
-  const { principal, isAdmin, identity } = useAuth();
+  const { principal, isAdmin, identity, isDevMode } = useAuth();
   const { tokenBalance: storeBalance, setTokenBalance: setStoreBalance } = useGameStore();
   const [refreshing, setRefreshing] = React.useState(false);
   const [isLoadingBalance, setIsLoadingBalance] = React.useState(false);
@@ -193,6 +193,14 @@ export default function HomeScreen() {
       icon: 'shield-checkmark',
       screen: 'Admin' as const,
       gradient: ['#ef4444', '#dc2626'],
+    }] : []),
+    // Dev mode only debug tools
+    ...(isDevMode ? [{
+      title: 'Location Debug',
+      description: 'Test photo location extraction',
+      icon: 'bug',
+      screen: 'PhotoLocationDebug' as const,
+      gradient: ['#6b7280', '#4b5563'],
     }] : []),
   ];
 

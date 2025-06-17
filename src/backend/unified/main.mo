@@ -150,14 +150,14 @@ actor GameUnified {
     
     private stable var iiIntegrationStable : ?[(Text, IIIntegrationModule.SessionData)] = null;
     
-    // Photo V2のstable変数
-    private stable var photoV2Stable : ?{
-        photos: [(Nat, PhotoModuleV2.Photo)];
-        photoChunks: [(Text, PhotoModuleV2.PhotoChunk)];
-        nextPhotoId: Nat;
-        totalPhotos: Nat;
-        totalStorageSize: Nat;
-    } = null;
+    // Photo V2のstable変数 - 一時的にコメントアウト（互換性問題回避）
+    // private stable var photoV2Stable : ?{
+    //     photos: [(Nat, PhotoModuleV2.Photo)];
+    //     photoChunks: [(Text, PhotoModuleV2.PhotoChunk)];
+    //     nextPhotoId: Nat;
+    //     totalPhotos: Nat;
+    //     totalStorageSize: Nat;
+    // } = null;
     
     // 写真統計情報の別stable変数（既存型と互換性を保つため）
     private stable var photoStatsStable : ?[(Nat, PhotoModuleV2.PhotoStats)] = null;
@@ -754,6 +754,16 @@ actor GameUnified {
     /// 写真統計情報を取得
     public query func getPhotoStatsV2() : async PhotoModuleV2.OverallPhotoStats {
         photoManagerV2.getPhotoStats()
+    };
+    
+    /// デバッグ用：移行状況確認（クエリ）
+    public query func debugPhotoMigrationStatus() : async {
+        legacyPhotos: Nat;
+        stablePhotos: Nat;
+        legacyChunks: Nat;
+        stableChunks: Nat;
+    } {
+        photoManagerV2.getMigrationStatus()
     };
     
     /// ユーザーの写真を取得
@@ -2036,14 +2046,15 @@ actor GameUnified {
         gameEngineStable := ?gameEngineManager.toStable();
         guessHistoryStable := ?guessHistoryManager.toStable();
         photoStable := ?photoManager.toStable();
-        let v2Data = photoManagerV2.toStable();
-        photoV2Stable := ?{
-            photos = v2Data.photos;
-            photoChunks = v2Data.photoChunks;
-            nextPhotoId = v2Data.nextPhotoId;
-            totalPhotos = v2Data.totalPhotos;
-            totalStorageSize = v2Data.totalStorageSize;
-        };
+        // Temporarily skip photoV2Stable to avoid compatibility issues
+        // let v2Data = photoManagerV2.toStable();
+        // photoV2Stable := ?{
+        //     photos = v2Data.photos;
+        //     photoChunks = v2Data.photoChunks;
+        //     nextPhotoId = v2Data.nextPhotoId;
+        //     totalPhotos = v2Data.totalPhotos;
+        //     totalStorageSize = v2Data.totalStorageSize;
+        // };
         photoStatsStable := ?photoManagerV2.getPhotoStatsEntries();
         
         // StableTrieMapのpreupgrade処理
@@ -2116,14 +2127,14 @@ actor GameUnified {
             };
         };
         
-        // Restore photo manager V2
-        switch(photoV2Stable) {
-            case null { };
-            case (?stableData) {
-                photoManagerV2.fromStable(stableData);
-                photoV2Stable := null;
-            };
-        };
+        // Temporarily skip photoV2Stable restoration to avoid compatibility issues
+        // switch(photoV2Stable) {
+        //     case null { };
+        //     case (?stableData) {
+        //         photoManagerV2.fromStable(stableData);
+        //         photoV2Stable := null;
+        //     };
+        // };
         
         // Restore photo statistics
         switch(photoStatsStable) {

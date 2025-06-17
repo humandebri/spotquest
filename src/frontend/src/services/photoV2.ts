@@ -117,7 +117,7 @@ export interface SearchResult {
   hasMore: boolean;
 }
 
-export interface PhotoStatsV2 {
+export interface OverallPhotoStatsV2 {
   totalPhotos: bigint;
   activePhotos: bigint;
   totalSize: bigint;
@@ -241,7 +241,7 @@ const idlFactory = ({ IDL }: any) => {
     hasMore: IDL.Bool,
   });
 
-  const PhotoStatsV2 = IDL.Record({
+  const OverallPhotoStats = IDL.Record({
     totalPhotos: IDL.Nat,
     activePhotos: IDL.Nat,
     totalSize: IDL.Nat,
@@ -269,7 +269,7 @@ const idlFactory = ({ IDL }: any) => {
     searchPhotosV2: IDL.Func([SearchFilter, IDL.Opt(IDL.Nat), IDL.Nat], [SearchResult], ['query']),
     getPhotoMetadataV2: IDL.Func([IDL.Nat], [IDL.Opt(PhotoMetaV2)], ['query']),
     getPhotoChunkV2: IDL.Func([IDL.Nat, IDL.Nat], [IDL.Opt(IDL.Vec(IDL.Nat8))], ['query']),
-    getPhotoStatsV2: IDL.Func([], [PhotoStatsV2], ['query']),
+    getPhotoStatsV2: IDL.Func([], [OverallPhotoStats], ['query']),
     getPhotoStatsDetailsV2: IDL.Func([IDL.Nat], [IDL.Opt(PhotoStatsDetails)], ['query']),
     getUserPhotosV2: IDL.Func([IDL.Opt(IDL.Nat), IDL.Nat], [SearchResult], ['query']),
     deletePhotoV2: IDL.Func([IDL.Nat], [ResultEmpty], []),
@@ -500,7 +500,7 @@ class PhotoServiceV2 {
   /**
    * 写真統計情報を取得
    */
-  async getPhotoStats(identity?: Identity): Promise<PhotoStatsV2 | null> {
+  async getPhotoStats(identity?: Identity): Promise<OverallPhotoStatsV2 | null> {
     if (!this.actor && identity) {
       await this.init(identity);
     }

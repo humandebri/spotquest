@@ -21,6 +21,7 @@ import * as Location from 'expo-location';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { extractLocationFromExif, matchAssetWithPickedPhoto, formatCoordinates, parseExifDateTime } from '../../utils/locationHelpers';
 
 type PhotoLibraryScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'PhotoLibrary'>;
 
@@ -99,82 +100,96 @@ export default function PhotoLibraryScreen() {
 
       const pickedPhoto = result.assets[0];
       
-      // MediaLibraryからより詳細な位置情報を取得
+      // まずEXIF情報から位置情報を取得を試みる
       let photoLocation: PhotoLocation | undefined = undefined;
+      const exif = (pickedPhoto as any).exif;
       
-      try {
-        // より効率的な検索: 選択された写真のファイル名から検索
-        const fileName = pickedPhoto.uri.split('/').pop() || '';
-        let matchingAsset = null;
-        let hasNextPage = true;
-        let endCursor = null;
-        
-        // ページネーションで全アセットを検索（最大5ページまで）
-        let pageCount = 0;
-        const maxPages = 5;
-        
-        while (hasNextPage && !matchingAsset && pageCount < maxPages) {
-          const assetOptions: any = {
-            first: 50,
-            mediaType: 'photo',
-            sortBy: [MediaLibrary.SortBy.creationTime],
-          };
+      // EXIF位置情報の解析
+      const exifLocation = extractLocationFromExif(exif);
+      if (exifLocation) {
+        photoLocation = {
+          ...exifLocation,
+          timestamp: parseExifDateTime(exif?.DateTimeOriginal || exif?.DateTime) || Date.now(),
+        };
+        console.log('✅ EXIF位置情報を取得:', formatCoordinates(photoLocation.latitude, photoLocation.longitude));
+      }
+      
+      // EXIFから取得できなかった場合、MediaLibraryを試す
+      if (!photoLocation) {
+        try {
+          // より効率的な検索: 選択された写真のファイル名から検索
+          const fileName = pickedPhoto.uri.split('/').pop() || '';
+          let matchingAsset = null;
+          let hasNextPage = true;
+          let endCursor = null;
           
-          if (endCursor) {
-            assetOptions.after = endCursor;
-          }
+          // ページネーションで全アセットを検索（最大10ページまで）
+          let pageCount = 0;
+          const maxPages = 10; // 500枚まで検索
           
-          const assets = await MediaLibrary.getAssetsAsync(assetOptions);
+          console.log(`🔍 MediaLibraryで検索開始: ${fileName}`);
           
-          matchingAsset = assets.assets.find(asset => 
-            asset.uri === pickedPhoto.uri || 
-            asset.filename === fileName ||
-            asset.uri.includes(fileName) ||
-            pickedPhoto.uri.includes(asset.filename)
-          );
-          
-          hasNextPage = assets.hasNextPage;
-          endCursor = assets.endCursor;
-          pageCount++;
-        }
-        
-        if (!matchingAsset && pageCount >= maxPages) {
-          console.log('⚠️ 検索を制限しました（250枚まで）');
-        }
-
-        if (matchingAsset && (matchingAsset as any).location) {
-          const assetLocation = (matchingAsset as any).location;
-          photoLocation = {
-            latitude: assetLocation.latitude,
-            longitude: assetLocation.longitude,
-            timestamp: matchingAsset.creationTime || Date.now(),
-          };
-          console.log('📍 位置情報を取得:', photoLocation);
-        } else {
-          console.log('📍 写真に位置情報が含まれていません');
-        }
-      } catch (error) {
-        console.error('MediaLibrary location extraction error:', error);
-        
-        // フォールバック: ImagePickerのEXIF情報をチェック
-        const exif = (pickedPhoto as any).exif;
-        if (exif?.GPSLatitude && exif?.GPSLongitude) {
-          // EXIF GPS座標を数値に変換
-          const latitude = typeof exif.GPSLatitude === 'number' 
-            ? exif.GPSLatitude 
-            : parseFloat(exif.GPSLatitude);
-          const longitude = typeof exif.GPSLongitude === 'number' 
-            ? exif.GPSLongitude 
-            : parseFloat(exif.GPSLongitude);
-            
-          if (!isNaN(latitude) && !isNaN(longitude)) {
-            photoLocation = {
-              latitude,
-              longitude,
-              timestamp: Date.now(),
+          while (hasNextPage && !matchingAsset && pageCount < maxPages) {
+            const assetOptions: any = {
+              first: 50,
+              mediaType: 'photo',
+              sortBy: [MediaLibrary.SortBy.creationTime],
             };
-            console.log('📍 EXIF位置情報を取得:', photoLocation);
+            
+            if (endCursor) {
+              assetOptions.after = endCursor;
+            }
+            
+            const assets = await MediaLibrary.getAssetsAsync(assetOptions);
+            
+            // URIの正規化とより柔軟なマッチング
+            matchingAsset = assets.assets.find(asset => 
+              matchAssetWithPickedPhoto(asset, pickedPhoto)
+            );
+          
+            hasNextPage = assets.hasNextPage;
+            endCursor = assets.endCursor;
+            pageCount++;
+            
+            if (pageCount % 2 === 0) {
+              console.log(`🔍 ${pageCount * 50}枚検索済み...`);
+            }
           }
+          
+          if (!matchingAsset && pageCount >= maxPages) {
+            console.log('⚠️ 検索を制限しました（500枚まで）');
+          }
+
+          if (matchingAsset) {
+            console.log('✅ MediaLibraryでマッチング成功:', matchingAsset.filename);
+            
+            // MediaLibraryアセットから位置情報を取得
+            const assetInfo = await MediaLibrary.getAssetInfoAsync(matchingAsset.id);
+            console.log('📱 Asset info:', JSON.stringify(assetInfo, null, 2));
+            
+            if ((assetInfo as any).location) {
+              const assetLocation = (assetInfo as any).location;
+              photoLocation = {
+                latitude: assetLocation.latitude,
+                longitude: assetLocation.longitude,
+                timestamp: assetInfo.creationTime || Date.now(),
+              };
+              console.log('✅ MediaLibrary位置情報を取得:', photoLocation);
+            } else if ((matchingAsset as any).location) {
+              // フォールバック: アセット自体の位置情報
+              const assetLocation = (matchingAsset as any).location;
+              photoLocation = {
+                latitude: assetLocation.latitude,
+                longitude: assetLocation.longitude,
+                timestamp: matchingAsset.creationTime || Date.now(),
+              };
+              console.log('✅ MediaLibrary位置情報を取得（アセットから）:', photoLocation);
+            }
+          } else {
+            console.log('❌ MediaLibraryでマッチする写真が見つかりませんでした');
+          }
+        } catch (error) {
+          console.error('MediaLibrary location extraction error:', error);
         }
       }
 
@@ -190,14 +205,23 @@ export default function PhotoLibraryScreen() {
 
       // 位置情報がない場合は手動選択を促す
       if (!photoLocation) {
+        console.log('⚠️ 位置情報が取得できませんでした');
         Alert.alert(
           '位置情報なし',
-          'この写真には位置情報が含まれていません。地図で撮影場所を選択してください。',
+          'この写真には位置情報が含まれていません。\n\n考えられる原因:\n• カメラの位置情報設定がオフ\n• 写真撮影時に位置情報が記録されなかった\n• プライバシー設定で位置情報が削除された\n\n地図で撮影場所を選択してください。',
           [
             { text: 'キャンセル', style: 'cancel' },
-            { text: '位置を選択', onPress: openLocationPicker },
+            { text: '位置を選択', onPress: () => openLocationPicker(photoLocation) },
           ]
         );
+      } else {
+        // 位置情報が取得できた場合、地図の初期位置を更新
+        setMapRegion({
+          latitude: photoLocation.latitude,
+          longitude: photoLocation.longitude,
+          latitudeDelta: 2,
+          longitudeDelta: 2,
+        });
       }
     } catch (error) {
       console.error('Image picker error:', error);
@@ -208,23 +232,33 @@ export default function PhotoLibraryScreen() {
   };
 
   // 位置選択モーダルを開く
-  const openLocationPicker = async () => {
-    // 現在地を取得して初期表示位置とする
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        const currentLocation = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        setMapRegion({
-          latitude: currentLocation.coords.latitude,
-          longitude: currentLocation.coords.longitude,
-          latitudeDelta: 10, // 地域レベルで表示（県・州レベル）
-          longitudeDelta: 10, // 地域レベルで表示
-        });
+  const openLocationPicker = async (existingLocation?: PhotoLocation) => {
+    // If photo has location, use it as initial position
+    if (existingLocation) {
+      setMapRegion({
+        latitude: existingLocation.latitude,
+        longitude: existingLocation.longitude,
+        latitudeDelta: 2, // City level zoom
+        longitudeDelta: 2,
+      });
+    } else {
+      // Otherwise try to get current location
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const currentLocation = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          setMapRegion({
+            latitude: currentLocation.coords.latitude,
+            longitude: currentLocation.coords.longitude,
+            latitudeDelta: 10, // 地域レベルで表示（県・州レベル）
+            longitudeDelta: 10, // 地域レベルで表示
+          });
+        }
+      } catch (error) {
+        console.log('Current location not available, using default');
       }
-    } catch (error) {
-      console.log('Current location not available, using default');
     }
     
     setShowLocationPicker(true);
@@ -289,7 +323,7 @@ export default function PhotoLibraryScreen() {
                   <View style={styles.locationFound}>
                     <Ionicons name="location" size={20} color="#4CAF50" />
                     <Text style={styles.locationText}>
-                      📍 {selectedPhoto.location.latitude.toFixed(6)}, {selectedPhoto.location.longitude.toFixed(6)}
+                      📍 {formatCoordinates(selectedPhoto.location.latitude, selectedPhoto.location.longitude)}
                     </Text>
                   </View>
                 ) : (
@@ -416,7 +450,7 @@ export default function PhotoLibraryScreen() {
                     longitude: manualLocation.longitude,
                   }}
                   title="撮影場所"
-                  description={`${manualLocation.latitude.toFixed(6)}, ${manualLocation.longitude.toFixed(6)}`}
+                  description={formatCoordinates(manualLocation.latitude, manualLocation.longitude)}
                   pinColor="#4CAF50"
                 />
               )}
@@ -428,7 +462,7 @@ export default function PhotoLibraryScreen() {
                 <View style={styles.selectedLocationInfo}>
                   <Ionicons name="location" size={16} color="#4CAF50" />
                   <Text style={styles.coordinatesText}>
-                    {manualLocation.latitude.toFixed(6)}, {manualLocation.longitude.toFixed(6)}
+                    {formatCoordinates(manualLocation.latitude, manualLocation.longitude)}
                   </Text>
                 </View>
               )}

@@ -716,7 +716,8 @@ module {
             var sceneStats = TrieMap.TrieMap<Text, Nat>(Text.equal, Text.hash);
             var tagStats = TrieMap.TrieMap<Text, Nat>(Text.equal, Text.hash);
             
-            for ((id, photo) in Iter.toArray(photos.entries()).vals()) {
+            // ヘルパー関数：写真統計を更新
+            let updateStats = func(photo: Photo) {
                 if (photo.status == #Active and photo.uploadState == #Complete) {
                     activePhotos += 1;
                     
@@ -746,6 +747,20 @@ module {
                             case (?count) { tagStats.put(tag, count + 1) };
                         };
                     };
+                };
+            };
+            
+            // 🔄 並行システム: Stable写真から統計収集
+            for ((id, photo) in stablePhotos.entries()) {
+                updateStats(photo);
+            };
+            
+            // 🔄 並行システム: Legacy写真から統計収集（重複除外）
+            for ((id, photo) in photos.entries()) {
+                // Stableに存在しない場合のみカウント
+                switch (stablePhotos.get(id)) {
+                    case (?_) { }; // Stableに存在するのでスキップ
+                    case null { updateStats(photo) }; // Legacyのみに存在
                 };
             };
             
