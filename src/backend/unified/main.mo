@@ -150,6 +150,7 @@ actor GameUnified {
     
     private stable var iiIntegrationStable : ?[(Text, IIIntegrationModule.SessionData)] = null;
     
+    // Photo V2のstable変数
     private stable var photoV2Stable : ?{
         photos: [(Nat, PhotoModuleV2.Photo)];
         photoChunks: [(Text, PhotoModuleV2.PhotoChunk)];
@@ -157,6 +158,9 @@ actor GameUnified {
         totalPhotos: Nat;
         totalStorageSize: Nat;
     } = null;
+    
+    // 写真統計情報の別stable変数（既存型と互換性を保つため）
+    private stable var photoStatsStable : ?[(Nat, PhotoModuleV2.PhotoStats)] = null;
     
     // DEPRECATED: 予約投稿システム削除済み - 明示的にnullに設定
     private stable var _photoV2ScheduledStable : ?{
@@ -748,7 +752,7 @@ actor GameUnified {
     };
     
     /// 写真統計情報を取得
-    public query func getPhotoStatsV2() : async Photo.PhotoStatsV2 {
+    public query func getPhotoStatsV2() : async PhotoModuleV2.OverallPhotoStats {
         photoManagerV2.getPhotoStats()
     };
     
@@ -775,6 +779,57 @@ actor GameUnified {
     /// Update photo statistics (V2)
     public shared(msg) func updatePhotoStatsV2(photoId: Nat, score: Nat) : async Result.Result<(), Text> {
         photoManagerV2.updatePhotoStats(photoId, score)
+    };
+    
+    /// Get photo statistics details (V2)
+    public query func getPhotoStatsDetailsV2(photoId: Nat) : async ?PhotoModuleV2.PhotoStats {
+        photoManagerV2.getPhotoStatsById(photoId)
+    };
+    
+    // ======================================
+    // ADMIN: DATA MIGRATION FUNCTIONS
+    // ======================================
+    
+    /// 🔄 Legacy TrieMapからStableTrieMapにデータを移行（管理者専用）
+    public shared(msg) func migrateLegacyPhotoData() : async Result.Result<{
+        photosCount: Nat;
+        chunksCount: Nat;
+        errors: [Text];
+    }, Text> {
+        if (msg.caller != owner) {
+            return #err("Unauthorized: Admin only");
+        };
+        
+        let result = photoManagerV2.migrateLegacyToStable();
+        #ok(result)
+    };
+    
+    /// 🔍 移行状況を確認（管理者専用）
+    public shared query(msg) func getPhotoMigrationStatus() : async Result.Result<{
+        legacyPhotos: Nat;
+        stablePhotos: Nat;
+        legacyChunks: Nat;
+        stableChunks: Nat;
+    }, Text> {
+        if (msg.caller != owner) {
+            return #err("Unauthorized: Admin only");
+        };
+        
+        let status = photoManagerV2.getMigrationStatus();
+        #ok(status)
+    };
+    
+    /// 🗑️ 移行完了後にLegacyデータを削除（管理者専用）
+    public shared(msg) func clearLegacyPhotoData() : async Result.Result<{
+        clearedPhotos: Nat;
+        clearedChunks: Nat;
+    }, Text> {
+        if (msg.caller != owner) {
+            return #err("Unauthorized: Admin only");
+        };
+        
+        let result = photoManagerV2.clearLegacyData();
+        #ok(result)
     };
     
     
@@ -1989,6 +2044,10 @@ actor GameUnified {
             totalPhotos = v2Data.totalPhotos;
             totalStorageSize = v2Data.totalStorageSize;
         };
+        photoStatsStable := ?photoManagerV2.getPhotoStatsEntries();
+        
+        // StableTrieMapのpreupgrade処理
+        photoManagerV2.prepareUpgrade();
         reputationStable := ?reputationManager.toStable();
         iiIntegrationStable := ?iiIntegrationManager.preupgrade();
     };
@@ -2065,6 +2124,18 @@ actor GameUnified {
                 photoV2Stable := null;
             };
         };
+        
+        // Restore photo statistics
+        switch(photoStatsStable) {
+            case null { };
+            case (?statsData) {
+                photoManagerV2.restorePhotoStats(statsData);
+                photoStatsStable := null;
+            };
+        };
+        
+        // StableTrieMapのpostupgrade処理
+        photoManagerV2.restoreFromUpgrade();
         
         // Restart cleanup timer if initialized
         if (initialized) {

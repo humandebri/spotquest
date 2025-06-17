@@ -84,11 +84,15 @@ export interface PhotoMetaV2 {
   timesUsed: bigint;
   lastUsedTime: bigint[] | []; // IDL Optional型は配列形式
   
-  // 統計情報
+  // 統計情報は別途APIで取得
+}
+
+export interface PhotoStatsDetailsV2 {
   totalScore: bigint;      // 累計得点
   averageScore: number;    // 平均得点
   bestScore: bigint;       // 最高得点
   worstScore: bigint;      // 最低得点
+  playCount: bigint;       // プレイ回数
 }
 
 export interface SearchFilter {
@@ -196,10 +200,14 @@ const idlFactory = ({ IDL }: any) => {
     qualityScore: IDL.Float64,
     timesUsed: IDL.Nat,
     lastUsedTime: IDL.Opt(IDL.Int),
+  });
+
+  const PhotoStatsDetails = IDL.Record({
     totalScore: IDL.Nat,
     averageScore: IDL.Float64,
     bestScore: IDL.Nat,
     worstScore: IDL.Nat,
+    playCount: IDL.Nat,
   });
 
   const SearchFilter = IDL.Record({
@@ -262,6 +270,7 @@ const idlFactory = ({ IDL }: any) => {
     getPhotoMetadataV2: IDL.Func([IDL.Nat], [IDL.Opt(PhotoMetaV2)], ['query']),
     getPhotoChunkV2: IDL.Func([IDL.Nat, IDL.Nat], [IDL.Opt(IDL.Vec(IDL.Nat8))], ['query']),
     getPhotoStatsV2: IDL.Func([], [PhotoStatsV2], ['query']),
+    getPhotoStatsDetailsV2: IDL.Func([IDL.Nat], [IDL.Opt(PhotoStatsDetails)], ['query']),
     getUserPhotosV2: IDL.Func([IDL.Opt(IDL.Nat), IDL.Nat], [SearchResult], ['query']),
     deletePhotoV2: IDL.Func([IDL.Nat], [ResultEmpty], []),
   });
@@ -541,6 +550,27 @@ class PhotoServiceV2 {
     } catch (error) {
       console.error('❌ Delete photo error:', error);
       return { err: error instanceof Error ? error.message : 'Delete failed' };
+    }
+  }
+
+  /**
+   * 写真の詳細統計情報を取得
+   */
+  async getPhotoStatsDetails(photoId: bigint, identity?: Identity): Promise<PhotoStatsDetailsV2 | null> {
+    if (!this.actor && identity) {
+      await this.init(identity);
+    }
+
+    try {
+      console.log('📊 Fetching photo stats details:', photoId);
+      const result = await this.actor.getPhotoStatsDetailsV2(photoId);
+      if (result.length > 0) {
+        return result[0];
+      }
+      return null;
+    } catch (error) {
+      console.error('❌ Get photo stats details error:', error);
+      return null;
     }
   }
 

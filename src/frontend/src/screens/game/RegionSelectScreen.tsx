@@ -87,7 +87,9 @@ export default function RegionSelectScreen() {
         });
         
         // Process regions (prefectures, states, etc.)
+        console.log('🌏 photosByRegion data:', stats.photosByRegion);
         stats.photosByRegion.forEach(([regionCode, count]) => {
+          console.log('🌏 Processing region:', regionCode, count);
           if (Number(count) > 0) {
             regionData.push({
               code: regionCode,

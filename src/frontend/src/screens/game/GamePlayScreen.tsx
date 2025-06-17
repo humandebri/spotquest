@@ -21,10 +21,10 @@ import Slider from '@react-native-community/slider';
 import { useNavigation, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navigation/AppNavigator';
-import { useGameStore } from '../../store/gameStore';
+import { useGameStore, SessionStatus, SessionInfo } from '../../store/gameStore';
 import { useAuth } from '../../hooks/useAuth';
 import { gameService, HintType as ServiceHintType, HintData, HintContent } from '../../services/game';
-import { photoServiceV2 } from '../../services/photoV2';
+import { photoServiceV2, PhotoMetaV2, PhotoStatsDetailsV2 } from '../../services/photoV2';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -138,7 +138,8 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   const [timeLeft, setTimeLeft] = useState(DifficultySettings[difficulty].timeLimit);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [photoMeta, setPhotoMeta] = useState<any>(null);
+  const [photoMeta, setPhotoMeta] = useState<PhotoMetaV2 | null>(null);
+  const [photoStats, setPhotoStats] = useState<PhotoStatsDetailsV2 | null>(null);
   
   // タイマー管理を改善
   const [hasTimeoutBeenHandled, setHasTimeoutBeenHandled] = useState(false);
@@ -182,7 +183,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
             newSessionId = result.ok;
             
             // First update user sessions to reflect cleanup
-            setUserSessions(prevSessions => {
+            setUserSessions((prevSessions: SessionInfo[]) => {
               const cleanedSessions = (Array.isArray(prevSessions) ? prevSessions : []).map(session => 
                 session.status === 'Active' && session.id !== newSessionId
                   ? { ...session, status: 'Completed' as SessionStatus }
@@ -229,15 +230,17 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
             const photoId = roundResult.ok.photoId;
             console.log('🎮 Round photo ID:', photoId);
             
-            // Fetch photo metadata and chunk in parallel (only once!)
-            const [photoMeta, photoChunk] = await Promise.all([
+            // Fetch photo metadata, chunk, and stats in parallel (only once!)
+            const [photoMeta, photoChunk, photoStatsData] = await Promise.all([
               photoServiceV2.getPhotoMetadata(photoId, identity),
-              photoServiceV2.getPhotoChunk(photoId, BigInt(0), identity)
+              photoServiceV2.getPhotoChunk(photoId, BigInt(0), identity),
+              photoServiceV2.getPhotoStatsDetails(photoId, identity)
             ]);
             
             if (photoMeta && photoChunk) {
-              // Store photo metadata for UI display
+              // Store photo metadata and stats for UI display
               setPhotoMeta(photoMeta);
+              setPhotoStats(photoStatsData);
               
               // ✅ Region filtering implementation completed (2025-06-16)
               // Backend's getNextRound function now supports region filtering.
@@ -302,7 +305,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
                   latitude: photoMeta.latitude, 
                   longitude: photoMeta.longitude 
                 },
-                azimuth: photoMeta.azimuth.length > 0 ? photoMeta.azimuth[0] : 0,
+                azimuth: photoMeta.azimuth && photoMeta.azimuth.length > 0 ? photoMeta.azimuth[0] : 0,
                 timestamp: Number(photoMeta.uploadTime),
                 uploader: photoMeta.owner.toString(),
                 difficulty,
@@ -451,10 +454,10 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
       onPanResponderGrant: (evt) => {
         // Store the current position
         lastPan.current = {
-          x: pan.x._value,
-          y: pan.y._value,
+          x: (pan.x as any)._value,
+          y: (pan.y as any)._value,
         };
-        lastScale.current = scale._value;
+        lastScale.current = (scale as any)._value;
         
         // Check if it's a pinch gesture
         if (evt.nativeEvent.touches.length === 2) {
@@ -477,7 +480,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
           scale.setValue(Math.max(1, Math.min(5, newScale)));
         } else if (!isZooming.current) {
           // Handle pan
-          const currentScale = scale._value;
+          const currentScale = (scale as any)._value;
           const newX = lastPan.current.x + gestureState.dx;
           const newY = lastPan.current.y + gestureState.dy;
           
@@ -509,7 +512,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
       },
       onPanResponderRelease: () => {
         // Reset zoom if too small
-        if (scale._value < 1) {
+        if ((scale as any)._value < 1) {
           Animated.spring(scale, {
             toValue: 1,
             friction: 5,
@@ -518,7 +521,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
         }
         
         // Center the image if panned too far
-        const currentScale = scale._value;
+        const currentScale = (scale as any)._value;
         const imageWidth = SCREEN_HEIGHT * imageAspectRatio;
         const imageHeight = SCREEN_HEIGHT;
         
@@ -535,8 +538,8 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
           maxX = Math.max(0, (imageWidth - SCREEN_WIDTH) / 2);
         }
         
-        const currentX = pan.x._value;
-        const currentY = pan.y._value;
+        const currentX = (pan.x as any)._value;
+        const currentY = (pan.y as any)._value;
         
         if (Math.abs(currentX) > maxX || Math.abs(currentY) > maxY) {
           Animated.spring(pan, {
@@ -637,7 +640,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     console.log('⏰ Game timeout occurred');
     
     Alert.alert('時間切れ！', 'ランダムな場所で推測を送信します。', [
-      { text: 'OK', onPress: () => submitGuessRef.current?.(true) }
+      { text: 'OK', onPress: () => submitGuessRef.current && submitGuessRef.current(true) }
     ]);
   };
   
@@ -1028,7 +1031,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
             }],
           },
         ]}
-        pointerEvents={scale._value > 1 ? 'auto' : 'none'}
+        pointerEvents={(scale as any)._value > 1 ? 'auto' : 'none'}
       >
         <TouchableOpacity 
           onPress={() => {
@@ -1157,14 +1160,14 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
               }
             </Text>
             {/* 平均得点表示 */}
-            {photoMeta && photoMeta.timesUsed > 0 && (
+            {photoStats && photoStats.playCount > 0 && (
               <View style={styles.photoStats}>
                 <Ionicons name="analytics" size={12} color="#FFD700" />
                 <Text style={styles.averageScore}>
-                  平均: {Math.round(photoMeta.averageScore)}pts
+                  平均: {Math.round(photoStats.averageScore)}pts
                 </Text>
                 <Text style={styles.playCount}>
-                  ({Number(photoMeta.timesUsed)}回)
+                  ({Number(photoStats.playCount)}回)
                 </Text>
               </View>
             )}
