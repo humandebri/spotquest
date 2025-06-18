@@ -10,7 +10,7 @@ import {
   StatusBar,
   Alert,
 } from 'react-native';
-import Clipboard from '@react-native-clipboard/clipboard';
+import * as Clipboard from 'expo-clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -144,10 +144,10 @@ export default function HomeScreen() {
     }, 2000);
   }, [fetchTokenBalance, fetchPlayerStats]);
 
-  const copyPrincipalToClipboard = () => {
+  const copyPrincipalToClipboard = async () => {
     if (principal) {
       try {
-        Clipboard.setString(principal.toString());
+        await Clipboard.setStringAsync(principal.toString());
         Alert.alert(
           'Copied!',
           'Principal ID has been copied to clipboard',

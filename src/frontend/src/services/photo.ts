@@ -222,6 +222,9 @@ class PhotoService {
       
       console.log('Initializing photo service:', { host, canisterId });
       
+      // Dev modeの確認
+      const isDevMode = identity.constructor.name === 'Ed25519KeyIdentity';
+      
       this.agent = new HttpAgent({
         identity,
         host: host,
@@ -239,6 +242,10 @@ class PhotoService {
         },
       });
 
+      // Dev modeの場合、追加の設定
+      if (isDevMode) {
+        console.log('📷 Dev mode detected - certificate verification will be handled by early patches');
+      }
 
       // fetchRootKeyはローカルレプリカでのみ実行（mainnetでは不要）
       // mainnetを使用しているため、fetchRootKeyは実行しない

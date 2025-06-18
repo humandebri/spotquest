@@ -302,6 +302,9 @@ class PhotoServiceV2 {
       
       console.log('🖼️ Initializing photo service V2:', { host, canisterId });
       
+      // Dev modeの確認（デバッグ用）
+      const isDevMode = identity.constructor.name === 'Ed25519KeyIdentity';
+      
       this.agent = new HttpAgent({
         identity,
         host: host,
@@ -318,10 +321,9 @@ class PhotoServiceV2 {
         },
       });
 
-      // Dev modeの確認（デバッグ用）
-      const isDevMode = identity.constructor.name === 'Ed25519KeyIdentity';
+      // Dev modeの場合、追加の設定
       if (isDevMode) {
-        console.log('🖼️ Dev mode detected, signature verification enabled');
+        console.log('🖼️ Dev mode detected - certificate verification will be handled by early patches');
       }
 
       this.actor = Actor.createActor(idlFactory, {
@@ -410,7 +412,20 @@ class PhotoServiceV2 {
 
     try {
       console.log('🔍 Searching photos with filter:', filter);
-      const result = await this.actor.searchPhotosV2(filter, cursor ? [cursor] : [], BigInt(limit));
+      
+      // Convert TypeScript optional fields to IDL Optional format
+      const idlFilter = {
+        country: filter.country ? [filter.country] : [],
+        region: filter.region ? [filter.region] : [],
+        sceneKind: filter.sceneKind ? [filter.sceneKind] : [],
+        tags: filter.tags ? [filter.tags] : [],
+        nearLocation: filter.nearLocation ? [filter.nearLocation] : [],
+        owner: filter.owner ? [filter.owner] : [],
+        difficulty: filter.difficulty ? [filter.difficulty] : [],
+        status: filter.status ? [filter.status] : [],
+      };
+      
+      const result = await this.actor.searchPhotosV2(idlFilter, cursor ? [cursor] : [], BigInt(limit));
       console.log(`🔍 Found ${result.photos.length} photos`);
       return result;
     } catch (error) {

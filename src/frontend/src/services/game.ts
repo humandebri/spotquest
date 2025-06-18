@@ -110,6 +110,11 @@ class GameService {
       
       this.agent = new HttpAgent(agentOptions);
       
+      // Dev modeの場合、追加の設定
+      if (isDevMode) {
+        console.log('🎮 Dev mode detected - certificate verification will be handled by early patches');
+      }
+      
       // メインネットの統合canister IDを使用
       const canisterId = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || '77fv5-oiaaa-aaaal-qsoea-cai';
       

@@ -114,6 +114,10 @@ class AdminService {
       }
 
       this.identity = identity;
+      
+      // Dev modeの確認
+      const isDevMode = identity.constructor.name === 'Ed25519KeyIdentity';
+      
       this.agent = new HttpAgent({
         identity,
         host: process.env.EXPO_PUBLIC_IC_HOST || 'https://ic0.app',
@@ -131,6 +135,10 @@ class AdminService {
         },
       });
 
+      // Dev modeの場合、追加の設定
+      if (isDevMode) {
+        console.log('👑 Dev mode detected - certificate verification will be handled by early patches');
+      }
 
       // fetchRootKeyはローカルレプリカでのみ実行（mainnetでは不要）
       // mainnetを使用しているため、fetchRootKeyは実行しない
