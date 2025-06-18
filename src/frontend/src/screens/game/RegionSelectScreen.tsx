@@ -17,6 +17,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navigation/AppNavigator';
 import { photoServiceV2 } from '../../services/photoV2';
 import { useAuth } from '../../hooks/useAuth';
+import { getCountryName, getRegionName } from '../../utils/regionMapping';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'RegionSelect'>;
 
@@ -28,29 +29,6 @@ interface RegionInfo {
   previewImage?: string;
 }
 
-// 地域の表示名マッピング
-const REGION_NAMES: { [key: string]: string } = {
-  'JP': '日本',
-  'JP-13': '東京',
-  'JP-15': '新潟',
-  'JP-27': '大阪',
-  'JP-14': '神奈川',
-  'JP-26': '京都',
-  'JP-40': '福岡',
-  'JP-01': '北海道',
-  'US': 'アメリカ',
-  'GB': 'イギリス',
-  'FR': 'フランス',
-  'DE': 'ドイツ',
-  'IT': 'イタリア',
-  'ES': 'スペイン',
-  'CN': '中国',
-  'KR': '韓国',
-  'TH': 'タイ',
-  'AU': 'オーストラリア',
-  'CA': 'カナダ',
-  'XX': 'その他',
-};
 
 export default function RegionSelectScreen() {
   const navigation = useNavigation<NavigationProp>();
@@ -79,7 +57,7 @@ export default function RegionSelectScreen() {
           if (Number(count) > 0) {
             regionData.push({
               code: countryCode,
-              name: REGION_NAMES[countryCode] || countryCode,
+              name: getCountryName(countryCode),
               photoCount: Number(count),
               popularTags: [],
             });
@@ -93,7 +71,7 @@ export default function RegionSelectScreen() {
           if (Number(count) > 0) {
             regionData.push({
               code: regionCode,
-              name: REGION_NAMES[regionCode] || regionCode,
+              name: getRegionName(regionCode),
               photoCount: Number(count),
               popularTags: [],
             });
