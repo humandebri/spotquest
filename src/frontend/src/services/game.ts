@@ -469,11 +469,51 @@ class GameService {
         await Promise.allSettled(cleanupPromises);
       }
       
-      // 4. Create new session (should now succeed)
+      // 4. Create new session with retry mechanism
       console.log('🎮 Creating new session after cleanup...');
-      const result = await this.createSession();
-      console.log('🎮 createSessionWithCleanup result:', result);
-      return result;
+      
+      // Try creating session with retries
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const result = await this.createSession();
+        console.log(`🎮 createSession attempt ${attempt} result:`, result);
+        
+        if (result.ok) {
+          console.log('🎮 createSessionWithCleanup succeeded:', result);
+          return result;
+        }
+        
+        if (result.err && result.err.includes('Maximum concurrent sessions')) {
+          console.log(`🎮 Session limit hit on attempt ${attempt}, waiting and retrying...`);
+          
+          // Wait a bit for backend cleanup to complete
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          // Force additional cleanup if needed
+          if (attempt < 3) {
+            try {
+              const retrySessionsResult = await this.getUserSessions(principal);
+              if (retrySessionsResult.ok) {
+                const remainingActive = retrySessionsResult.ok.filter(s => s.status === 'Active');
+                if (remainingActive.length > 0) {
+                  console.log('🎮 Force finalizing remaining sessions:', remainingActive.length);
+                  await Promise.allSettled(
+                    remainingActive.map(s => this.finalizeSession(s.id))
+                  );
+                }
+              }
+            } catch (cleanupError) {
+              console.warn('🎮 Additional cleanup failed:', cleanupError);
+            }
+          }
+        } else {
+          // Different error, return immediately
+          console.log('🎮 createSessionWithCleanup failed with non-session error:', result);
+          return result;
+        }
+      }
+      
+      // If all retries failed
+      return { err: 'Failed to create session after multiple attempts' };
       
     } catch (error: any) {
       console.error('Failed to create session with cleanup:', error);

@@ -150,14 +150,14 @@ actor GameUnified {
     
     private stable var iiIntegrationStable : ?[(Text, IIIntegrationModule.SessionData)] = null;
     
-    // Photo V2のstable変数 - 一時的にコメントアウト（互換性問題回避）
-    // private stable var photoV2Stable : ?{
-    //     photos: [(Nat, PhotoModuleV2.Photo)];
-    //     photoChunks: [(Text, PhotoModuleV2.PhotoChunk)];
-    //     nextPhotoId: Nat;
-    //     totalPhotos: Nat;
-    //     totalStorageSize: Nat;
-    // } = null;
+    // Photo V2のstable変数 - データ保護のため復活
+    private stable var photoV2Stable : ?{
+        photos: [(Nat, PhotoModuleV2.Photo)];
+        photoChunks: [(Text, PhotoModuleV2.PhotoChunk)];
+        nextPhotoId: Nat;
+        totalPhotos: Nat;
+        totalStorageSize: Nat;
+    } = null;
     
     // 写真統計情報の別stable変数（既存型と互換性を保つため）
     private stable var photoStatsStable : ?[(Nat, PhotoModuleV2.PhotoStats)] = null;
@@ -1964,15 +1964,15 @@ actor GameUnified {
         gameEngineStable := ?gameEngineManager.toStable();
         guessHistoryStable := ?guessHistoryManager.toStable();
         photoStable := ?photoManager.toStable();
-        // Temporarily skip photoV2Stable to avoid compatibility issues
-        // let v2Data = photoManagerV2.toStable();
-        // photoV2Stable := ?{
-        //     photos = v2Data.photos;
-        //     photoChunks = v2Data.photoChunks;
-        //     nextPhotoId = v2Data.nextPhotoId;
-        //     totalPhotos = v2Data.totalPhotos;
-        //     totalStorageSize = v2Data.totalStorageSize;
-        // };
+        // PhotoV2データの保存 - データ保護のため復活
+        let v2Data = photoManagerV2.toStable();
+        photoV2Stable := ?{
+            photos = v2Data.photos;
+            photoChunks = v2Data.photoChunks;
+            nextPhotoId = v2Data.nextPhotoId;
+            totalPhotos = v2Data.totalPhotos;
+            totalStorageSize = v2Data.totalStorageSize;
+        };
         photoStatsStable := ?photoManagerV2.getPhotoStatsEntries();
         
         // StableTrieMapのpreupgrade処理
@@ -2045,14 +2045,14 @@ actor GameUnified {
             };
         };
         
-        // Temporarily skip photoV2Stable restoration to avoid compatibility issues
-        // switch(photoV2Stable) {
-        //     case null { };
-        //     case (?stableData) {
-        //         photoManagerV2.fromStable(stableData);
-        //         photoV2Stable := null;
-        //     };
-        // };
+        // PhotoV2データの復元 - データ保護のため復活
+        switch(photoV2Stable) {
+            case null { };
+            case (?stableData) {
+                photoManagerV2.fromStable(stableData);
+                photoV2Stable := null;
+            };
+        };
         
         // Restore photo statistics
         switch(photoStatsStable) {

@@ -52,13 +52,36 @@ module {
                 case (?buffer) { buffer };
             };
             
-            // Clean up any expired sessions for this user
+            // Clean up any expired or completed sessions for this user
             let activeSessionIds = Buffer.Buffer<Text>(userSessionBuffer.size());
+            let now = Time.now();
+            
             for (sessionId in userSessionBuffer.vals()) {
                 switch(sessions.get(sessionId)) {
-                    case null { }; // Session doesn't exist
+                    case null { 
+                        // Session doesn't exist, remove from user sessions
+                    }; 
                     case (?session) {
-                        if (session.endTime == null) {
+                        // Check if session should be considered active
+                        let isActive = session.endTime == null and 
+                                      session.currentRound < Constants.ROUNDS_PER_SESSION;
+                        
+                        // Also check timeout
+                        switch(sessionTimeouts.get(sessionId)) {
+                            case null { };
+                            case (?timeout) {
+                                if (now > timeout) {
+                                    // Session timed out, mark as ended
+                                    let timedOutSession = {
+                                        session with
+                                        endTime = ?now;
+                                    };
+                                    sessions.put(sessionId, timedOutSession);
+                                };
+                            };
+                        };
+                        
+                        if (isActive and session.endTime == null) {
                             activeSessionIds.add(sessionId);
                         };
                     };
@@ -66,16 +89,29 @@ module {
             };
             userSessions.put(userId, activeSessionIds);
             
+            // If still at limit, force finalize oldest sessions
             if (activeSessionIds.size() >= Constants.MAX_CONCURRENT_SESSIONS) {
-                errorCount += 1;
-                return #err("Maximum concurrent sessions reached");
+                // Force finalize all active sessions for this user to ensure clean start
+                for (sessionId in activeSessionIds.vals()) {
+                    switch(sessions.get(sessionId)) {
+                        case null { };
+                        case (?session) {
+                            let finalizedSession = {
+                                session with
+                                endTime = ?now;
+                            };
+                            sessions.put(sessionId, finalizedSession);
+                        };
+                    };
+                };
+                // Clear user sessions after force finalization
+                userSessions.put(userId, Buffer.Buffer<Text>(0));
             };
             
             // Generate session ID
             let sessionId = Helpers.generateSessionId(userId, prng);
             
             // Create session
-            let now = Time.now();
             let session : GameV2.GameSession = {
                 id = sessionId;
                 userId = userId;

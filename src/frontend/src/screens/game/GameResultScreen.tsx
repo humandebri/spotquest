@@ -120,6 +120,9 @@ export default function GameResultScreen() {
   const baseReward = 1.0; // 1.00 SPOT for perfect score
   const earnedReward = ((score || 0) / 5000) * baseReward;
 
+  // Performance optimization: disable animations for low scores (distant guesses)
+  const isLowScore = (score || 0) <= 500;
+  const isLightweightMode = isLowScore;
 
   // Difficulty multiplier function
   const getDifficultyMultiplier = (diff: string) => {
@@ -146,23 +149,32 @@ export default function GameResultScreen() {
       });
     }
 
-    // Simplified entrance animation
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
-
-    // Delayed score animation to reduce initial load
-    const scoreTimer = setTimeout(() => {
-      Animated.timing(scoreAnim, {
-        toValue: score || 0,
-        duration: 1000,
-        useNativeDriver: false,
+    // Conditional animations based on score
+    if (isLightweightMode) {
+      // No animations for low scores - instant display
+      fadeAnim.setValue(1);
+      scoreAnim.setValue(score || 0);
+      markerScaleAnim.setValue(1);
+      console.log('⚡ Lightweight mode: animations disabled for score', score);
+    } else {
+      // Full animations for good scores
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
       }).start();
-    }, 200);
 
-    return () => clearTimeout(scoreTimer);
+      // Delayed score animation to reduce initial load
+      const scoreTimer = setTimeout(() => {
+        Animated.timing(scoreAnim, {
+          toValue: score || 0,
+          duration: 1000,
+          useNativeDriver: false,
+        }).start();
+      }, 200);
+      
+      return () => clearTimeout(scoreTimer);
+    }
   }, []);
 
   // Get distance-appropriate initial zoom level - memoized
@@ -177,26 +189,42 @@ export default function GameResultScreen() {
       return { latitudeDelta: 0.5, longitudeDelta: 0.5 };
     } else if (distanceKm < 1000) {
       return { latitudeDelta: 5, longitudeDelta: 5 };
+    } else if (distanceKm < 5000) {
+      return { latitudeDelta: 40, longitudeDelta: 40 };
     } else {
-      return { latitudeDelta: 20, longitudeDelta: 20 };
+      // For very distant locations (> 5000km), use maximum zoom out
+      return { latitudeDelta: 90, longitudeDelta: 180 };
     }
   }, [distance]);
 
-  // Simplified map animation
+  // Conditional map animation based on performance mode
   useEffect(() => {
     if (mapReady && mapRef.current && actualLocation && guess) {
-      // Delayed animation to avoid blocking UI
-      const mapTimer = setTimeout(() => {
-        mapRef.current?.animateToRegion(getMapRegion, 1500);
-        calculateDashPattern(getMapRegion);
+      if (isLightweightMode) {
+        // Lightweight mode: instant positioning, no animation
+        setTimeout(() => {
+          mapRef.current?.animateToRegion(getMapRegion, 0); // No animation duration
+          calculateDashPattern(getMapRegion);
+          markerScaleAnim.setValue(1); // Already set but for safety
+        }, 100);
+      } else {
+        // Full animation for good scores
+        const mapTimer = setTimeout(() => {
+          mapRef.current?.animateToRegion(getMapRegion, 1500);
+          calculateDashPattern(getMapRegion);
+          
+          // Animated marker appearance
+          Animated.timing(markerScaleAnim, {
+            toValue: 1,
+            duration: 600,
+            useNativeDriver: true,
+          }).start();
+        }, 300);
         
-        // Simple marker appearance
-        markerScaleAnim.setValue(1);
-      }, 300);
-      
-      return () => clearTimeout(mapTimer);
+        return () => clearTimeout(mapTimer);
+      }
     }
-  }, [mapReady, getMapRegion, actualLocation, guess]);
+  }, [mapReady, getMapRegion, actualLocation, guess, isLightweightMode]);
 
   // No token minting here - will be done at session completion
 
@@ -255,8 +283,43 @@ export default function GameResultScreen() {
     
     const midLat = (minLat + maxLat) / 2;
     const midLon = (minLon + maxLon) / 2;
-    const deltaLat = Math.max(maxLat - minLat, 0.05) * 1.5;
-    const deltaLon = Math.max(maxLon - minLon, 0.05) * 1.5;
+    
+    // Calculate deltas with sufficient padding to ensure both points are visible
+    const latDiff = Math.abs(maxLat - minLat);
+    const lonDiff = Math.abs(maxLon - minLon);
+    
+    // Use larger multiplier for better visibility, with minimum zoom levels
+    const paddingMultiplier = 4.0; // Further increased for better visibility
+    const minLatDelta = 0.005; // Smaller minimum for close points
+    const minLonDelta = 0.005;
+    
+    // Ensure adequate padding especially for close points
+    const paddedLatDiff = Math.max(latDiff * paddingMultiplier, minLatDelta);
+    const paddedLonDiff = Math.max(lonDiff * paddingMultiplier, minLonDelta);
+    
+    // For very close points, ensure minimum visible area
+    const finalMinLatDelta = latDiff < 0.01 ? 0.02 : minLatDelta; // 0.02 degrees ≈ 2.2km
+    const finalMinLonDelta = lonDiff < 0.01 ? 0.02 : minLonDelta;
+    
+    const deltaLat = Math.min(Math.max(paddedLatDiff, finalMinLatDelta), 90);
+    const deltaLon = Math.min(Math.max(paddedLonDiff, finalMinLonDelta), 180);
+
+    // Debug logging for map region calculation
+    console.log('🗺️ Map region calculation:', {
+      guess: { lat: guess.latitude, lon: guess.longitude },
+      actual: { lat: actualLocation.latitude, lon: actualLocation.longitude },
+      diffs: { lat: latDiff, lon: lonDiff },
+      padding: {
+        paddedLat: paddedLatDiff,
+        paddedLon: paddedLonDiff,
+        finalMinLat: finalMinLatDelta,
+        finalMinLon: finalMinLonDelta
+      },
+      calculated: {
+        center: { lat: midLat, lon: midLon },
+        deltas: { lat: deltaLat, lon: deltaLon }
+      }
+    });
 
     return {
       latitude: midLat,
@@ -266,27 +329,41 @@ export default function GameResultScreen() {
     };
   }, [guess, actualLocation]);
 
-  // Calculate dash pattern based on map zoom level
-  const calculateDashPattern = (region: any) => {
+  // Calculate dash pattern based on map zoom level with performance optimization
+  const calculateDashPattern = useCallback((region: any) => {
+    if (isLightweightMode) {
+      // Use fixed pattern for performance
+      setDashPattern([30, 30]);
+      return;
+    }
+    
     const delta = region.latitudeDelta || 0.1;
     // Smaller delta = more zoomed in = smaller dash pattern
     // Larger delta = more zoomed out = larger dash pattern
     const basePattern = Math.max(20, Math.min(100, delta * 500));
     setDashPattern([basePattern, basePattern]);
-  };
+  }, [isLightweightMode]);
 
   return (
     <View style={styles.container}>
-      {/* Gradient Mesh Background */}
-      <LinearGradient
-        colors={['#1a0033', '#220044', '#1a0033']}
-        style={styles.gradientBackground}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      />
-      
-      {/* Simplified Background Pattern - Removed heavy mesh overlay */}
-      <View style={styles.simpleOverlay} pointerEvents="none" />
+      {/* Conditional Background based on performance mode */}
+      {isLightweightMode ? (
+        // Simple solid background for performance
+        <View style={styles.lightweightBackground} />
+      ) : (
+        <>
+          {/* Gradient Mesh Background */}
+          <LinearGradient
+            colors={['#1a0033', '#220044', '#1a0033']}
+            style={styles.gradientBackground}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          />
+          
+          {/* Simplified Background Pattern */}
+          <View style={styles.simpleOverlay} pointerEvents="none" />
+        </>
+      )}
       
       {/* Map Section - Full Width */}
       <View style={styles.mapContainer}>
@@ -306,14 +383,13 @@ export default function GameResultScreen() {
             }}
             onMapReady={() => {
               setMapReady(true);
-              const initialZoom = getInitialZoom();
-              calculateDashPattern({ latitudeDelta: initialZoom.latitudeDelta });
+              calculateDashPattern({ latitudeDelta: getInitialZoom.latitudeDelta });
             }}
-            onRegionChangeComplete={(region) => {
+            onRegionChangeComplete={isLightweightMode ? undefined : (region) => {
               calculateDashPattern(region);
             }}
-            scrollEnabled={true}
-            zoomEnabled={true}
+            scrollEnabled={!isLightweightMode}
+            zoomEnabled={!isLightweightMode}
             rotateEnabled={false}
             pitchEnabled={false}
           >
@@ -396,6 +472,12 @@ export default function GameResultScreen() {
         <View style={styles.roundIndicator}>
           <Ionicons name="location-outline" size={24} color="#fff" />
           <Text style={styles.roundText}>ROUND {roundNumber}</Text>
+          {isLightweightMode && (
+            <View style={styles.lightweightIndicator}>
+              <Ionicons name="flash" size={16} color="#FFC107" />
+              <Text style={styles.lightweightText}>Fast Mode</Text>
+            </View>
+          )}
         </View>
 
         <Animated.Text style={[styles.pointsText, { opacity: fadeAnim }]}>
@@ -501,6 +583,14 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
   },
+  lightweightBackground: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: '#1a0033',
+  },
   simpleOverlay: {
     position: 'absolute',
     left: 0,
@@ -551,6 +641,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     letterSpacing: 1,
+  },
+  lightweightIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 193, 7, 0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginLeft: 12,
+    gap: 4,
+  },
+  lightweightText: {
+    color: '#FFC107',
+    fontSize: 12,
+    fontWeight: '600',
   },
   pointsText: {
     color: '#FFD700',

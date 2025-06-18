@@ -714,7 +714,34 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
         if (result.ok) {
           // Guess submitted successfully
           console.log('✅ Guess submitted successfully to backend');
-          // Update round state if needed
+          
+          // Navigate to result screen with backend data
+          const backendResult = result.ok;
+          console.log('🗺️ Backend returned result:', backendResult);
+          
+          const resultParams = {
+            guess: {
+              latitude: finalGuess.latitude,
+              longitude: finalGuess.longitude,
+            },
+            actualLocation: {
+              latitude: backendResult.actualLocation.lat,
+              longitude: backendResult.actualLocation.lon,
+            },
+            score: Number(backendResult.displayScore), // Convert BigInt to number for navigation
+            timeUsed: DifficultySettings[difficulty].timeLimit - timeLeft,
+            difficulty: difficulty,
+            photoUrl: currentPhoto!.url,
+          };
+          
+          console.log('🗺️ Navigating to GameResult with backend data:', {
+            ...resultParams,
+            photoUrl: resultParams.photoUrl ? '[BASE64_IMAGE_DATA]' : undefined
+          });
+          
+          // Navigate to result screen with backend data
+          navigation.replace('GameResult', resultParams);
+          return; // Early return to prevent duplicate navigation
         } else {
           console.error('❌ Failed to submit guess:', result.err);
           setSessionError(result.err || 'Failed to submit guess');
@@ -723,29 +750,37 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
       } catch (error) {
         console.error('💥 Error submitting guess:', error);
         setSessionError('Network error occurred while submitting guess');
+        
+        // Fallback navigation for network errors
+        console.log('🔄 Using fallback navigation due to network error');
+        const fallbackParams = {
+          guess: finalGuess,
+          actualLocation: currentPhoto!.actualLocation,
+          score: score, // Use local calculated score as fallback
+          timeUsed: DifficultySettings[difficulty].timeLimit - timeLeft,
+          difficulty: difficulty,
+          photoUrl: currentPhoto!.url,
+        };
+        navigation.replace('GameResult', fallbackParams);
+        return;
       } finally {
         setSessionLoading(false);
       }
     } else {
       console.warn('⚠️ No sessionId available for submitting guess');
+      
+      // Fallback navigation when no session
+      console.log('🔄 Using fallback navigation due to missing session');
+      const fallbackParams = {
+        guess: finalGuess,
+        actualLocation: currentPhoto!.actualLocation,
+        score: score, // Use local calculated score as fallback
+        timeUsed: DifficultySettings[difficulty].timeLimit - timeLeft,
+        difficulty: difficulty,
+        photoUrl: currentPhoto!.url,
+      };
+      navigation.replace('GameResult', fallbackParams);
     }
-    
-    // Stop timer before navigating
-    isNavigatingAway.current = true;
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    
-    // Navigate to result screen
-    navigation.navigate('GameResult', {
-      guess: finalGuess,
-      actualLocation: currentPhoto!.actualLocation,
-      score: score,
-      timeUsed: DifficultySettings[difficulty].timeLimit - timeLeft,
-      difficulty: difficulty,
-      photoUrl: currentPhoto!.url,
-    });
   };
   
   const submitGuess = submitGuessRef.current;

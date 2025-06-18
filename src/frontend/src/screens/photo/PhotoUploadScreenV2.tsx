@@ -499,9 +499,9 @@ export default function PhotoUploadScreenV2() {
               </Text>
               <TouchableOpacity
                 style={styles.homeButton}
-                onPress={() => setIsOptimisticSuccess(false)}
+                onPress={() => navigation.navigate('Home')}
               >
-                <Text style={styles.homeButtonText}>OK</Text>
+                <Text style={styles.homeButtonText}>ホームに戻る</Text>
               </TouchableOpacity>
             </View>
           )}

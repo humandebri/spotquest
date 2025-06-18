@@ -161,7 +161,7 @@ export default function GuessMapScreen() {
             latitude: backendResult.actualLocation.lat,
             longitude: backendResult.actualLocation.lon,
           },
-          score: backendResult.displayScore, // Use backend score
+          score: Number(backendResult.displayScore), // Convert BigInt to number for navigation
           timeUsed: Math.max(0, 180 - (timeLeft || 180)),
           difficulty: difficulty || 'NORMAL',
           photoUrl: photoUrl || 'https://picsum.photos/800/600',
