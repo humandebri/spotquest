@@ -1158,8 +1158,8 @@ module {
             // 必要に応じて保存することも可能
         } {
             {
-                photos = []; // 旧ストレージは削除済み
-                photoChunks = []; // 旧ストレージは削除済み
+                photos = Iter.toArray(stablePhotos.entries());
+                photoChunks = Iter.toArray(stablePhotoChunks.entries());
                 nextPhotoId = nextPhotoId;
                 totalPhotos = totalPhotos;
                 totalStorageSize = totalStorageSize;
@@ -1197,7 +1197,10 @@ module {
             totalPhotos: Nat;
             totalStorageSize: Nat;
         }) {
-            // 旧ストレージは使用しない（既にstablePhotosに移行済み）
+            // Restore stable photos and chunks
+            stablePhotos := TrieMap.fromEntries<Nat, Photo>(stableData.photos.vals(), Nat.equal, Hash.hash);
+            stablePhotoChunks := TrieMap.fromEntries<Text, PhotoChunk>(stableData.photoChunks.vals(), Text.equal, Text.hash);
+            
             nextPhotoId := stableData.nextPhotoId;
             totalPhotos := stableData.totalPhotos;
             totalStorageSize := stableData.totalStorageSize;
