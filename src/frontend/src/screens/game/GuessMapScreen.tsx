@@ -151,7 +151,7 @@ export default function GuessMapScreen() {
         // Save guess to store
         setGameGuess(guess, confidenceRadius || 1000);
         
-        // Navigate to GameResult with backend data
+        // Navigate to GameResult with backend data (no photoUrl to avoid large data)
         const resultParams = {
           guess: {
             latitude: guess.latitude,
@@ -164,19 +164,30 @@ export default function GuessMapScreen() {
           score: Number(backendResult.displayScore), // Convert BigInt to number for navigation
           timeUsed: Math.max(0, 180 - (timeLeft || 180)),
           difficulty: difficulty || 'NORMAL',
-          photoUrl: photoUrl || 'https://picsum.photos/800/600',
         };
 
-        console.log('🗺️ Navigating to GameResult with backend data:', {
-          ...resultParams,
-          photoUrl: resultParams.photoUrl ? '[BASE64_IMAGE_DATA]' : undefined
-        });
+        console.log('🗺️ Navigating to GameResult with backend data:', resultParams);
         
-        // Reset the guess in the store
+        // Reset states before navigation
+        setIsSubmitting(false);
         setGameGuess(null, confidenceRadius || 1000);
         
-        // Navigate to GameResult
-        navigation.replace('GameResult', resultParams);
+        // Use timeout to ensure state updates complete before navigation
+        setTimeout(() => {
+          try {
+            navigation.replace('GameResult', resultParams);
+          } catch (navError) {
+            console.error('🚨 Navigation error:', navError);
+            // Fallback: force navigation reset
+            navigation.reset({
+              index: 0,
+              routes: [
+                { name: 'Home' },
+                { name: 'GameResult', params: resultParams }
+              ],
+            });
+          }
+        }, 100);
       } else {
         console.error('🗺️ Backend error:', result.err);
         
@@ -203,12 +214,28 @@ export default function GuessMapScreen() {
           score: score,
           timeUsed: Math.max(0, 180 - (timeLeft || 180)),
           difficulty: difficulty || 'NORMAL',
-          photoUrl: photoUrl || 'https://picsum.photos/800/600',
         };
 
+        // Reset states before navigation
+        setIsSubmitting(false);
         setGameGuess(guess, confidenceRadius || 1000);
-        setGameGuess(null, confidenceRadius || 1000);
-        navigation.replace('GameResult', resultParams);
+        
+        // Use timeout for consistent navigation behavior with error handling
+        setTimeout(() => {
+          try {
+            navigation.replace('GameResult', resultParams);
+          } catch (navError) {
+            console.error('🚨 Navigation error (backend error fallback):', navError);
+            // Fallback: force navigation reset
+            navigation.reset({
+              index: 0,
+              routes: [
+                { name: 'Home' },
+                { name: 'GameResult', params: resultParams }
+              ],
+            });
+          }
+        }, 100);
       }
     } catch (error) {
       console.error('🗺️ Error submitting guess:', error);
@@ -235,12 +262,28 @@ export default function GuessMapScreen() {
         score: score,
         timeUsed: Math.max(0, 180 - (timeLeft || 180)),
         difficulty: difficulty || 'NORMAL',
-        photoUrl: photoUrl || 'https://picsum.photos/800/600',
       };
 
+      // Reset states before navigation
+      setIsSubmitting(false);
       setGameGuess(guess, confidenceRadius || 1000);
-      setGameGuess(null, confidenceRadius || 1000);
-      navigation.replace('GameResult', resultParams);
+      
+      // Use timeout for consistent navigation behavior with error handling
+      setTimeout(() => {
+        try {
+          navigation.replace('GameResult', resultParams);
+        } catch (navError) {
+          console.error('🚨 Navigation error (network error fallback):', navError);
+          // Fallback: force navigation reset
+          navigation.reset({
+            index: 0,
+            routes: [
+              { name: 'Home' },
+              { name: 'GameResult', params: resultParams }
+            ],
+          });
+        }
+      }, 100);
     } finally {
       setIsSubmitting(false);
     }

@@ -47,35 +47,38 @@ export default function GameResultScreen() {
     console.error('Error getting params:', error);
   }
   
+  // Extract params first for debugging
+  const debugParams = params as any;
+  
   console.log('🎯 GameResult route params:', {
-    ...params,
-    photoUrl: params.photoUrl ? `[IMAGE_DATA_${(params.photoUrl?.length || 0 / 1024).toFixed(0)}KB]` : undefined,
-    isTimeout: timeUsed >= 180 // Detect timeout condition
+    ...debugParams,
+    photoUrl: debugParams.photoUrl ? `[IMAGE_DATA_${((debugParams.photoUrl?.length || 0) / 1024).toFixed(0)}KB]` : undefined,
+    isTimeout: (debugParams.timeUsed ?? 0) >= 180 // Detect timeout condition
   });
+  
+  // Ensure all values have defaults (moved before usage)
+  const guess = (params as any).guess || { latitude: 0, longitude: 0 };
+  const actualLocation = (params as any).actualLocation || { latitude: 35.6762, longitude: 139.6503 };
+  const score = typeof (params as any).score === 'bigint' ? Number((params as any).score) : ((params as any).score ?? 0);
+  const timeUsed = (params as any).timeUsed ?? 0;
+  const azimuthGuess = (params as any).azimuthGuess ?? 0;
+  const actualAzimuth = (params as any).actualAzimuth ?? 0;
+  const difficulty = (params as any).difficulty || 'NORMAL';
   
   // Performance monitoring for timeout scenarios
   if (timeUsed >= 180) {
     console.warn('⏰ Timeout detected in GameResult - using optimized rendering');
   }
-  
-  // Ensure all values have defaults
-  const guess = params.guess || { latitude: 0, longitude: 0 };
-  const actualLocation = params.actualLocation || { latitude: 35.6762, longitude: 139.6503 };
-  const score = typeof params.score === 'bigint' ? Number(params.score) : (params.score ?? 0);
-  const timeUsed = params.timeUsed ?? 0;
-  const azimuthGuess = params.azimuthGuess ?? 0;
-  const actualAzimuth = params.actualAzimuth ?? 0;
-  const difficulty = params.difficulty || 'NORMAL';
   // Optimize photo URL handling for performance
   const photoUrl = useMemo(() => {
-    const url = params.photoUrl;
+    const url = (params as any).photoUrl;
     // For very large Base64 strings, use placeholder to avoid memory issues
     if (url && url.length > 2000000) { // 2MB
       console.warn('📸 Large photo data detected, using placeholder');
       return 'https://picsum.photos/800/600';
     }
     return url || 'https://picsum.photos/800/600';
-  }, [params.photoUrl]);
+  }, [(params as any).photoUrl]);
 
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -177,6 +180,103 @@ export default function GameResultScreen() {
     }
   }, []);
 
+  // Map region that includes both markers - memoized with debug logging moved
+  const getMapRegion = useMemo(() => {
+    // Safety checks
+    if (!guess || !actualLocation) {
+      return {
+        latitude: 35.6762,
+        longitude: 139.6503,
+        latitudeDelta: 0.1,
+        longitudeDelta: 0.1,
+      };
+    }
+
+    // Validate coordinates to prevent NaN/Infinity
+    const guessLat = Number(guess.latitude) || 0;
+    const guessLon = Number(guess.longitude) || 0;
+    const actualLat = Number(actualLocation.latitude) || 0;
+    const actualLon = Number(actualLocation.longitude) || 0;
+
+    // Check for valid coordinate ranges
+    if (Math.abs(guessLat) > 90 || Math.abs(actualLat) > 90 || 
+        Math.abs(guessLon) > 180 || Math.abs(actualLon) > 180) {
+      console.warn('🚨 Invalid coordinates detected, using default region');
+      return {
+        latitude: 35.6762,
+        longitude: 139.6503,
+        latitudeDelta: 90,
+        longitudeDelta: 180,
+      };
+    }
+
+    const minLat = Math.min(guessLat, actualLat);
+    const maxLat = Math.max(guessLat, actualLat);
+    const minLon = Math.min(guessLon, actualLon);
+    const maxLon = Math.max(guessLon, actualLon);
+    
+    const midLat = (minLat + maxLat) / 2;
+    const midLon = (minLon + maxLon) / 2;
+    
+    // Calculate deltas with sufficient padding to ensure both points are visible
+    const latDiff = Math.abs(maxLat - minLat);
+    const lonDiff = Math.abs(maxLon - minLon);
+    
+    // Use larger multiplier for better visibility, with minimum zoom levels
+    const paddingMultiplier = 4.0;
+    const minLatDelta = 0.005;
+    const minLonDelta = 0.005;
+    
+    // Ensure adequate padding especially for close points
+    const paddedLatDiff = Math.max(latDiff * paddingMultiplier, minLatDelta);
+    const paddedLonDiff = Math.max(lonDiff * paddingMultiplier, minLonDelta);
+    
+    // For very close points, ensure minimum visible area
+    const finalMinLatDelta = latDiff < 0.01 ? 0.02 : minLatDelta;
+    const finalMinLonDelta = lonDiff < 0.01 ? 0.02 : minLonDelta;
+    
+    const deltaLat = Math.min(Math.max(paddedLatDiff, finalMinLatDelta), 90);
+    const deltaLon = Math.min(Math.max(paddedLonDiff, finalMinLonDelta), 180);
+
+    return {
+      latitude: midLat,
+      longitude: midLon,
+      latitudeDelta: deltaLat,
+      longitudeDelta: deltaLon,
+    };
+  }, [guess?.latitude, guess?.longitude, actualLocation?.latitude, actualLocation?.longitude]);
+
+  // Debug logging function - only runs once per region calculation
+  const logMapRegionDebug = useCallback(() => {
+    if (guess && actualLocation) {
+      console.log('🗺️ Map region calculation:', {
+        guess: { lat: guess.latitude, lon: guess.longitude },
+        actual: { lat: actualLocation.latitude, lon: actualLocation.longitude },
+        distance: `${(distance / 1000).toFixed(1)}km`,
+        calculated: {
+          center: { lat: getMapRegion.latitude, lon: getMapRegion.longitude },
+          deltas: { lat: getMapRegion.latitudeDelta, lon: getMapRegion.longitudeDelta }
+        },
+        isExtreme: getMapRegion.latitudeDelta >= 45 || getMapRegion.longitudeDelta >= 90
+      });
+    }
+  }, [guess, actualLocation, distance, getMapRegion]);
+
+  // Calculate dash pattern based on map zoom level with performance optimization
+  const calculateDashPattern = useCallback((region: any) => {
+    if (isLightweightMode) {
+      // Use fixed pattern for performance
+      setDashPattern([30, 30]);
+      return;
+    }
+    
+    const delta = region.latitudeDelta || 0.1;
+    // Smaller delta = more zoomed in = smaller dash pattern
+    // Larger delta = more zoomed out = larger dash pattern
+    const basePattern = Math.max(20, Math.min(100, delta * 500));
+    setDashPattern([basePattern, basePattern]);
+  }, [isLightweightMode]);
+
   // Get distance-appropriate initial zoom level - memoized
   const getInitialZoom = useMemo(() => {
     const distanceKm = distance / 1000;
@@ -197,21 +297,29 @@ export default function GameResultScreen() {
     }
   }, [distance]);
 
-  // Conditional map animation based on performance mode
+  // Conditional map animation based on performance mode - Fixed infinite loop
   useEffect(() => {
     if (mapReady && mapRef.current && actualLocation && guess) {
+      // Get stable region object to avoid infinite loop
+      const regionToAnimate = getMapRegion;
+      
+      // Log debug info once
+      logMapRegionDebug();
+      
       if (isLightweightMode) {
         // Lightweight mode: instant positioning, no animation
-        setTimeout(() => {
-          mapRef.current?.animateToRegion(getMapRegion, 0); // No animation duration
-          calculateDashPattern(getMapRegion);
+        const lightweightTimer = setTimeout(() => {
+          mapRef.current?.animateToRegion(regionToAnimate, 0); // No animation duration
+          calculateDashPattern(regionToAnimate);
           markerScaleAnim.setValue(1); // Already set but for safety
         }, 100);
+        
+        return () => clearTimeout(lightweightTimer);
       } else {
         // Full animation for good scores
         const mapTimer = setTimeout(() => {
-          mapRef.current?.animateToRegion(getMapRegion, 1500);
-          calculateDashPattern(getMapRegion);
+          mapRef.current?.animateToRegion(regionToAnimate, 1500);
+          calculateDashPattern(regionToAnimate);
           
           // Animated marker appearance
           Animated.timing(markerScaleAnim, {
@@ -224,7 +332,7 @@ export default function GameResultScreen() {
         return () => clearTimeout(mapTimer);
       }
     }
-  }, [mapReady, getMapRegion, actualLocation, guess, isLightweightMode]);
+  }, [mapReady, actualLocation?.latitude, actualLocation?.longitude, guess?.latitude, guess?.longitude, isLightweightMode, logMapRegionDebug, calculateDashPattern, getMapRegion, markerScaleAnim]);
 
   // No token minting here - will be done at session completion
 
@@ -264,86 +372,6 @@ export default function GameResultScreen() {
     });
   };
 
-  // Map region that includes both markers - memoized
-  const getMapRegion = useMemo(() => {
-    // Safety checks
-    if (!guess || !actualLocation) {
-      return {
-        latitude: 35.6762,
-        longitude: 139.6503,
-        latitudeDelta: 0.1,
-        longitudeDelta: 0.1,
-      };
-    }
-
-    const minLat = Math.min(guess.latitude || 0, actualLocation.latitude || 0);
-    const maxLat = Math.max(guess.latitude || 0, actualLocation.latitude || 0);
-    const minLon = Math.min(guess.longitude || 0, actualLocation.longitude || 0);
-    const maxLon = Math.max(guess.longitude || 0, actualLocation.longitude || 0);
-    
-    const midLat = (minLat + maxLat) / 2;
-    const midLon = (minLon + maxLon) / 2;
-    
-    // Calculate deltas with sufficient padding to ensure both points are visible
-    const latDiff = Math.abs(maxLat - minLat);
-    const lonDiff = Math.abs(maxLon - minLon);
-    
-    // Use larger multiplier for better visibility, with minimum zoom levels
-    const paddingMultiplier = 4.0; // Further increased for better visibility
-    const minLatDelta = 0.005; // Smaller minimum for close points
-    const minLonDelta = 0.005;
-    
-    // Ensure adequate padding especially for close points
-    const paddedLatDiff = Math.max(latDiff * paddingMultiplier, minLatDelta);
-    const paddedLonDiff = Math.max(lonDiff * paddingMultiplier, minLonDelta);
-    
-    // For very close points, ensure minimum visible area
-    const finalMinLatDelta = latDiff < 0.01 ? 0.02 : minLatDelta; // 0.02 degrees ≈ 2.2km
-    const finalMinLonDelta = lonDiff < 0.01 ? 0.02 : minLonDelta;
-    
-    const deltaLat = Math.min(Math.max(paddedLatDiff, finalMinLatDelta), 90);
-    const deltaLon = Math.min(Math.max(paddedLonDiff, finalMinLonDelta), 180);
-
-    // Debug logging for map region calculation
-    console.log('🗺️ Map region calculation:', {
-      guess: { lat: guess.latitude, lon: guess.longitude },
-      actual: { lat: actualLocation.latitude, lon: actualLocation.longitude },
-      diffs: { lat: latDiff, lon: lonDiff },
-      padding: {
-        paddedLat: paddedLatDiff,
-        paddedLon: paddedLonDiff,
-        finalMinLat: finalMinLatDelta,
-        finalMinLon: finalMinLonDelta
-      },
-      calculated: {
-        center: { lat: midLat, lon: midLon },
-        deltas: { lat: deltaLat, lon: deltaLon }
-      }
-    });
-
-    return {
-      latitude: midLat,
-      longitude: midLon,
-      latitudeDelta: deltaLat,
-      longitudeDelta: deltaLon,
-    };
-  }, [guess, actualLocation]);
-
-  // Calculate dash pattern based on map zoom level with performance optimization
-  const calculateDashPattern = useCallback((region: any) => {
-    if (isLightweightMode) {
-      // Use fixed pattern for performance
-      setDashPattern([30, 30]);
-      return;
-    }
-    
-    const delta = region.latitudeDelta || 0.1;
-    // Smaller delta = more zoomed in = smaller dash pattern
-    // Larger delta = more zoomed out = larger dash pattern
-    const basePattern = Math.max(20, Math.min(100, delta * 500));
-    setDashPattern([basePattern, basePattern]);
-  }, [isLightweightMode]);
-
   return (
     <View style={styles.container}>
       {/* Conditional Background based on performance mode */}
@@ -371,7 +399,9 @@ export default function GameResultScreen() {
          typeof guess.latitude === 'number' && typeof guess.longitude === 'number' &&
          typeof actualLocation.latitude === 'number' && typeof actualLocation.longitude === 'number' &&
          !isNaN(guess.latitude) && !isNaN(guess.longitude) &&
-         !isNaN(actualLocation.latitude) && !isNaN(actualLocation.longitude) ? (
+         !isNaN(actualLocation.latitude) && !isNaN(actualLocation.longitude) &&
+         Math.abs(guess.latitude) <= 90 && Math.abs(actualLocation.latitude) <= 90 &&
+         Math.abs(guess.longitude) <= 180 && Math.abs(actualLocation.longitude) <= 180 ? (
           <MapView
             ref={mapRef}
             style={styles.fullMap}
@@ -386,7 +416,12 @@ export default function GameResultScreen() {
               calculateDashPattern({ latitudeDelta: getInitialZoom.latitudeDelta });
             }}
             onRegionChangeComplete={isLightweightMode ? undefined : (region) => {
-              calculateDashPattern(region);
+              // Debounce region changes to prevent excessive updates
+              try {
+                calculateDashPattern(region);
+              } catch (error) {
+                console.warn('🚨 Error in region change:', error);
+              }
             }}
             scrollEnabled={!isLightweightMode}
             zoomEnabled={!isLightweightMode}
@@ -459,7 +494,20 @@ export default function GameResultScreen() {
               lineCap="round"
             />
           </MapView>
-        ) : null}
+        ) : (
+          // Fallback when coordinates are invalid
+          <View style={styles.mapFallback}>
+            <Ionicons name="map-outline" size={48} color="#666" />
+            <Text style={styles.mapFallbackText}>
+              Map unavailable for extreme locations
+            </Text>
+            <Text style={styles.mapFallbackSubtext}>
+              Distance: {distance < 1000 
+                ? `${Math.round(distance || 0)} m` 
+                : `${((distance || 0) / 1000).toFixed(1)} km`}
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Bottom Section with Results */}
@@ -610,6 +658,24 @@ const styles = StyleSheet.create({
   fullMap: {
     flex: 1,
   },
+  mapFallback: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    gap: 12,
+  },
+  mapFallbackText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+    textAlign: 'center',
+  },
+  mapFallbackSubtext: {
+    fontSize: 14,
+    color: '#888',
+    textAlign: 'center',
+  },
   circleMarker: {
     width: 30,
     height: 30,
@@ -715,5 +781,42 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     letterSpacing: 1,
+  },
+  // Breakdown component styles
+  breakdownItem: {
+    marginVertical: 8,
+    paddingHorizontal: 16,
+  },
+  breakdownHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  breakdownLabel: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  breakdownValue: {
+    color: '#4CAF50',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  negativeValue: {
+    color: '#FF6B6B',
+  },
+  multiplierValue: {
+    color: '#FFD700',
+  },
+  breakdownBar: {
+    height: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  breakdownBarFill: {
+    height: '100%',
+    borderRadius: 2,
   },
 });
