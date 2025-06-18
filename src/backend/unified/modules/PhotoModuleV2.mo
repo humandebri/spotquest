@@ -828,6 +828,62 @@ module {
             stablePhotoStats.get(photoId)
         };
         
+        /// 写真の完全なデータを取得（全チャンクを結合）
+        public func getCompletePhotoData(photoId: Nat) : ?Blob {
+            switch (getPhoto(photoId)) {
+                case null { null };
+                case (?photo) {
+                    // 写真がアクティブで完了していることを確認
+                    if (photo.status != #Active or photo.uploadState != #Complete) {
+                        return null;
+                    };
+                    
+                    // 全チャンクを収集
+                    let chunks = Buffer.Buffer<Blob>(photo.chunkCount);
+                    
+                    for (i in Iter.range(0, photo.chunkCount - 1)) {
+                        switch (getPhotoChunk(photoId, i)) {
+                            case null { 
+                                // チャンクが見つからない場合はnullを返す
+                                return null;
+                            };
+                            case (?chunk) {
+                                chunks.add(chunk.data);
+                            };
+                        };
+                    };
+                    
+                    // 全チャンクを結合
+                    let totalSize = chunks.toArray().size();
+                    if (totalSize == 0) {
+                        return null;
+                    };
+                    
+                    // Blobを結合するための合計サイズを計算
+                    var combinedSize = 0;
+                    for (chunk in chunks.vals()) {
+                        combinedSize += chunk.size();
+                    };
+                    
+                    // 結合されたデータ用の配列を作成
+                    let combinedData = Array.init<Nat8>(combinedSize, 0);
+                    var offset = 0;
+                    
+                    // 各チャンクをコピー
+                    for (chunk in chunks.vals()) {
+                        let chunkArray = Blob.toArray(chunk);
+                        for (i in Iter.range(0, chunkArray.size() - 1)) {
+                            combinedData[offset + i] := chunkArray[i];
+                        };
+                        offset += chunkArray.size();
+                    };
+                    
+                    // 結合されたデータをBlobとして返す
+                    ?Blob.fromArray(Array.freeze(combinedData))
+                };
+            }
+        };
+        
         // ======================================
         // PRIVATE HELPER FUNCTIONS
         // ======================================

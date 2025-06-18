@@ -719,6 +719,11 @@ actor GameUnified {
         }
     };
     
+    /// 写真の完全なデータを取得（全チャンクを結合済み）
+    public query func getPhotoCompleteDataV2(photoId: Nat) : async ?Blob {
+        photoManagerV2.getCompletePhotoData(photoId)
+    };
+    
     /// 写真統計情報を取得
     public query func getPhotoStatsV2() : async PhotoModuleV2.OverallPhotoStats {
         photoManagerV2.getPhotoStats()

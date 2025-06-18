@@ -970,48 +970,23 @@ const PhotoImageLoader = React.memo(({ photoId }: { photoId: bigint }) => {
       try {
         setIsLoadingRef(true);
 
-        // 写真のメタデータを取得
-        const metadata = await photoServiceV2.getPhotoMetadata(photoId, identity);
-        if (!metadata) {
+        // 写真の完全なデータを一度に取得（新しいAPI）
+        const completeData = await photoServiceV2.getPhotoCompleteData(photoId, identity);
+        
+        if (!completeData) {
+          console.log('❌ No photo data received for photo:', photoId);
           setIsLoading(false);
           return;
         }
 
-        // チャンク数を取得
-        const chunkCount = Number(metadata.chunkCount);
-        const chunks: Uint8Array[] = [];
-
-        // 全チャンクを取得
-        for (let i = 0; i < chunkCount; i++) {
-          const chunk = await photoServiceV2.getPhotoChunk(photoId, BigInt(i), identity);
-          if (chunk) {
-            chunks.push(chunk);
-          }
-        }
-
-        if (chunks.length === 0) {
-          console.log('❌ No chunks received for photo:', photoId);
-          setIsLoading(false);
-          return;
-        }
-
-        // チャンクを結合
-        const allChunks = chunks.reduce((acc, chunk) => {
-          const newArray = new Uint8Array(acc.length + chunk.length);
-          newArray.set(acc);
-          newArray.set(chunk, acc.length);
-          return newArray;
-        }, new Uint8Array(0));
-
-        console.log('📷 Image data loaded:', {
+        console.log('📷 Complete image data loaded:', {
           photoId: photoId.toString(),
-          chunkCount,
-          totalSize: allChunks.length
+          totalSize: completeData.length
         });
 
         try {
           // BufferでUint8ArrayからBase64に簡単に変換
-          const base64 = Buffer.from(allChunks).toString('base64');
+          const base64 = Buffer.from(completeData).toString('base64');
 
           // ローカルファイルに保存
           const localUri = `${FileSystem.cacheDirectory}photo_${photoId}.jpg`;

@@ -241,14 +241,14 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
             const photoId = roundResult.ok.photoId;
             console.log('🎮 Round photo ID:', photoId);
             
-            // Fetch photo metadata, chunk, and stats in parallel (only once!)
-            const [photoMeta, photoChunk, photoStatsData] = await Promise.all([
+            // Fetch photo metadata, complete data, and stats in parallel (only once!)
+            const [photoMeta, photoCompleteData, photoStatsData] = await Promise.all([
               photoServiceV2.getPhotoMetadata(photoId, identity),
-              photoServiceV2.getPhotoChunk(photoId, BigInt(0), identity),
+              photoServiceV2.getPhotoCompleteData(photoId, identity),
               photoServiceV2.getPhotoStatsDetails(photoId, identity)
             ]);
             
-            if (photoMeta && photoChunk) {
+            if (photoMeta && photoCompleteData) {
               // Store photo metadata and stats for UI display
               setPhotoMeta(photoMeta);
               setPhotoStats(photoStatsData);
@@ -269,8 +269,8 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
                 });
               }
               
-              // Use the already fetched photoChunk (no need to fetch again!)
-              const combinedChunks = photoChunk;
+              // Use the already fetched complete photo data
+              const combinedChunks = photoCompleteData;
               
               // Convert to base64 data URL
               // まず、データがすでにBase64かバイナリかを確認

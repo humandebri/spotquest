@@ -269,6 +269,7 @@ const idlFactory = ({ IDL }: any) => {
     searchPhotosV2: IDL.Func([SearchFilter, IDL.Opt(IDL.Nat), IDL.Nat], [SearchResult], ['query']),
     getPhotoMetadataV2: IDL.Func([IDL.Nat], [IDL.Opt(PhotoMetaV2)], ['query']),
     getPhotoChunkV2: IDL.Func([IDL.Nat, IDL.Nat], [IDL.Opt(IDL.Vec(IDL.Nat8))], ['query']),
+    getPhotoCompleteDataV2: IDL.Func([IDL.Nat], [IDL.Opt(IDL.Vec(IDL.Nat8))], ['query']),
     getPhotoStatsV2: IDL.Func([], [OverallPhotoStats], ['query']),
     getPhotoStatsDetailsV2: IDL.Func([IDL.Nat], [IDL.Opt(PhotoStatsDetails)], ['query']),
     getUserPhotosV2: IDL.Func([IDL.Opt(IDL.Nat), IDL.Nat], [SearchResult], ['query']),
@@ -591,6 +592,46 @@ class PhotoServiceV2 {
       return null;
     } catch (error) {
       console.error('❌ Get photo stats details error:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 写真の完全なデータを取得（全チャンク結合済み）
+   */
+  async getPhotoCompleteData(photoId: bigint, identity?: Identity): Promise<Uint8Array | null> {
+    // キャッシュをチェック
+    const cacheKey = `complete_${photoId}`;
+    const cached = this.chunkCache.get(cacheKey);
+    if (cached) {
+      console.log('🚀 Complete photo data cache hit:', photoId);
+      return cached;
+    }
+
+    if (!this.actor && identity) {
+      await this.init(identity);
+    }
+
+    try {
+      console.log('📥 Fetching complete photo data:', photoId);
+      const startTime = Date.now();
+      
+      const result = await this.actor.getPhotoCompleteDataV2(photoId);
+      
+      const fetchTime = Date.now() - startTime;
+      console.log(`📊 Complete photo data fetch time: ${fetchTime}ms`);
+      
+      if (result.length > 0) {
+        const data = new Uint8Array(result[0]);
+        // キャッシュに保存
+        this.chunkCache.set(cacheKey, data);
+        setTimeout(() => this.chunkCache.delete(cacheKey), this.cacheTimeout);
+        
+        return data;
+      }
+      return null;
+    } catch (error) {
+      console.error('❌ Get complete photo data error:', error);
       return null;
     }
   }
