@@ -4,26 +4,19 @@ import {
   Text,
   StyleSheet,
   Dimensions,
-  ScrollView,
   TouchableOpacity,
   Animated,
-  Share,
-  Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navigation/AppNavigator';
-import { BlurView } from 'expo-blur';
 import { useGameStore } from '../../store/gameStore';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { gameService } from '../../services/game';
-import { useAuth } from '../../hooks/useAuth';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 type GameResultScreenRouteProp = RouteProp<RootStackParamList, 'GameResult'>;
 type GameResultScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'GameResult'>;
@@ -31,55 +24,54 @@ type GameResultScreenNavigationProp = NativeStackNavigationProp<RootStackParamLi
 export default function GameResultScreen() {
   const navigation = useNavigation<GameResultScreenNavigationProp>();
   const route = useRoute<GameResultScreenRouteProp>();
-  const { resetGame, sessionId, tokenBalance, setTokenBalance, roundNumber, setRoundNumber, addRoundResult } = useGameStore();
-  const { principal, identity } = useAuth();
+  const { roundNumber, setRoundNumber, addRoundResult } = useGameStore();
   const mapRef = useRef<MapView>(null);
   const [mapReady, setMapReady] = useState(false);
-  const [dashPattern, setDashPattern] = useState([20, 20]);
-  const [sessionFinalized, setSessionFinalized] = useState(false);
-  const [actualReward, setActualReward] = useState<number>(0);
   
-  // ❶ 先に params を取得
-  let params: any = route?.params || {};
+  // Extract values directly from route to avoid object recreation
+  const params = route?.params || {};
   
-  // ❂ 先に timeUsed を定義してから使う
-  const timeUsed = params.timeUsed ?? 0;
-  
-  console.log('🎯 GameResult route params:', {
-    ...params,
-    photoUrl: params.photoUrl
-      ? `[IMAGE_DATA_${((params.photoUrl?.length ?? 0) / 1024).toFixed(0)}KB]`
-      : undefined,
-    isTimeout: timeUsed >= 180,
+  // Initialize with lightweight pattern if needed
+  const [dashPattern, setDashPattern] = useState(() => {
+    const initialScore = params.score ? (typeof params.score === 'bigint' ? Number(params.score) : params.score) : 0;
+    return initialScore <= 500 ? [30, 30] : [20, 20];
   });
+  const timeUsed = params.timeUsed ?? 0;
+  // Fixed: Use stable references for coordinates
+  const guessLat = params.guess?.latitude ?? 0;
+  const guessLon = params.guess?.longitude ?? 0;
+  const actualLat = params.actualLocation?.latitude ?? 35.6762;
+  const actualLon = params.actualLocation?.longitude ?? 139.6503;
+  const guess = useMemo(() => ({ latitude: guessLat, longitude: guessLon }), [guessLat, guessLon]);
+  const actualLocation = useMemo(() => ({ latitude: actualLat, longitude: actualLon }), [actualLat, actualLon]);
+  const score = params.score ? (typeof params.score === 'bigint' ? Number(params.score) : params.score) : 0;
+  const difficulty = (params.difficulty || 'NORMAL') as 'NORMAL' | 'EASY' | 'HARD' | 'EXTREME';
   
-  // Ensure all values have defaults (moved before usage)
-  const guess = params.guess || { latitude: 0, longitude: 0 };
-  const actualLocation = params.actualLocation || { latitude: 35.6762, longitude: 139.6503 };
-  const score = typeof params.score === 'bigint' ? Number(params.score) : (params.score ?? 0);
-  const azimuthGuess = params.azimuthGuess ?? 0;
-  const actualAzimuth = params.actualAzimuth ?? 0;
-  const difficulty = params.difficulty || 'NORMAL';
+  // Log params once on mount only
+  useEffect(() => {
+    console.log('🎯 GameResult route params:', {
+      actualLocation: params.actualLocation,
+      guess: params.guess,
+      score: params.score,
+      timeUsed: params.timeUsed,
+      difficulty: params.difficulty,
+      photoUrl: params.photoUrl ? '[IMAGE_DATA]' : undefined,
+      isTimeout: timeUsed >= 180,
+    });
+  }, []); // Empty dependency array to run only once
   
-  // Performance monitoring for timeout scenarios
-  if (timeUsed >= 180) {
-    console.warn('⏰ Timeout detected in GameResult - using optimized rendering');
-  }
   // Optimize photo URL handling for performance
   const photoUrl = useMemo(() => {
-    const url = (params as any).photoUrl;
+    const url = params.photoUrl;
     // For very large Base64 strings, use placeholder to avoid memory issues
     if (url && url.length > 2000000) { // 2MB
-      console.warn('📸 Large photo data detected, using placeholder');
       return 'https://picsum.photos/800/600';
     }
     return url || 'https://picsum.photos/800/600';
-  }, [(params as any).photoUrl]);
+  }, []);
 
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(50)).current;
-  const scaleAnim = useRef(new Animated.Value(0)).current;
   const scoreAnim = useRef(new Animated.Value(0)).current;
   const markerScaleAnim = useRef(new Animated.Value(0)).current;
 
@@ -112,29 +104,23 @@ export default function GameResultScreen() {
     return 0;
   }, [guess, actualLocation, calculateDistance]);
 
-  const azimuthError = Math.abs((azimuthGuess || 0) - (actualAzimuth || 0));
-  const normalizedAzimuthError = Math.min(azimuthError, 360 - azimuthError);
 
   // Rewards calculation (based on 5000 point max)
   const baseReward = 1.0; // 1.00 SPOT for perfect score
   const earnedReward = ((score || 0) / 5000) * baseReward;
 
   // Performance optimization: disable animations for low scores (distant guesses)
-  const isLowScore = (score || 0) <= 500;
-  const isLightweightMode = isLowScore;
+  const isLightweightMode = score <= 500;
 
-  // Difficulty multiplier function
-  const getDifficultyMultiplier = (diff: string) => {
-    switch (diff) {
-      case 'EASY': return 0.8;
-      case 'NORMAL': return 1.0;
-      case 'HARD': return 1.5;
-      case 'EXTREME': return 2.0;
-      default: return 1.0;
-    }
-  };
 
+  // Use ref to track if initial setup is done
+  const initialSetupDone = useRef(false);
+  
   useEffect(() => {
+    // Only run once on mount
+    if (initialSetupDone.current) return;
+    initialSetupDone.current = true;
+    
     // Save round result when component mounts
     if (guess && actualLocation && score !== undefined) {
       addRoundResult({
@@ -154,7 +140,6 @@ export default function GameResultScreen() {
       fadeAnim.setValue(1);
       scoreAnim.setValue(score || 0);
       markerScaleAnim.setValue(1);
-      console.log('⚡ Lightweight mode: animations disabled for score', score);
     } else {
       // Full animations for good scores
       Animated.timing(fadeAnim, {
@@ -174,7 +159,7 @@ export default function GameResultScreen() {
       
       return () => clearTimeout(scoreTimer);
     }
-  }, []);
+  }, [addRoundResult, roundNumber, score, guess, actualLocation, timeUsed, difficulty, photoUrl, isLightweightMode, fadeAnim, scoreAnim, markerScaleAnim]);
 
   // Map region that includes both markers - memoized with debug logging moved
   const getMapRegion = useMemo(() => {
@@ -240,29 +225,17 @@ export default function GameResultScreen() {
       latitudeDelta: deltaLat,
       longitudeDelta: deltaLon,
     };
-  }, [guess?.latitude, guess?.longitude, actualLocation?.latitude, actualLocation?.longitude]);
+  }, [guessLat, guessLon, actualLat, actualLon]);
 
-  // Debug logging function - only runs once per region calculation
-  const logMapRegionDebug = useCallback(() => {
-    if (guess && actualLocation) {
-      console.log('🗺️ Map region calculation:', {
-        guess: { lat: guess.latitude, lon: guess.longitude },
-        actual: { lat: actualLocation.latitude, lon: actualLocation.longitude },
-        distance: `${(distance / 1000).toFixed(1)}km`,
-        calculated: {
-          center: { lat: getMapRegion.latitude, lon: getMapRegion.longitude },
-          deltas: { lat: getMapRegion.latitudeDelta, lon: getMapRegion.longitudeDelta }
-        },
-        isExtreme: getMapRegion.latitudeDelta >= 45 || getMapRegion.longitudeDelta >= 90
-      });
-    }
-  }, [guess, actualLocation, distance, getMapRegion]);
 
   // Calculate dash pattern based on map zoom level with performance optimization
   const calculateDashPattern = useCallback((region: any) => {
     if (isLightweightMode) {
-      // Use fixed pattern for performance
-      setDashPattern([30, 30]);
+      // Use fixed pattern for performance - avoid state update if already set
+      setDashPattern(prev => {
+        if (prev[0] === 30 && prev[1] === 30) return prev;
+        return [30, 30];
+      });
       return;
     }
     
@@ -270,7 +243,10 @@ export default function GameResultScreen() {
     // Smaller delta = more zoomed in = smaller dash pattern
     // Larger delta = more zoomed out = larger dash pattern
     const basePattern = Math.max(20, Math.min(100, delta * 500));
-    setDashPattern([basePattern, basePattern]);
+    setDashPattern(prev => {
+      if (prev[0] === basePattern && prev[1] === basePattern) return prev;
+      return [basePattern, basePattern];
+    });
   }, [isLightweightMode]);
 
   // Get distance-appropriate initial zoom level - memoized
@@ -293,9 +269,14 @@ export default function GameResultScreen() {
     }
   }, [distance]);
 
+  // Track if initial map setup is done to prevent repeated animations
+  const mapSetupDone = useRef(false);
+  
   // Conditional map animation based on performance mode - Fixed infinite loop
   useEffect(() => {
-    if (mapReady && mapRef.current && actualLocation && guess) {
+    if (mapReady && mapRef.current && actualLocation && guess && !mapSetupDone.current) {
+      mapSetupDone.current = true;
+      
       // Get stable region object to avoid infinite loop
       const regionToAnimate = getMapRegion;
       
@@ -314,7 +295,7 @@ export default function GameResultScreen() {
         const lightweightTimer = setTimeout(() => {
           try {
             mapRef.current?.animateToRegion(regionToAnimate, 0); // No animation duration
-            calculateDashPattern(regionToAnimate);
+            // Don't call calculateDashPattern here - it's already set to [30,30]
             markerScaleAnim.setValue(1); // Already set but for safety
           } catch (error) {
             console.warn('🗺️ Lightweight mode map animation failed:', error);
@@ -343,20 +324,9 @@ export default function GameResultScreen() {
         return () => clearTimeout(mapTimer);
       }
     }
-  }, [mapReady, actualLocation?.latitude, actualLocation?.longitude, guess?.latitude, guess?.longitude, isLightweightMode]);
+  }, [mapReady, getMapRegion, isLightweightMode, calculateDashPattern, markerScaleAnim]);
 
   // No token minting here - will be done at session completion
-
-  const handleShare = async () => {
-    try {
-      await Share.share({
-        message: `I scored ${score || 0} points in Guess the Spot! 🌍\nMy guess was ${distance < 1000 ? `${Math.round(distance || 0)}m` : `${((distance || 0) / 1000).toFixed(1)}km`} away from the actual location.\nCan you beat my score?`,
-        title: 'Guess the Spot Score',
-      });
-    } catch (error) {
-      console.error('Error sharing:', error);
-    }
-  };
 
   const handlePlayAgain = () => {
     // Check if this was the last round
@@ -375,13 +345,6 @@ export default function GameResultScreen() {
     }
   };
 
-  const handleBackToMenu = () => {
-    // Reset navigation stack to home
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'Home' }],
-    });
-  };
 
   return (
     <View style={styles.container}>
@@ -428,11 +391,13 @@ export default function GameResultScreen() {
             }}
             onRegionChangeComplete={isLightweightMode ? undefined : (region) => {
               // Debounce region changes to prevent excessive updates
-              try {
-                calculateDashPattern(region);
-              } catch (error) {
-                console.warn('🚨 Error in region change:', error);
-              }
+              requestAnimationFrame(() => {
+                try {
+                  calculateDashPattern(region);
+                } catch (error) {
+                  console.warn('🚨 Error in region change:', error);
+                }
+              });
             }}
             scrollEnabled={!isLightweightMode}
             zoomEnabled={!isLightweightMode}
@@ -588,46 +553,6 @@ export default function GameResultScreen() {
   );
 }
 
-// Helper component for score breakdown
-const BreakdownItem = ({ 
-  label, 
-  value, 
-  percentage, 
-  negative = false,
-  multiplier = false 
-}: {
-  label: string;
-  value: number | string;
-  percentage: number;
-  negative?: boolean;
-  multiplier?: boolean;
-}) => (
-  <View style={styles.breakdownItem}>
-    <View style={styles.breakdownHeader}>
-      <Text style={styles.breakdownLabel}>{label}</Text>
-      <Text style={[
-        styles.breakdownValue,
-        negative && styles.negativeValue,
-        multiplier && styles.multiplierValue,
-      ]}>
-        {typeof value === 'number' && value > 0 ? '+' : ''}{value}
-      </Text>
-    </View>
-    {!multiplier && (
-      <View style={styles.breakdownBar}>
-        <Animated.View
-          style={[
-            styles.breakdownBarFill,
-            {
-              width: `${percentage}%`,
-              backgroundColor: negative ? '#FF6B6B' : '#4CAF50',
-            },
-          ]}
-        />
-      </View>
-    )}
-  </View>
-);
 
 
 const styles = StyleSheet.create({
@@ -792,42 +717,5 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     letterSpacing: 1,
-  },
-  // Breakdown component styles
-  breakdownItem: {
-    marginVertical: 8,
-    paddingHorizontal: 16,
-  },
-  breakdownHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  breakdownLabel: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  breakdownValue: {
-    color: '#4CAF50',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  negativeValue: {
-    color: '#FF6B6B',
-  },
-  multiplierValue: {
-    color: '#FFD700',
-  },
-  breakdownBar: {
-    height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  breakdownBarFill: {
-    height: '100%',
-    borderRadius: 2,
   },
 });
