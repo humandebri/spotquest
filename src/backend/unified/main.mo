@@ -191,6 +191,20 @@ actor GameUnified {
     };
     
     // ======================================
+    // ===========================================
+    // DEBUG FUNCTIONS (temporary)
+    // ===========================================
+    public query func debugPhotoStorage() : async {
+        nextPhotoId: Nat;
+        totalPhotos: Nat;
+        storageSize: Nat;
+        stablePhotosCount: Nat;
+        stableChunksCount: Nat;
+        firstPhotoIds: [Nat];
+    } {
+        photoManagerV2.debugPhotoStorage()
+    };
+
     // ICRC-1 TOKEN FUNCTIONS
     // ======================================
     public query func icrc1_name() : async Text {
@@ -221,6 +235,105 @@ actor GameUnified {
         tokenManager.icrc1_transfer(msg.caller, args)
     };
     
+    // ======================================
+    // HELPER FUNCTIONS FOR PHOTO SELECTION
+    // ======================================
+    
+    // Get random photo excluding already used ones
+    private func getRandomPhotoExcluding(usedPhotoIds: [Nat]) : ?PhotoModuleV2.Photo {
+        // Use search with minimal filter to get all active photos
+        let filter: Photo.SearchFilter = {
+            status = ?#Active;
+            country = null;
+            region = null;
+            sceneKind = null;
+            tags = null;
+            nearLocation = null;
+            owner = null;
+            difficulty = null;
+        };
+        
+        let searchResult = photoManagerV2.search(filter, null, 1000);
+        let allPhotos = searchResult.photos;
+        let availablePhotos = Buffer.Buffer<PhotoModuleV2.Photo>(allPhotos.size());
+        
+        // Filter out already used photos
+        for (photo in allPhotos.vals()) {
+            var isUsed = false;
+            for (usedId in usedPhotoIds.vals()) {
+                if (photo.id == usedId) {
+                    isUsed := true;
+                };
+            };
+            if (not isUsed) {
+                availablePhotos.add(photo);
+            };
+        };
+        
+        let availableCount = availablePhotos.size();
+        if (availableCount == 0) {
+            return null;
+        };
+        
+        // Generate random index
+        let now = Time.now();
+        let seed = Int.abs(now);
+        let randomIndex = seed % availableCount;
+        ?availablePhotos.get(randomIndex)
+    };
+    
+    // Get region photo excluding already used ones
+    private func getRegionPhotoExcluding(region: Text, usedPhotoIds: [Nat]) : ?PhotoModuleV2.Photo {
+        // Build filter for region
+        let filter: Photo.SearchFilter = {
+            status = ?#Active;
+            country = if (Text.size(region) == 2 and not Text.contains(region, #char '-')) { 
+                ?region 
+            } else { 
+                null 
+            };
+            region = if (Text.contains(region, #char '-') and Text.size(region) >= 3) { 
+                ?region 
+            } else { 
+                null 
+            };
+            sceneKind = null;
+            tags = null;
+            nearLocation = null;
+            owner = null;
+            difficulty = null;
+        };
+        
+        let searchResult = photoManagerV2.search(filter, null, 1000);
+        let regionPhotos = searchResult.photos;
+        let availablePhotos = Buffer.Buffer<PhotoModuleV2.Photo>(regionPhotos.size());
+        
+        // Filter out already used photos
+        for (photo in regionPhotos.vals()) {
+            var isUsed = false;
+            for (usedId in usedPhotoIds.vals()) {
+                if (photo.id == usedId) {
+                    isUsed := true;
+                };
+            };
+            if (not isUsed) {
+                availablePhotos.add(photo);
+            };
+        };
+        
+        let availableCount = availablePhotos.size();
+        if (availableCount == 0) {
+            Debug.print("🎮 No unused photos found in region: " # region # " (total in region: " # Nat.toText(regionPhotos.size()) # ", used: " # Nat.toText(usedPhotoIds.size()) # ")");
+            return null;
+        };
+        
+        // Generate random index  
+        let now = Time.now();
+        let seed = Int.abs(now);
+        let randomIndex = seed % availableCount;
+        ?availablePhotos.get(randomIndex)
+    };
+
     // ======================================
     // GAME ENGINE FUNCTIONS
     // ======================================
@@ -263,74 +376,57 @@ actor GameUnified {
     };
     
     public shared(msg) func getNextRound(sessionId: Text, regionFilter: ?Text) : async Result.Result<GameV2.RoundState, Text> {
-        let selectedPhoto = switch(regionFilter) {
-            case null {
-                // 既存処理（全写真からランダム）
-                photoManagerV2.getRandomPhoto()
-            };
-            case (?region) {
-                // 地域フィルタリング：国コード（2文字）か地域コード（XX-XX形式）かを判定
-                let filter: Photo.SearchFilter = {
-                    status = ?#Active;
-                    country = if (Text.size(region) == 2 and not Text.contains(region, #char '-')) { 
-                        ?region 
-                    } else { 
-                        null 
-                    };
-                    region = if (Text.contains(region, #char '-') and Text.size(region) >= 3) { 
-                        ?region 
-                    } else { 
-                        null 
-                    };
-                    sceneKind = null;
-                    tags = null;
-                    nearLocation = null;
-                    owner = null;
-                    difficulty = null;
+        // Get current session to check used photos
+        switch(gameEngineManager.getSession(sessionId)) {
+            case null { return #err("Session not found") };
+            case (?session) {
+                if (session.userId != msg.caller) {
+                    return #err("Unauthorized");
                 };
-                
-                let searchResult = photoManagerV2.search(filter, null, 100);
-                let photos = searchResult.photos;
-                if (photos.size() > 0) {
-                    // ランダムに1枚選択
-                    let entropy = await Random.blob();
-                    let photosSize = photos.size();
-                    let randomValue = Random.rangeFrom(32, entropy);
-                    // 警告があるが、photosSize > 0なので実際にはトラップしない
-                    let randomIndex = randomValue % photosSize;
-                    ?photos[randomIndex]
-                } else {
-                    Debug.print("🎮 No photos found in region: " # region);
-                    null
+
+                // Get list of already used photo IDs in this session
+                var usedPhotoIds = Buffer.Buffer<Nat>(session.rounds.size());
+                for (round in session.rounds.vals()) {
+                    usedPhotoIds.add(round.photoId);
+                };
+
+                let selectedPhoto = switch(regionFilter) {
+                    case null {
+                        // Get random photo excluding already used ones
+                        getRandomPhotoExcluding(Buffer.toArray(usedPhotoIds))
+                    };
+                    case (?region) {
+                        // Get photos from region excluding already used ones
+                        getRegionPhotoExcluding(region, Buffer.toArray(usedPhotoIds))
+                    };
+                };
+
+                switch(selectedPhoto) {
+                    case null { 
+                        switch(regionFilter) {
+                            case null { return #err("No unused photos available") };
+                            case (?region) { return #err("No unused photos found in selected region: " # region) };
+                        }
+                    };
+                    case (?photoV2) {
+                        // Create round with selected photo
+                        switch(gameEngineManager.getNextRound(sessionId, msg.caller, photoV2.id)) {
+                            case (#err(e)) { return #err(e) };
+                            case (#ok(roundState)) {
+                                Debug.print("🎮 Next round photo: " # Nat.toText(photoV2.id) # 
+                                           " at (" # Float.toText(photoV2.latitude) # 
+                                           ", " # Float.toText(photoV2.longitude) # ")" #
+                                           (switch(regionFilter) {
+                                               case null { "" };
+                                               case (?region) { " [region: " # region # "]" };
+                                           }));
+                                return #ok(roundState)
+                            };
+                        }
+                    };
                 }
             };
         };
-        
-        switch(selectedPhoto) {
-            case null { 
-                switch(regionFilter) {
-                    case null { #err("No photos available") };
-                    case (?region) { #err("No photos found in selected region: " # region) };
-                }
-            };
-            case (?photoV2) {
-                // 🚀 Performance: Return photo metadata with round data
-                switch(gameEngineManager.getNextRound(sessionId, msg.caller, photoV2.id)) {
-                    case (#err(e)) { #err(e) };
-                    case (#ok(roundState)) {
-                        // Add photo location hint for client-side caching
-                        Debug.print("🎮 Next round photo: " # Nat.toText(photoV2.id) # 
-                                   " at (" # Float.toText(photoV2.latitude) # 
-                                   ", " # Float.toText(photoV2.longitude) # ")" #
-                                   (switch(regionFilter) {
-                                       case null { "" };
-                                       case (?region) { " [region: " # region # "]" };
-                                   }));
-                        #ok(roundState)
-                    };
-                }
-            };
-        }
     };
     
     public shared(msg) func submitGuess(

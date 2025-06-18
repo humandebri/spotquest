@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   ScrollView,
   StyleSheet,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -17,12 +19,52 @@ import {
   MaterialIcons 
 } from '@expo/vector-icons';
 import { RootStackParamList } from '../../navigation/AppNavigator';
+import { photoServiceV2 } from '../../services/photoV2';
+import { useAuth } from '../../hooks/useAuth';
 
 export default function GameModeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'Game'>>();
   const [selectedDifficulty, setSelectedDifficulty] = useState('NORMAL');
+  const [photoCount, setPhotoCount] = useState<number | null>(null);
+  const [isCheckingPhotos, setIsCheckingPhotos] = useState(false);
+  const { identity } = useAuth();
+
+  // Check photo count on component mount
+  useEffect(() => {
+    const checkPhotoCount = async () => {
+      if (!identity) return;
+      
+      setIsCheckingPhotos(true);
+      try {
+        await photoServiceV2.init(identity);
+        const result = await photoServiceV2.searchPhotos({
+          status: { Active: null }
+        }, undefined, 10);
+        
+        // searchPhotos returns SearchResult directly (not wrapped in Result)
+        setPhotoCount(result.photos.length);
+      } catch (error) {
+        console.error('Error checking photo count:', error);
+        setPhotoCount(0);
+      } finally {
+        setIsCheckingPhotos(false);
+      }
+    };
+
+    checkPhotoCount();
+  }, [identity]);
 
   const startGamePlay = (difficulty: string) => {
+    // Check if we have enough photos
+    if (photoCount !== null && photoCount < 5) {
+      Alert.alert(
+        'Insufficient Photos',
+        `We need at least 5 photos to start a game, but only ${photoCount} photos are available. Please try again later when more photos have been uploaded.`,
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
     // Navigate to region selection for classic mode
     navigation.navigate('RegionSelect');
   };
@@ -33,7 +75,7 @@ export default function GameModeScreen() {
       description: 'Guess the location from a single photo',
       icon: 'earth',
       gradient: ['#3b82f6', '#2563eb'],
-      available: true,
+      available: photoCount === null || photoCount >= 5,
       difficulty: 'NORMAL',
     },
     {
@@ -105,6 +147,36 @@ export default function GameModeScreen() {
             <Text style={styles.subtitle}>
               Select a game mode and test your geography skills
             </Text>
+            
+            {/* Photo Status Indicator */}
+            <View style={styles.photoStatusContainer}>
+              {isCheckingPhotos ? (
+                <View style={styles.photoStatusLoading}>
+                  <ActivityIndicator size="small" color="#3b82f6" />
+                  <Text style={styles.photoStatusText}>Checking available photos...</Text>
+                </View>
+              ) : photoCount !== null ? (
+                <View style={[
+                  styles.photoStatusBadge,
+                  photoCount >= 5 ? styles.photoStatusSuccess : styles.photoStatusWarning
+                ]}>
+                  <Ionicons 
+                    name={photoCount >= 5 ? "checkmark-circle" : "warning"} 
+                    size={16} 
+                    color={photoCount >= 5 ? "#10b981" : "#f59e0b"} 
+                  />
+                  <Text style={[
+                    styles.photoStatusText,
+                    { color: photoCount >= 5 ? "#10b981" : "#f59e0b" }
+                  ]}>
+                    {photoCount >= 5 
+                      ? `${photoCount} photos available - Ready to play!`
+                      : `Only ${photoCount} photos available - Need ${5 - photoCount} more`
+                    }
+                  </Text>
+                </View>
+              ) : null}
+            </View>
           </View>
 
           {/* Game Modes */}
@@ -245,6 +317,41 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 24,
     paddingBottom: 16,
+  },
+  photoStatusContainer: {
+    marginTop: 16,
+  },
+  photoStatusLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.2)',
+  },
+  photoStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  photoStatusSuccess: {
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+  },
+  photoStatusWarning: {
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+  },
+  photoStatusText: {
+    fontSize: 14,
+    fontWeight: '500',
   },
   title: {
     color: '#ffffff',

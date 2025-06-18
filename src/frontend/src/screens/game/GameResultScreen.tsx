@@ -249,26 +249,41 @@ export default function GameResultScreen() {
     });
   }, [isLightweightMode]);
 
-  // Get distance-appropriate initial zoom level - memoized
-  const getInitialZoom = useMemo(() => {
+  // Removed - moved earlier for proper initialization order
+
+  // Get distance-appropriate initial zoom level - memoized with stable values
+  const initialZoomDelta = useMemo(() => {
     const distanceKm = distance / 1000;
     
     if (distanceKm < 1) {
-      return { latitudeDelta: 0.01, longitudeDelta: 0.01 };
+      return { lat: 0.01, lon: 0.01 };
     } else if (distanceKm < 10) {
-      return { latitudeDelta: 0.05, longitudeDelta: 0.05 };
+      return { lat: 0.05, lon: 0.05 };
     } else if (distanceKm < 100) {
-      return { latitudeDelta: 0.5, longitudeDelta: 0.5 };
+      return { lat: 0.5, lon: 0.5 };
     } else if (distanceKm < 1000) {
-      return { latitudeDelta: 5, longitudeDelta: 5 };
+      return { lat: 5, lon: 5 };
     } else if (distanceKm < 5000) {
-      return { latitudeDelta: 40, longitudeDelta: 40 };
+      return { lat: 40, lon: 40 };
     } else {
       // For very distant locations (> 5000km), use maximum zoom out
-      return { latitudeDelta: 90, longitudeDelta: 180 };
+      return { lat: 90, lon: 180 };
     }
   }, [distance]);
-
+  
+  const getInitialZoom = useMemo(() => ({
+    latitudeDelta: initialZoomDelta.lat,
+    longitudeDelta: initialZoomDelta.lon,
+  }), [initialZoomDelta.lat, initialZoomDelta.lon]);
+  
+  // Memoize initial region to prevent MapView remounting
+  const initialRegion = useMemo(() => ({
+    latitude: actualLat,
+    longitude: actualLon,
+    latitudeDelta: getInitialZoom.latitudeDelta,
+    longitudeDelta: getInitialZoom.longitudeDelta,
+  }), [actualLat, actualLon, getInitialZoom.latitudeDelta, getInitialZoom.longitudeDelta]);
+  
   // Track if initial map setup is done to prevent repeated animations
   const mapSetupDone = useRef(false);
   
@@ -331,7 +346,7 @@ export default function GameResultScreen() {
         return () => clearTimeout(mapTimer);
       }
     }
-  }, [mapReady, getMapRegion, isLightweightMode, calculateDashPattern, markerScaleAnim]);
+  }, [mapReady, getMapRegion, isLightweightMode]);
 
   // No token minting here - will be done at session completion
 
@@ -339,7 +354,7 @@ export default function GameResultScreen() {
     // Check if this was the last round
     if (roundNumber >= 5) {
       // Navigate to session summary
-      navigation.navigate('SessionSummary');
+      navigation.replace('SessionSummary');
     } else {
       // Increment round number for next round
       setRoundNumber(roundNumber + 1);
@@ -387,12 +402,9 @@ export default function GameResultScreen() {
             ref={mapRef}
             style={styles.fullMap}
             provider={PROVIDER_GOOGLE}
-            initialRegion={{
-              latitude: actualLocation.latitude,
-              longitude: actualLocation.longitude,
-              ...getInitialZoom,
-            }}
+            initialRegion={initialRegion}
             onMapReady={() => {
+              if (mapReady) return; // Prevent double execution
               setMapReady(true);
               calculateDashPattern({ latitudeDelta: getInitialZoom.latitudeDelta });
             }}

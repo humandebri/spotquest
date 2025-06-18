@@ -1189,6 +1189,36 @@ module {
             stablePhotoChunks := TrieMap.fromEntries<Text, PhotoChunk>(stablePhotoChunksEntries.vals(), Text.equal, Text.hash);
             stablePhotoStats := TrieMap.fromEntries<Nat, PhotoStats>(stablePhotoStatsEntries.vals(), Nat.equal, Hash.hash);
         };
+
+        // ===========================================
+        // DEBUG FUNCTIONS (temporary)
+        // ===========================================
+        public func debugPhotoStorage() : {
+            nextPhotoId: Nat;
+            totalPhotos: Nat;
+            storageSize: Nat;
+            stablePhotosCount: Nat;
+            stableChunksCount: Nat;
+            firstPhotoIds: [Nat];
+        } {
+            let photoIds = Buffer.Buffer<Nat>(10);
+            var count = 0;
+            for ((id, _) in stablePhotos.entries()) {
+                if (count < 10) {
+                    photoIds.add(id);
+                    count += 1;
+                };
+            };
+            
+            {
+                nextPhotoId = nextPhotoId;
+                totalPhotos = totalPhotos;
+                storageSize = totalStorageSize;
+                stablePhotosCount = stablePhotos.size();
+                stableChunksCount = stablePhotoChunks.size();
+                firstPhotoIds = Buffer.toArray(photoIds);
+            }
+        };
         
         public func fromStable(stableData: {
             photos: [(Nat, Photo)];
@@ -1200,6 +1230,10 @@ module {
             // Restore stable photos and chunks
             stablePhotos := TrieMap.fromEntries<Nat, Photo>(stableData.photos.vals(), Nat.equal, Hash.hash);
             stablePhotoChunks := TrieMap.fromEntries<Text, PhotoChunk>(stableData.photoChunks.vals(), Text.equal, Text.hash);
+            
+            // 🔧 CRITICAL FIX: Also update StableTrieMap entries to maintain consistency
+            stablePhotosEntries := stableData.photos;
+            stablePhotoChunksEntries := stableData.photoChunks;
             
             nextPhotoId := stableData.nextPhotoId;
             totalPhotos := stableData.totalPhotos;

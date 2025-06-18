@@ -53,7 +53,7 @@ export interface PhotoMetaV2 {
   // 基本情報
   id: bigint;
   owner: Principal;
-  uploadTime: bigint;
+  uploadTime: bigint; // IDL.Int -> bigint (時間は大きな数値になる可能性があるため)
   
   // 位置情報
   latitude: number;
@@ -82,7 +82,7 @@ export interface PhotoMetaV2 {
   status: { Active: null } | { Banned: null } | { Deleted: null };
   qualityScore: number;
   timesUsed: bigint;
-  lastUsedTime: bigint[] | []; // IDL Optional型は配列形式
+  lastUsedTime: bigint[] | []; // IDL Optional型は配列形式 (IDL.Int -> bigint)
   
   // 統計情報は別途APIで取得
 }
@@ -598,6 +598,7 @@ class PhotoServiceV2 {
 
   /**
    * 写真の完全なデータを取得（全チャンク結合済み）
+   * Uses the backend getPhotoCompleteDataV2 method directly
    */
   async getPhotoCompleteData(photoId: bigint, identity?: Identity): Promise<Uint8Array | null> {
     // キャッシュをチェック
@@ -616,19 +617,23 @@ class PhotoServiceV2 {
       console.log('📥 Fetching complete photo data:', photoId);
       const startTime = Date.now();
       
+      // Use the backend method directly
       const result = await this.actor.getPhotoCompleteDataV2(photoId);
       
       const fetchTime = Date.now() - startTime;
-      console.log(`📊 Complete photo data fetch time: ${fetchTime}ms`);
       
       if (result.length > 0) {
-        const data = new Uint8Array(result[0]);
+        const completeData = new Uint8Array(result[0]);
+        console.log(`📊 Complete photo data fetch time: ${fetchTime}ms, size: ${completeData.length} bytes`);
+        
         // キャッシュに保存
-        this.chunkCache.set(cacheKey, data);
+        this.chunkCache.set(cacheKey, completeData);
         setTimeout(() => this.chunkCache.delete(cacheKey), this.cacheTimeout);
         
-        return data;
+        return completeData;
       }
+      
+      console.log('❌ No photo data found for ID:', photoId);
       return null;
     } catch (error) {
       console.error('❌ Get complete photo data error:', error);

@@ -9,8 +9,8 @@ import {
   Platform,
   StatusBar,
   Alert,
-  Clipboard,
 } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';

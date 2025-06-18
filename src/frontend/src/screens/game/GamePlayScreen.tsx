@@ -648,12 +648,24 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   
   // Define handleTimeout
   const handleTimeout = () => {
-    // 既にナビゲート中の場合は何もしない
-    if (isNavigatingAway.current) {
+    // Multiple guards to prevent duplicate handling
+    if (isNavigatingAway.current || hasNavigated || hasTimeoutBeenHandled) {
+      console.log('⏰ Ignoring timeout - already handled');
       return;
     }
     
     console.log('⏰ Game timeout occurred');
+    
+    // Immediately set all guards before showing alert
+    isNavigatingAway.current = true;
+    setHasNavigated(true);
+    setHasTimeoutBeenHandled(true);
+    
+    // Clear timer
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
     
     Alert.alert('時間切れ！', 'ランダムな場所で推測を送信します。', [
       { text: 'OK', onPress: () => submitGuessRef.current && submitGuessRef.current(true) }
@@ -662,14 +674,29 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   
   submitGuessRef.current = async (isTimeout = false) => {
     if (isTimeout) {
-      console.log('⏰ submitGuess called from TIMEOUT:', { sessionId, currentGuess, isNavigatingAway: isNavigatingAway.current });
+      console.log('⏰ submitGuess called from TIMEOUT:', { 
+        sessionId, 
+        currentGuess, 
+        isNavigatingAway: isNavigatingAway.current,
+        hasNavigated,
+        hasTimeoutBeenHandled
+      });
     } else {
       console.log('🎯 submitGuess called from NORMAL FLOW:', { sessionId, currentGuess, isNavigatingAway: isNavigatingAway.current });
     }
     
     // Double-check navigation state and navigation guard
     if (isNavigatingAway.current || hasNavigated) {
-      console.log('🎮 Ignoring submitGuess - already navigating or navigated');
+      console.log('🎮 Ignoring submitGuess - already navigating or navigated', {
+        isNavigatingAway: isNavigatingAway.current,
+        hasNavigated
+      });
+      return;
+    }
+    
+    // Additional check for timeout case
+    if (isTimeout && hasTimeoutBeenHandled) {
+      console.log('🎮 Ignoring timeout submitGuess - timeout already handled');
       return;
     }
     
@@ -756,8 +783,14 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
             photoUrl: resultParams.photoUrl ? '[BASE64_IMAGE_DATA]' : undefined
           });
           
-          // Navigate to result screen with backend data
-          navigation.navigate('GameResult', resultParams);
+          // Navigate to result screen with backend data using replace to prevent stack issues
+          console.log('🚀 Navigating to GameResult...');
+          
+          // Use setTimeout to ensure all state updates are complete before navigation
+          setTimeout(() => {
+            navigation.replace('GameResult', resultParams);
+          }, 100);
+          
           return; // Early return to prevent duplicate navigation
         } else {
           console.error('❌ Failed to submit guess:', result.err);
@@ -778,7 +811,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
           difficulty: difficulty,
           photoUrl: currentPhoto!.url,
         };
-        navigation.navigate('GameResult', fallbackParams);
+        navigation.replace('GameResult', fallbackParams);
         return;
       } finally {
         setSessionLoading(false);
@@ -796,7 +829,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
         difficulty: difficulty,
         photoUrl: currentPhoto!.url,
       };
-      navigation.navigate('GameResult', fallbackParams);
+      navigation.replace('GameResult', fallbackParams);
     }
   };
   
