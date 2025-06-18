@@ -253,8 +253,8 @@ export default function PhotoUploadScreenV2() {
               compressionInfo,
               [
                 {
-                  text: 'ホームに戻る',
-                  onPress: () => navigation.navigate('Home'),
+                  text: 'OK',
+                  onPress: () => {},
                 },
               ]
             );
@@ -268,8 +268,8 @@ export default function PhotoUploadScreenV2() {
             '写真は投稿されましたが、保存状況の確認に失敗しました。',
             [
               {
-                text: 'ホームに戻る',
-                onPress: () => navigation.navigate('Home'),
+                text: 'OK',
+                onPress: () => {},
               },
             ]
           );
@@ -499,9 +499,9 @@ export default function PhotoUploadScreenV2() {
               </Text>
               <TouchableOpacity
                 style={styles.homeButton}
-                onPress={() => navigation.navigate('Home')}
+                onPress={() => setIsOptimisticSuccess(false)}
               >
-                <Text style={styles.homeButtonText}>ホームに戻る</Text>
+                <Text style={styles.homeButtonText}>OK</Text>
               </TouchableOpacity>
             </View>
           )}

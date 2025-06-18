@@ -17,8 +17,8 @@ export type SceneKind =
   | { Other: null };
 
 
-export type CountryCode = string; // ISO-3166-1 alpha-2 (例: "JP")
-export type RegionCode = string;  // ISO-3166-2 (例: "JP-15")
+export type CountryCode = string; // 国名（例: "Japan"）
+export type RegionCode = string;  // 地域名（例: "Tokyo, Japan"）
 export type GeoHash = string;
 
 export type ChunkUploadState = 
@@ -39,8 +39,8 @@ export interface CreatePhotoRequest {
   hint: string;
   
   // 検索属性
-  country: CountryCode;
-  region: RegionCode;
+  country: CountryCode; // 正規化された国名
+  region: RegionCode;   // 完全な地域名（"City, Country"形式）
   sceneKind: SceneKind;
   tags: string[];
   
@@ -68,8 +68,8 @@ export interface PhotoMetaV2 {
   hint: string;
   
   // 検索属性
-  country: CountryCode;
-  region: RegionCode;
+  country: CountryCode; // 正規化された国名
+  region: RegionCode;   // 完全な地域名（"City, Country"形式）
   sceneKind: SceneKind;
   tags: string[];
   
@@ -722,8 +722,10 @@ export async function blobToUint8Array(blob: Blob): Promise<Uint8Array> {
   });
 }
 
-// 地域情報を取得するヘルパー関数
-export async function getRegionInfo(latitude: number, longitude: number): Promise<{ country: CountryCode; region: RegionCode }> {
+
+
+// 地域情報を取得するヘルパー関数（簡素化版）
+export async function getRegionInfo(latitude: number, longitude: number): Promise<{ country: string; region: string }> {
   try {
     const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10&addressdetails=1&accept-language=en`;
     
@@ -740,22 +742,28 @@ export async function getRegionInfo(latitude: number, longitude: number): Promis
     const data = await response.json();
     const address = data.address || {};
     
-    // 国コードを取得
-    const countryCode = address.country_code?.toUpperCase() || 'XX';
+    // 新しい簡素化されたアプローチ: 英語地域名をそのまま使用
+    const { formatLocationName, normalizeCountryName } = await import('../utils/regionMapping');
     
-    // 地域コードを生成（ISO-3166-2形式を目指す）
-    let regionCode = countryCode;
-    if (address.state || address.province || address.region) {
-      const regionName = address.state || address.province || address.region;
-      // 簡易的な地域コード生成（実際のISO-3166-2コードは別途マッピングが必要）
-      regionCode = `${countryCode}-${regionName.substring(0, 2).toUpperCase()}`;
-    }
+    const locationName = formatLocationName(address);
     
-    return { country: countryCode, region: regionCode };
+    // 国名を正規化
+    const countryName = normalizeCountryName(address.country || 'Unknown');
+    
+    console.log('🌍 Simplified geocoding result:', {
+      locationName,
+      countryName,
+      fullAddress: data.display_name,
+    });
+    
+    return { 
+      country: countryName, 
+      region: locationName 
+    };
     
   } catch (error) {
     console.error('❌ Geocoding error:', error);
-    return { country: 'XX', region: 'XX-XX' };
+    return { country: 'Unknown', region: 'Unknown Location' };
   }
 }
 

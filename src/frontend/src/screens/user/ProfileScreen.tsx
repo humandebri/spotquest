@@ -31,7 +31,7 @@ import { RootStackParamList } from '../../navigation/AppNavigator';
 import { photoServiceV2, PhotoMetaV2 } from '../../services/photoV2';
 import * as FileSystem from 'expo-file-system';
 import { Buffer } from 'buffer';
-import { formatRegionDisplay } from '../../utils/regionMapping';
+import { abbreviateLocationName } from '../../utils/regionMapping';
 
 // Use V2 types
 type PhotoMetadata = PhotoMetaV2;
@@ -1148,7 +1148,7 @@ const PhotoCard = ({ photo, onEdit, onDelete }: any) => {
         <View style={styles.photoCardMetaItem}>
           <Ionicons name="globe-outline" size={16} color="#94a3b8" />
           <Text style={styles.photoCardMetaText}>
-            {formatRegionDisplay(photo.country, photo.region)}
+            {abbreviateLocationName(photo.region, 25)}
           </Text>
         </View>
         <View style={styles.photoCardMetaItem}>

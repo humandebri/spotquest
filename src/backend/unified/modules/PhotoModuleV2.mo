@@ -184,11 +184,7 @@ module {
     // PhotoManagerクラス
     // ======================================
     public class PhotoManager() {
-        // 📚 LEGACY: 旧ストレージ（移行中）
-        private var photos = TrieMap.TrieMap<Nat, Photo>(Nat.equal, Hash.hash);
-        private var photoChunks = TrieMap.TrieMap<Text, PhotoChunk>(Text.equal, Text.hash); // "photoId:chunkIndex"
-        
-        // ✨ NEW: Stableストレージ（永続化） - var変数で管理（main.moからstable restore）
+        // ✨ Stableストレージ（永続化） - var変数で管理（main.moからstable restore）
         private var stablePhotosEntries : [(Nat, Photo)] = [];
         private var stablePhotoChunksEntries : [(Text, PhotoChunk)] = [];
         private var stablePhotoStatsEntries : [(Nat, PhotoStats)] = [];
@@ -498,13 +494,7 @@ module {
             
             // フィルターが何も指定されていない場合は全件対象
             if (firstFilter) {
-                // 旧ストレージから検索
-                for ((id, photo) in photos.entries()) {
-                    if (photo.status == #Active and photo.uploadState == #Complete) {
-                        candidates.add(id);
-                    };
-                };
-                // 新ストレージから検索
+                // 新ストレージから検索（stablePhotosのみ）
                 for ((id, photo) in stablePhotos.entries()) {
                     if (photo.status == #Active and photo.uploadState == #Complete) {
                         candidates.add(id);
@@ -541,7 +531,7 @@ module {
                 case (?difficulty) {
                     let filtered = Buffer.Buffer<Nat>(candidates.size());
                     for (id in candidates.vals()) {
-                        switch (photos.get(id)) {
+                        switch (getPhoto(id)) {
                             case null { };
                             case (?photo) {
                                 if (photo.difficulty == difficulty) {
@@ -598,26 +588,18 @@ module {
         
         /// 写真を取得
         public func getPhoto(photoId: Nat) : ?Photo {
-            // 🔍 並行システム: Stable優先、Legacy fallback
-            switch (stablePhotos.get(photoId)) {
-                case (?photo) { ?photo };  // Stableで見つかった
-                case null { photos.get(photoId) };  // Legacyから検索
-            }
+            stablePhotos.get(photoId)
         };
         
         /// 写真のチャンクを取得
         public func getPhotoChunk(photoId: Nat, chunkIndex: Nat) : ?PhotoChunk {
             let chunkKey = Nat.toText(photoId) # ":" # Nat.toText(chunkIndex);
-            // 🔍 並行システム: Stable優先、Legacy fallback
-            switch (stablePhotoChunks.get(chunkKey)) {
-                case (?chunk) { ?chunk };  // Stableで見つかった
-                case null { photoChunks.get(chunkKey) };  // Legacyから検索
-            }
+            stablePhotoChunks.get(chunkKey)
         };
         
         /// 写真を削除
         public func deletePhoto(photoId: Nat, requestor: Principal) : Result.Result<(), Text> {
-            switch (photos.get(photoId)) {
+            switch (stablePhotos.get(photoId)) {
                 case null { #err("Photo not found") };
                 case (?photo) {
                     if (photo.owner != requestor) {
@@ -630,7 +612,7 @@ module {
                         status = #Deleted;
                     };
                     
-                    photos.put(photoId, deletedPhoto);
+                    stablePhotos.put(photoId, deletedPhoto);
                     
                     // インデックスから削除
                     removeFromIndices(photo);
@@ -645,8 +627,8 @@ module {
             var activePhotos = Buffer.Buffer<Photo>(100);
             
             // アクティブで完了した写真を収集
-            // 旧ストレージから
-            for ((id, photo) in photos.entries()) {
+            // 新ストレージから
+            for ((id, photo) in stablePhotos.entries()) {
                 if (photo.status == #Active and photo.uploadState == #Complete) {
                     activePhotos.add(photo);
                 };
@@ -685,7 +667,7 @@ module {
             hint: Text;
             tags: [Text];
         }) : Result.Result<(), Text> {
-            switch (photos.get(photoId)) {
+            switch (stablePhotos.get(photoId)) {
                 case null { #err("Photo not found") };
                 case (?photo) {
                     if (photo.owner != requestor) {
@@ -712,7 +694,7 @@ module {
                         tags = normalizedTags;
                     };
                     
-                    photos.put(photoId, updatedPhoto);
+                    stablePhotos.put(photoId, updatedPhoto);
                     
                     // 新しいインデックスに追加
                     updateIndices(updatedPhoto);
@@ -769,14 +751,6 @@ module {
                 updateStats(photo);
             };
             
-            // 🔄 並行システム: Legacy写真から統計収集（重複除外）
-            for ((id, photo) in photos.entries()) {
-                // Stableに存在しない場合のみカウント
-                switch (stablePhotos.get(id)) {
-                    case (?_) { }; // Stableに存在するのでスキップ
-                    case null { updateStats(photo) }; // Legacyのみに存在
-                };
-            };
             
             {
                 totalPhotos = totalPhotos;
@@ -802,7 +776,7 @@ module {
         
         /// 写真の統計を更新（ゲーム結果を反映）
         public func updatePhotoStats(photoId: Nat, score: Nat) : Result.Result<(), Text> {
-            switch (photos.get(photoId)) {
+            switch (stablePhotos.get(photoId)) {
                 case null { #err("Photo not found") };
                 case (?photo) {
                     // 写真の基本情報を更新（timesUsed, lastUsedTime）
@@ -811,7 +785,7 @@ module {
                         timesUsed = photo.timesUsed + 1;
                         lastUsedTime = ?Time.now();
                     };
-                    photos.put(photoId, updatedPhoto);
+                    stablePhotos.put(photoId, updatedPhoto);
                     
                     // 別途統計情報を更新
                     let currentStats = switch (stablePhotoStats.get(photoId)) {
@@ -1074,29 +1048,7 @@ module {
             var chunksCount = 0;
             let errors = Buffer.Buffer<Text>(10);
             
-            // 1. 写真データの移行
-            for ((photoId, photo) in photos.entries()) {
-                // Stableに既に存在する場合はスキップ
-                switch (stablePhotos.get(photoId)) {
-                    case (?_) { }; // 既に存在
-                    case null {
-                        stablePhotos.put(photoId, photo);
-                        photosCount += 1;
-                    };
-                };
-            };
-            
-            // 2. チャンクデータの移行
-            for ((chunkKey, chunk) in photoChunks.entries()) {
-                // Stableに既に存在する場合はスキップ
-                switch (stablePhotoChunks.get(chunkKey)) {
-                    case (?_) { }; // 既に存在
-                    case null {
-                        stablePhotoChunks.put(chunkKey, chunk);
-                        chunksCount += 1;
-                    };
-                };
-            };
+            // 移行は既に完了済み（stablePhotosのみ使用）
             
             {
                 photosCount = photosCount;
@@ -1113,9 +1065,9 @@ module {
             stableChunks: Nat;
         } {
             {
-                legacyPhotos = photos.size();
+                legacyPhotos = 0; // 旧ストレージは削除済み
                 stablePhotos = stablePhotos.size();
-                legacyChunks = photoChunks.size();
+                legacyChunks = 0; // 旧ストレージは削除済み
                 stableChunks = stablePhotoChunks.size();
             }
         };
@@ -1125,11 +1077,9 @@ module {
             clearedPhotos: Nat;
             clearedChunks: Nat;
         } {
-            let clearedPhotos = photos.size();
-            let clearedChunks = photoChunks.size();
-            
-            photos := TrieMap.TrieMap<Nat, Photo>(Nat.equal, Hash.hash);
-            photoChunks := TrieMap.TrieMap<Text, PhotoChunk>(Text.equal, Text.hash);
+            // 旧ストレージは既に削除済み
+            let clearedPhotos = 0;
+            let clearedChunks = 0;
             
             {
                 clearedPhotos = clearedPhotos;
@@ -1152,8 +1102,8 @@ module {
             // 必要に応じて保存することも可能
         } {
             {
-                photos = Iter.toArray(photos.entries());
-                photoChunks = Iter.toArray(photoChunks.entries());
+                photos = []; // 旧ストレージは削除済み
+                photoChunks = []; // 旧ストレージは削除済み
                 nextPhotoId = nextPhotoId;
                 totalPhotos = totalPhotos;
                 totalStorageSize = totalStorageSize;
@@ -1191,8 +1141,7 @@ module {
             totalPhotos: Nat;
             totalStorageSize: Nat;
         }) {
-            photos := TrieMap.fromEntries(stableData.photos.vals(), Nat.equal, Hash.hash);
-            photoChunks := TrieMap.fromEntries(stableData.photoChunks.vals(), Text.equal, Text.hash);
+            // 旧ストレージは使用しない（既にstablePhotosに移行済み）
             nextPhotoId := stableData.nextPhotoId;
             totalPhotos := stableData.totalPhotos;
             totalStorageSize := stableData.totalStorageSize;
@@ -1212,7 +1161,7 @@ module {
             idxByOwner := TrieMap.TrieMap<Principal, Buffer.Buffer<Nat>>(Principal.equal, Principal.hash);
             
             // 全写真に対してインデックスを再構築
-            for ((id, photo) in Iter.toArray(photos.entries()).vals()) {
+            for ((id, photo) in Iter.toArray(stablePhotos.entries()).vals()) {
                 if (photo.status == #Active) {
                     updateIndices(photo);
                 };

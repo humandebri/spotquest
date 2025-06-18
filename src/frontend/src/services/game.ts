@@ -343,15 +343,6 @@ class GameService {
         icrc1_fee: IDL.Func([], [IDL.Nat], ['query']),
         icrc1_total_supply: IDL.Func([], [IDL.Nat], ['query']),
         
-        // Debug functions
-        debugCalculatePlayerReward: IDL.Func([IDL.Text], [IDL.Record({
-          sessionFound: IDL.Bool,
-          roundCount: IDL.Nat,
-          totalScore: IDL.Nat,
-          roundDetails: IDL.Vec(IDL.Tuple(IDL.Nat, IDL.Nat)),
-          totalReward: IDL.Nat,
-        })], ['query']),
-        
         // Player stats
         getPlayerStats: IDL.Func([IDL.Principal], [IDL.Record({
           totalGamesPlayed: IDL.Nat,

@@ -618,18 +618,6 @@ actor GameUnified {
         guessHistoryManager.generateHeatmap(photoId)
     };
     
-    // ======================================
-    // PHOTO FUNCTIONS
-    // ======================================
-    // Deprecated V1 functions - redirect to V2
-    public shared(msg) func uploadPhoto(request: Photo.PhotoUploadRequest) : async Result.Result<Nat, Text> {
-        #err("Please use Photo V2 API (createPhotoV2, uploadPhotoChunkV2, finalizePhotoUploadV2)")
-    };
-    
-    public shared(msg) func deletePhoto(photoId: Nat) : async Result.Result<(), Text> {
-        #err("Please use deletePhotoV2")
-    };
-    
     // Update photo info using V2 system
     public shared(msg) func updatePhotoInfo(photoId: Nat, updateInfo: {
         title: Text;
@@ -639,28 +627,6 @@ actor GameUnified {
         tags: [Text];
     }) : async Result.Result<(), Text> {
         photoManagerV2.updatePhotoInfo(photoId, msg.caller, updateInfo)
-    };
-    
-    // Get photo metadata by ID - redirect to V2
-    public query func getPhotoMetadata(photoId: Nat) : async ?Photo.PhotoMeta {
-        switch(photoManagerV2.getPhoto(photoId)) {
-            case null { null };
-            case (?photo) {
-                ?{
-                    id = photo.id;
-                    owner = photo.owner;
-                    lat = photo.latitude;
-                    lon = photo.longitude;
-                    azim = switch(photo.azimuth) { case null { 0.0 }; case (?a) { a } };
-                    timestamp = photo.uploadTime;
-                    quality = photo.qualityScore;
-                    uploadTime = photo.uploadTime;
-                    chunkCount = photo.chunkCount;
-                    totalSize = photo.totalSize;
-                    perceptualHash = null; // V2 doesn't have hash yet
-                }
-            };
-        }
     };
     
     // ======================================
@@ -858,27 +824,6 @@ actor GameUnified {
         reputationManager.getReputation(user)
     };
     
-    public shared(msg) func generateReferralCode() : async Result.Result<Text, Text> {
-        if (reputationManager.isBanned(msg.caller)) {
-            return #err("User is banned");
-        };
-        reputationManager.generateReferralCode(msg.caller)
-    };
-    
-    public shared(msg) func applyReferralCode(code: Text) : async Result.Result<(), Text> {
-        if (reputationManager.isBanned(msg.caller)) {
-            return #err("User is banned");
-        };
-        reputationManager.applyReferralCode(msg.caller, code)
-    };
-    
-    public query func getReferralStats(user: Principal) : async {
-        referralCode: ?Text;
-        totalReferrals: Nat;
-        unclaimedRewards: Nat;
-    } {
-        reputationManager.getReferralStats(user)
-    };
     
     public query func getReputationLeaderboard(limit: Nat) : async [(Principal, Float)] {
         reputationManager.getLeaderboard(limit)
@@ -1277,41 +1222,6 @@ actor GameUnified {
     // ======================================
     // DEBUG FUNCTIONS (temporary)
     // ======================================
-    public query func debugGetUserSessions(player: Principal) : async ?[Text] {
-        gameEngineManager.getUserSessions(player)
-    };
-    
-    public query func debugGetSession(sessionId: Text) : async ?GameV2.GameSession {
-        gameEngineManager.getSession(sessionId)
-    };
-    
-    public query func debugCalculateDistance(lat1: Float, lon1: Float, lat2: Float, lon2: Float) : async Float {
-        Helpers.calculateHaversineDistance(lat1, lon1, lat2, lon2)
-    };
-    
-    public query func debugCalculateScore(distance: Nat) : async (Nat, Nat) {
-        Helpers.calculateScoreFixed(distance)
-    };
-    
-    public query func debugGetTokenInfo() : async {
-        totalSupply: Nat;
-        balanceCount: Nat;
-        firstFiveBalances: [(Principal, Nat)];
-    } {
-        let balances = tokenManager.getBalances();
-        let entries = Iter.toArray(balances.entries());
-        let firstFive = if (entries.size() > 5) {
-            Array.tabulate<(Principal, Nat)>(5, func(i) = entries[i])
-        } else {
-            entries
-        };
-        
-        {
-            totalSupply = tokenManager.getTotalSupply();
-            balanceCount = entries.size();
-            firstFiveBalances = firstFive;
-        }
-    };
     
     // Debug reward calculation
     public query func debugCalculatePlayerReward(sessionId: Text) : async {

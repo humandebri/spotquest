@@ -17,7 +17,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navigation/AppNavigator';
 import { photoServiceV2 } from '../../services/photoV2';
 import { useAuth } from '../../hooks/useAuth';
-import { getCountryName, getRegionName } from '../../utils/regionMapping';
+import { matchesLocationSearch, getLocationLevel, extractCountryName } from '../../utils/regionMapping';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'RegionSelect'>;
 
@@ -52,26 +52,26 @@ export default function RegionSelectScreen() {
       if (stats) {
         const regionData: RegionInfo[] = [];
         
-        // Process countries
-        stats.photosByCountry.forEach(([countryCode, count]) => {
+        // Process countries (now using English names directly)
+        stats.photosByCountry.forEach(([countryName, count]) => {
           if (Number(count) > 0) {
             regionData.push({
-              code: countryCode,
-              name: getCountryName(countryCode),
+              code: countryName,
+              name: countryName,
               photoCount: Number(count),
               popularTags: [],
             });
           }
         });
         
-        // Process regions (prefectures, states, etc.)
+        // Process regions (now using English location names directly)
         console.log('🌏 photosByRegion data:', stats.photosByRegion);
-        stats.photosByRegion.forEach(([regionCode, count]) => {
-          console.log('🌏 Processing region:', regionCode, count);
+        stats.photosByRegion.forEach(([locationName, count]) => {
+          console.log('🌏 Processing region:', locationName, count);
           if (Number(count) > 0) {
             regionData.push({
-              code: regionCode,
-              name: getRegionName(regionCode),
+              code: locationName,
+              name: locationName,
               photoCount: Number(count),
               popularTags: [],
             });
@@ -91,18 +91,19 @@ export default function RegionSelectScreen() {
   };
 
   const filteredRegions = regions.filter(region => {
+    // 検索クエリによるフィルタリング（新しい検索機能を使用）
     if (searchQuery) {
-      return region.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-             region.code.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesLocationSearch(searchQuery, region.name);
     }
     
+    // カテゴリによるフィルタリング（地域レベルで判定）
     if (selectedCategory === 'country') {
-      return region.code.length === 2; // Country codes are 2 characters
+      return getLocationLevel(region.name) === 'country';
     } else if (selectedCategory === 'region') {
-      return region.code.length > 2; // Region codes include hyphen
+      return getLocationLevel(region.name) !== 'country';
     }
     
-    return true;
+    return true; // 'all' category
   });
 
   const handleRegionSelect = (region: RegionInfo) => {
