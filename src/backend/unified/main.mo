@@ -669,6 +669,8 @@ actor GameUnified {
     
     /// 写真のメタデータを作成（チャンクアップロード開始）
     public shared(msg) func createPhotoV2(request: Photo.CreatePhotoRequest) : async Result.Result<Nat, Text> {
+        Debug.print("📸 createPhotoV2 called by: " # Principal.toText(msg.caller));
+        
         if (reputationManager.isBanned(msg.caller)) {
             return #err("User is banned");
         };
@@ -768,6 +770,8 @@ actor GameUnified {
     
     /// ユーザーの写真を取得
     public shared query(msg) func getUserPhotosV2(cursor: ?Nat, limit: Nat) : async Photo.SearchResult {
+        Debug.print("📸 getUserPhotosV2 called by: " # Principal.toText(msg.caller));
+        
         let filter : Photo.SearchFilter = {
             country = null;
             region = null;
@@ -778,7 +782,11 @@ actor GameUnified {
             difficulty = null;
             status = ?#Active;
         };
-        photoManagerV2.search(filter, cursor, Nat.min(limit, 100))
+        
+        let result = photoManagerV2.search(filter, cursor, Nat.min(limit, 100));
+        Debug.print("📸 getUserPhotosV2 found " # Nat.toText(result.photos.size()) # " photos for user " # Principal.toText(msg.caller));
+        
+        result
     };
     
     /// 写真を削除（V2）

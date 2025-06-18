@@ -117,8 +117,8 @@ class AdminService {
       this.agent = new HttpAgent({
         identity,
         host: process.env.EXPO_PUBLIC_IC_HOST || 'https://ic0.app',
-        // dev環境では証明書検証をスキップ（falseに設定）
-        verifyQuerySignatures: false,
+        // 署名検証を有効化（正しいプリンシパルを使用）
+        verifyQuerySignatures: true,
         // API v3を有効化して高速化
         useQueryNonces: true,
         retryTimes: 3,

@@ -62,7 +62,13 @@ export default function HomeScreen() {
     
     setIsLoadingStats(true);
     try {
+      console.log('🏠 HomeScreen identity:', identity);
+      console.log('🏠 HomeScreen principal:', principal?.toString());
+      console.log('🏠 HomeScreen identity principal:', identity?.getPrincipal()?.toString());
+      console.log('🏠 HomeScreen identity type:', identity?.constructor?.name);
+      
       const stats = await gameService.getPlayerStats(principal);
+      console.log('🏠 Player stats:', stats);
       setPlayerStats(stats);
     } catch (error) {
       console.error('Failed to fetch player stats:', error);

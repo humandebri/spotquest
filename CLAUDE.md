@@ -140,6 +140,17 @@ Use helper functions in `src/frontend/src/utils/locationHelpers.ts`
 ### Stable Storage Compatibility
 When changing data structures, may need `--mode reinstall` (data loss)
 
+### Dev Mode Query Authentication (2025-06-18)
+**Problem**: Photos uploaded in dev mode not visible in profile
+- `verifyQuerySignatures: false` causes query calls to use anonymous principal
+- `getUserPhotosV2` as query function returns empty results
+
+**Solution**: Change `getUserPhotosV2` from query to shared function
+```motoko
+// Before: public shared query(msg) func getUserPhotosV2
+// After: public shared(msg) func getUserPhotosV2
+```
+
 ## Current Canister IDs
 
 - **Unified (mainnet)**: 77fv5-oiaaa-aaaal-qsoea-cai
@@ -167,3 +178,26 @@ When changing data structures, may need `--mode reinstall` (data loss)
 3. Use existing patterns and conventions
 4. Verify canister deployments with Candid UI
 5. Monitor console logs for debugging
+
+## Recent Updates (2025-06-18)
+
+### Photo Upload Experience Improvements ✅
+1. **Detailed compression progress**
+   - Shows compression attempts (e.g., "Quality adjustment (75%) (3/10)")
+   - Visual progress bar during compression
+   - Phase-specific descriptions
+
+2. **Interactive waiting UI**
+   - Can edit metadata during compression
+   - Helpful hints panel explaining the process
+   - "You can edit description and tags during this time"
+
+3. **Optimistic UI**
+   - Shows success immediately after heavy processing
+   - Background sync for final confirmation
+   - "Upload complete! Syncing in background..."
+
+### Dev Mode Authentication Fix ✅
+- Changed `getUserPhotosV2` from query to shared function
+- Resolved issue where photos weren't visible in dev mode
+- Added debug logging for principal tracking

@@ -354,7 +354,7 @@ module {
         
         /// アップロードを完了
         public func finalizePhotoUpload(photoId: Nat) : Result.Result<(), Text> {
-            switch (photos.get(photoId)) {
+            switch (getPhoto(photoId)) {
                 case null { return #err("Photo not found") };
                 case (?photo) {
                     if (photo.uploadState == #Complete) {
@@ -377,7 +377,7 @@ module {
                                 uploadState = #Complete;
                             };
                             
-                            photos.put(photoId, updatedPhoto);
+                            stablePhotos.put(photoId, updatedPhoto);
                             uploadingSessions.delete(photoId);
                             
                             #ok()
@@ -498,7 +498,14 @@ module {
             
             // フィルターが何も指定されていない場合は全件対象
             if (firstFilter) {
+                // 旧ストレージから検索
                 for ((id, photo) in photos.entries()) {
+                    if (photo.status == #Active and photo.uploadState == #Complete) {
+                        candidates.add(id);
+                    };
+                };
+                // 新ストレージから検索
+                for ((id, photo) in stablePhotos.entries()) {
                     if (photo.status == #Active and photo.uploadState == #Complete) {
                         candidates.add(id);
                     };
@@ -511,7 +518,7 @@ module {
                 case (?location) {
                     let filtered = Buffer.Buffer<Nat>(candidates.size());
                     for (id in candidates.vals()) {
-                        switch (photos.get(id)) {
+                        switch (getPhoto(id)) {
                             case null { };
                             case (?photo) {
                                 let distance = calculateDistance(
@@ -553,7 +560,7 @@ module {
                 case (?status) {
                     let filtered = Buffer.Buffer<Nat>(candidates.size());
                     for (id in candidates.vals()) {
-                        switch (photos.get(id)) {
+                        switch (getPhoto(id)) {
                             case null { };
                             case (?photo) {
                                 if (photo.status == status) {
@@ -579,7 +586,7 @@ module {
             let pageIds = Iter.toArray(Array.slice(candidateArray, startIdx, endIdx));
             
             // IDから写真を取得
-            let photoResults = Array.mapFilter<Nat, Photo>(pageIds, func(id) : ?Photo = photos.get(id));
+            let photoResults = Array.mapFilter<Nat, Photo>(pageIds, func(id) : ?Photo = getPhoto(id));
             
             {
                 photos = photoResults;
@@ -638,7 +645,14 @@ module {
             var activePhotos = Buffer.Buffer<Photo>(100);
             
             // アクティブで完了した写真を収集
+            // 旧ストレージから
             for ((id, photo) in photos.entries()) {
+                if (photo.status == #Active and photo.uploadState == #Complete) {
+                    activePhotos.add(photo);
+                };
+            };
+            // 新ストレージから
+            for ((id, photo) in stablePhotos.entries()) {
                 if (photo.status == #Active and photo.uploadState == #Complete) {
                     activePhotos.add(photo);
                 };

@@ -304,7 +304,7 @@ class PhotoServiceV2 {
       this.agent = new HttpAgent({
         identity,
         host: host,
-        verifyQuerySignatures: false, // dev環境では証明書検証をスキップ
+        verifyQuerySignatures: true, // 署名検証を有効化（正しいプリンシパルを使用）
         // API v3を有効化して高速化
         useQueryNonces: true,
         retryTimes: 3,
@@ -316,6 +316,12 @@ class PhotoServiceV2 {
           },
         },
       });
+
+      // Dev modeの確認（デバッグ用）
+      const isDevMode = identity.constructor.name === 'Ed25519KeyIdentity';
+      if (isDevMode) {
+        console.log('🖼️ Dev mode detected, signature verification enabled');
+      }
 
       this.actor = Actor.createActor(idlFactory, {
         agent: this.agent,
@@ -523,7 +529,22 @@ class PhotoServiceV2 {
     }
 
     try {
+      // Dev modeかどうか確認
+      const isDevMode = this.identity && this.identity.constructor.name === 'Ed25519KeyIdentity';
+      
+      if (isDevMode) {
+        console.log('🖼️ Calling getUserPhotosV2 in dev mode with principal:', this.identity?.getPrincipal().toString());
+      }
+      
       const result = await this.actor.getUserPhotosV2(cursor ? [cursor] : [], BigInt(limit));
+      
+      if (isDevMode) {
+        console.log('🖼️ getUserPhotosV2 result in dev mode:', {
+          photoCount: result.photos.length,
+          hasMore: result.hasMore
+        });
+      }
+      
       return result;
     } catch (error) {
       console.error('❌ Get user photos error:', error);

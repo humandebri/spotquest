@@ -74,6 +74,12 @@ export default function PhotoUploadScreenV2() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadPhase, setUploadPhase] = useState<'compressing' | 'uploading'>('uploading');
+  const [compressionProgress, setCompressionProgress] = useState<{
+    current: number;
+    max: number;
+    phase: string;
+  }>({ current: 0, max: 10, phase: '' });
+  const [isOptimisticSuccess, setIsOptimisticSuccess] = useState(false);
   const [showMapModal, setShowMapModal] = useState(false);
   const [displayLat, setDisplayLat] = useState(latitude.toFixed(6));
   const [displayLon, setDisplayLon] = useState(longitude.toFixed(6));
@@ -136,7 +142,9 @@ export default function PhotoUploadScreenV2() {
 
     try {
       // 画像を1.4MB以下に圧縮（Base64膨張対応：1.4MB × 4/3 ≈ 1.87MB < 2MB）
-      compressionResult = await compressImageAsync(photoUri);
+      compressionResult = await compressImageAsync(photoUri, (current, max, phase) => {
+        setCompressionProgress({ current, max, phase });
+      });
       
       if (compressionResult.compressed) {
         console.log(`🎯 画像を圧縮しました: ${formatFileSize(compressionResult.originalSize)} → ${formatFileSize(compressionResult.compressedSize)}`);
@@ -193,6 +201,16 @@ export default function PhotoUploadScreenV2() {
         totalSize: BigInt(imageData.length),
       };
 
+      // 🎉 楽観的成功表示（重い処理完了時点）
+      // 圧縮とデータ準備が完了した時点でユーザーに成功を伝える
+      setIsOptimisticSuccess(true);
+      setUploadProgress(0.8); // 80%まで進捗を表示
+
+      // Debug logging for identity
+      console.log('📸 Upload identity:', identity);
+      console.log('📸 Upload principal:', principal?.toString());
+      console.log('📸 Upload identity principal:', identity?.getPrincipal()?.toString());
+      console.log('📸 Upload identity type:', identity?.constructor?.name);
 
       // 直接アップロード実行（チャンク処理なし）
       const result = await photoServiceV2Direct.uploadPhotoDirect(
@@ -264,6 +282,7 @@ export default function PhotoUploadScreenV2() {
     } finally {
       setIsUploading(false);
       setUploadProgress(0);
+      setIsOptimisticSuccess(false);
     }
   };
 
@@ -412,12 +431,23 @@ export default function PhotoUploadScreenV2() {
           >
             {isUploading ? (
               <View style={styles.uploadingContainer}>
-                <ActivityIndicator color="#fff" />
-                <Text style={styles.uploadButtonText}>
-                  {uploadPhase === 'compressing' 
-                    ? '画像を圧縮中...' 
-                    : `アップロード中... ${Math.round(uploadProgress * 100)}%`}
-                </Text>
+                {isOptimisticSuccess ? (
+                  <>
+                    <Text style={styles.successIcon}>✅</Text>
+                    <Text style={styles.uploadButtonText}>
+                      投稿完了！バックグラウンドで同期中...
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <ActivityIndicator color="#fff" />
+                    <Text style={styles.uploadButtonText}>
+                      {uploadPhase === 'compressing' 
+                        ? `${compressionProgress.phase} (${compressionProgress.current}/${compressionProgress.max})` 
+                        : `アップロード中... ${Math.round(uploadProgress * 100)}%`}
+                    </Text>
+                  </>
+                )}
               </View>
             ) : (
               <Text style={styles.uploadButtonText}>
@@ -429,7 +459,50 @@ export default function PhotoUploadScreenV2() {
           {/* プログレスバー */}
           {isUploading && (
             <View style={styles.progressBarContainer}>
-              <View style={[styles.progressBar, { width: `${uploadProgress * 100}%` }]} />
+              <View style={[styles.progressBar, { 
+                width: uploadPhase === 'compressing' 
+                  ? `${(compressionProgress.current / compressionProgress.max) * 100}%`
+                  : `${uploadProgress * 100}%` 
+              }]} />
+            </View>
+          )}
+
+          {/* 圧縮中のヒントパネル */}
+          {isUploading && uploadPhase === 'compressing' && !isOptimisticSuccess && (
+            <View style={styles.compressionHintPanel}>
+              <Text style={styles.compressionHintTitle}>💡 圧縮処理中...</Text>
+              <Text style={styles.compressionHintText}>
+                {compressionProgress.current === 0 
+                  ? "画像のサイズを確認しています"
+                  : compressionProgress.current <= 3
+                  ? "画質を調整して最適なバランスを探しています"
+                  : compressionProgress.current <= 6
+                  ? "解像度を調整してファイルサイズを削減しています"
+                  : "最終的な微調整を行っています"
+                }
+              </Text>
+              <Text style={styles.compressionHintSubtext}>
+                この間も、説明文やタグなどの情報を編集できます
+              </Text>
+            </View>
+          )}
+
+          {/* 楽観的成功パネル */}
+          {isOptimisticSuccess && (
+            <View style={styles.optimisticSuccessPanel}>
+              <Text style={styles.optimisticSuccessTitle}>🎉 投稿が完了しました！</Text>
+              <Text style={styles.optimisticSuccessText}>
+                写真の処理が完了し、ゲームで使用できるようになりました。
+              </Text>
+              <Text style={styles.optimisticSuccessSubtext}>
+                バックグラウンドで最終的な同期処理を行っています
+              </Text>
+              <TouchableOpacity
+                style={styles.homeButton}
+                onPress={() => navigation.navigate('Home')}
+              >
+                <Text style={styles.homeButtonText}>ホームに戻る</Text>
+              </TouchableOpacity>
             </View>
           )}
         </ScrollView>
@@ -785,5 +858,72 @@ const styles = StyleSheet.create({
   },
   modalMap: {
     flex: 1,
+  },
+  compressionHintPanel: {
+    backgroundColor: '#e3f2fd',
+    margin: 16,
+    padding: 16,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#2196f3',
+  },
+  compressionHintTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1565c0',
+    marginBottom: 8,
+  },
+  compressionHintText: {
+    fontSize: 14,
+    color: '#1976d2',
+    marginBottom: 8,
+    lineHeight: 20,
+  },
+  compressionHintSubtext: {
+    fontSize: 12,
+    color: '#64b5f6',
+    fontStyle: 'italic',
+  },
+  successIcon: {
+    fontSize: 24,
+    marginRight: 8,
+  },
+  optimisticSuccessPanel: {
+    backgroundColor: '#e8f5e8',
+    margin: 16,
+    padding: 16,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#4caf50',
+  },
+  optimisticSuccessTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2e7d32',
+    marginBottom: 8,
+  },
+  optimisticSuccessText: {
+    fontSize: 14,
+    color: '#388e3c',
+    marginBottom: 8,
+    lineHeight: 20,
+  },
+  optimisticSuccessSubtext: {
+    fontSize: 12,
+    color: '#66bb6a',
+    fontStyle: 'italic',
+  },
+  homeButton: {
+    backgroundColor: '#4caf50',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    marginTop: 16,
+    alignSelf: 'center',
+  },
+  homeButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

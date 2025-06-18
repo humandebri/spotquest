@@ -7,11 +7,16 @@ const MAX_FILE_SIZE = 1.5 * 1024 * 1024; // 1.5MB (ICPの2MB制限に余裕を�
  * 画像を1.5MB以下に圧縮する（ICPの2MB制限対応）
  * バイナリ形式で直接アップロードするため、Base64の33%オーバーヘッドなし
  * @param uri 画像のURI
+ * @param onProgress 進捗コールバック (currentAttempt: number, maxAttempts: number, phase: string)
  * @returns 圧縮された画像のURI
  */
-export async function compressImageAsync(uri: string): Promise<{ uri: string; compressed: boolean; originalSize: number; compressedSize: number }> {
+export async function compressImageAsync(
+  uri: string,
+  onProgress?: (currentAttempt: number, maxAttempts: number, phase: string) => void
+): Promise<{ uri: string; compressed: boolean; originalSize: number; compressedSize: number }> {
   try {
     // 元のファイルサイズを取得
+    onProgress?.(0, 10, 'ファイルサイズを確認中...');
     const originalInfo = await FileSystem.getInfoAsync(uri);
     const originalSize = originalInfo.exists && 'size' in originalInfo ? originalInfo.size : 0;
     
@@ -20,6 +25,7 @@ export async function compressImageAsync(uri: string): Promise<{ uri: string; co
     // 1.5MB以下の場合は圧縮不要
     if (originalSize <= MAX_FILE_SIZE) {
       console.log('✅ Image is already under 1.5MB, no compression needed');
+      onProgress?.(1, 1, '圧縮不要です');
       return { 
         uri, 
         compressed: false, 
@@ -29,6 +35,7 @@ export async function compressImageAsync(uri: string): Promise<{ uri: string; co
     }
     
     console.log('🔧 Image exceeds 1.5MB, starting compression...');
+    onProgress?.(0, 10, '画像情報を分析中...');
     
     // 元画像の情報を取得
     const originalImageInfo = await ImageManipulator.manipulateAsync(
@@ -48,6 +55,18 @@ export async function compressImageAsync(uri: string): Promise<{ uri: string; co
     
     while (attempts < maxAttempts) {
       attempts++;
+      
+      // 現在の圧縮戦略を説明
+      let strategy = '';
+      if (attempts <= 3) {
+        strategy = `品質を調整中 (${Math.round(compressQuality * 100)}%)`;
+      } else if (attempts <= 6) {
+        strategy = `サイズを調整中 (${targetWidth}px)`;
+      } else {
+        strategy = `最終調整中 (品質: ${Math.round(compressQuality * 100)}%, サイズ: ${targetWidth}px)`;
+      }
+      
+      onProgress?.(attempts, maxAttempts, strategy);
       console.log(`🔄 Compression attempt ${attempts}: quality=${compressQuality}, width=${targetWidth}`);
       
       // アスペクト比を保持したリサイズ
@@ -71,6 +90,7 @@ export async function compressImageAsync(uri: string): Promise<{ uri: string; co
       
       if (currentSize <= MAX_FILE_SIZE) {
         console.log(`✅ Successfully compressed to ${(currentSize / 1024 / 1024).toFixed(2)} MB (${Math.round((1 - currentSize / originalSize) * 100)}% reduction)`);
+        onProgress?.(maxAttempts, maxAttempts, '圧縮完了！');
         return { 
           uri: manipulated.uri, 
           compressed: true, 
@@ -107,6 +127,7 @@ export async function compressImageAsync(uri: string): Promise<{ uri: string; co
     
     // 最大試行回数に達した場合、最後の圧縮結果を返す
     console.warn('⚠️ Maximum compression attempts reached, using last result');
+    onProgress?.(maxAttempts, maxAttempts, '最大試行数に達しました');
     const finalInfo = await FileSystem.getInfoAsync(resizedUri);
     const finalSize = finalInfo.exists && 'size' in finalInfo ? finalInfo.size : originalSize;
     

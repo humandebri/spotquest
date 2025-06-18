@@ -336,7 +336,37 @@ export default function ProfileScreen() {
 
     try {
       // Use V2 API to get user photos
+      console.log('📸 Loading user photos with principal:', principal?.toString());
+      console.log('📸 Identity:', identity);
+      console.log('📸 Identity principal:', identity?.getPrincipal()?.toString());
+      console.log('📸 Identity type:', identity?.constructor?.name);
+      
       const result = await photoServiceV2.getUserPhotos(undefined, 100, identity);
+      
+      console.log('📸 getUserPhotos result:', {
+        photoCount: result.photos.length,
+        totalCount: result.totalCount.toString(),
+        hasMore: result.hasMore,
+        photos: result.photos.map(p => ({
+          id: p.id.toString(),
+          owner: p.owner.toString(),
+          uploadTime: new Date(Number(p.uploadTime) / 1000000).toISOString()
+        }))
+      });
+      
+      // デバッグ: 写真ID 2を直接取得してみる
+      try {
+        const photo2 = await photoServiceV2.getPhotoMetadata(BigInt(2), identity);
+        console.log('📸 Direct fetch photo ID 2:', photo2 ? {
+          id: photo2.id.toString(),
+          owner: photo2.owner.toString(),
+          status: photo2.status,
+          uploadState: photo2.uploadState
+        } : 'Not found');
+      } catch (e) {
+        console.error('📸 Failed to fetch photo 2:', e);
+      }
+      
       // 新しい写真が上に来るように降順ソート
       const sortedPhotos = result.photos.sort((a, b) => {
         return Number(b.uploadTime) - Number(a.uploadTime);

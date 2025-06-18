@@ -94,8 +94,8 @@ class GameService {
       const agentOptions: any = {
         identity,
         host,
-        // dev環境では証明書検証をスキップ
-        verifyQuerySignatures: false,
+        // 署名検証を有効化（正しいプリンシパルを使用）
+        verifyQuerySignatures: true,
         // API v3を有効化して高速化
         useQueryNonces: true,
         retryTimes: 3,
@@ -126,7 +126,7 @@ class GameService {
         console.log('🎮 DEV: Agent configuration:', {
           host,
           canisterId,
-          verifyQuerySignatures: false,
+          verifyQuerySignatures: true,
         });
       }
 

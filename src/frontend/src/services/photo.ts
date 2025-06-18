@@ -225,8 +225,8 @@ class PhotoService {
       this.agent = new HttpAgent({
         identity,
         host: host,
-        // dev環境では証明書検証をスキップ（falseに設定）
-        verifyQuerySignatures: false,
+        // 署名検証を有効化（正しいプリンシパルを使用）
+        verifyQuerySignatures: true,
         // API v3を有効化して高速化
         useQueryNonces: true,
         retryTimes: 3,
