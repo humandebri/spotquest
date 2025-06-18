@@ -39,31 +39,27 @@ export default function GameResultScreen() {
   const [sessionFinalized, setSessionFinalized] = useState(false);
   const [actualReward, setActualReward] = useState<number>(0);
   
-  // Error handling from GameResultScreenSimple
-  let params = {};
-  try {
-    params = route?.params || {};
-  } catch (error) {
-    console.error('Error getting params:', error);
-  }
+  // ❶ 先に params を取得
+  let params: any = route?.params || {};
   
-  // Extract params first for debugging
-  const debugParams = params as any;
+  // ❂ 先に timeUsed を定義してから使う
+  const timeUsed = params.timeUsed ?? 0;
   
   console.log('🎯 GameResult route params:', {
-    ...debugParams,
-    photoUrl: debugParams.photoUrl ? `[IMAGE_DATA_${((debugParams.photoUrl?.length || 0) / 1024).toFixed(0)}KB]` : undefined,
-    isTimeout: (debugParams.timeUsed ?? 0) >= 180 // Detect timeout condition
+    ...params,
+    photoUrl: params.photoUrl
+      ? `[IMAGE_DATA_${((params.photoUrl?.length ?? 0) / 1024).toFixed(0)}KB]`
+      : undefined,
+    isTimeout: timeUsed >= 180,
   });
   
   // Ensure all values have defaults (moved before usage)
-  const guess = (params as any).guess || { latitude: 0, longitude: 0 };
-  const actualLocation = (params as any).actualLocation || { latitude: 35.6762, longitude: 139.6503 };
-  const score = typeof (params as any).score === 'bigint' ? Number((params as any).score) : ((params as any).score ?? 0);
-  const timeUsed = (params as any).timeUsed ?? 0;
-  const azimuthGuess = (params as any).azimuthGuess ?? 0;
-  const actualAzimuth = (params as any).actualAzimuth ?? 0;
-  const difficulty = (params as any).difficulty || 'NORMAL';
+  const guess = params.guess || { latitude: 0, longitude: 0 };
+  const actualLocation = params.actualLocation || { latitude: 35.6762, longitude: 139.6503 };
+  const score = typeof params.score === 'bigint' ? Number(params.score) : (params.score ?? 0);
+  const azimuthGuess = params.azimuthGuess ?? 0;
+  const actualAzimuth = params.actualAzimuth ?? 0;
+  const difficulty = params.difficulty || 'NORMAL';
   
   // Performance monitoring for timeout scenarios
   if (timeUsed >= 180) {
@@ -303,36 +299,51 @@ export default function GameResultScreen() {
       // Get stable region object to avoid infinite loop
       const regionToAnimate = getMapRegion;
       
-      // Log debug info once
-      logMapRegionDebug();
+      // Validate region to prevent map crashes
+      if (!regionToAnimate || 
+          isNaN(regionToAnimate.latitude) || 
+          isNaN(regionToAnimate.longitude) ||
+          isNaN(regionToAnimate.latitudeDelta) ||
+          isNaN(regionToAnimate.longitudeDelta)) {
+        console.warn('🗺️ Invalid map region, skipping animation');
+        return;
+      }
       
       if (isLightweightMode) {
         // Lightweight mode: instant positioning, no animation
         const lightweightTimer = setTimeout(() => {
-          mapRef.current?.animateToRegion(regionToAnimate, 0); // No animation duration
-          calculateDashPattern(regionToAnimate);
-          markerScaleAnim.setValue(1); // Already set but for safety
-        }, 100);
+          try {
+            mapRef.current?.animateToRegion(regionToAnimate, 0); // No animation duration
+            calculateDashPattern(regionToAnimate);
+            markerScaleAnim.setValue(1); // Already set but for safety
+          } catch (error) {
+            console.warn('🗺️ Lightweight mode map animation failed:', error);
+          }
+        }, 50); // Reduced timeout for instant feel
         
         return () => clearTimeout(lightweightTimer);
       } else {
         // Full animation for good scores
         const mapTimer = setTimeout(() => {
-          mapRef.current?.animateToRegion(regionToAnimate, 1500);
-          calculateDashPattern(regionToAnimate);
-          
-          // Animated marker appearance
-          Animated.timing(markerScaleAnim, {
-            toValue: 1,
-            duration: 600,
-            useNativeDriver: true,
-          }).start();
+          try {
+            mapRef.current?.animateToRegion(regionToAnimate, 1500);
+            calculateDashPattern(regionToAnimate);
+            
+            // Animated marker appearance
+            Animated.timing(markerScaleAnim, {
+              toValue: 1,
+              duration: 600,
+              useNativeDriver: true,
+            }).start();
+          } catch (error) {
+            console.warn('🗺️ Full animation failed:', error);
+          }
         }, 300);
         
         return () => clearTimeout(mapTimer);
       }
     }
-  }, [mapReady, actualLocation?.latitude, actualLocation?.longitude, guess?.latitude, guess?.longitude, isLightweightMode, logMapRegionDebug, calculateDashPattern, getMapRegion, markerScaleAnim]);
+  }, [mapReady, actualLocation?.latitude, actualLocation?.longitude, guess?.latitude, guess?.longitude, isLightweightMode]);
 
   // No token minting here - will be done at session completion
 
