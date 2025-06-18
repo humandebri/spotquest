@@ -291,7 +291,14 @@ export default function GameResultScreen() {
       }
       
       if (isLightweightMode) {
-        // Lightweight mode: instant positioning, no animation
+        // Lightweight mode: skip animation for extreme coordinates
+        // Extreme deltas can cause map freezing
+        if (regionToAnimate.latitudeDelta >= 45 || regionToAnimate.longitudeDelta >= 90) {
+          console.warn('🗺️ Skipping map animation for extreme coordinates');
+          markerScaleAnim.setValue(1);
+          return;
+        }
+        
         const lightweightTimer = setTimeout(() => {
           try {
             mapRef.current?.animateToRegion(regionToAnimate, 0); // No animation duration
@@ -332,13 +339,13 @@ export default function GameResultScreen() {
     // Check if this was the last round
     if (roundNumber >= 5) {
       // Navigate to session summary
-      navigation.replace('SessionSummary');
+      navigation.navigate('SessionSummary');
     } else {
       // Increment round number for next round
       setRoundNumber(roundNumber + 1);
       
       // Navigate directly to GamePlayScreen for next round
-      navigation.replace('GamePlay', {
+      navigation.navigate('GamePlay', {
         gameMode: 'normal',
         difficulty: difficulty,
       });
@@ -403,6 +410,9 @@ export default function GameResultScreen() {
             zoomEnabled={!isLightweightMode}
             rotateEnabled={false}
             pitchEnabled={false}
+            // Prevent map from trying to render extreme zoom levels
+            minZoomLevel={isLightweightMode ? 3 : 0}
+            maxZoomLevel={isLightweightMode ? 10 : 20}
           >
             {/* Your guess marker - Google Maps style current location */}
             <Marker
