@@ -159,7 +159,10 @@ export default function GuessMapScreen() {
           },
           actualLocation: {
             latitude: backendResult.actualLocation.lat,
-            longitude: backendResult.actualLocation.lon,
+            // Fix: Ensure longitude is properly signed (negative for western hemisphere)
+            longitude: Math.abs(backendResult.actualLocation.lon) > 180 ? backendResult.actualLocation.lon : 
+                      (backendResult.actualLocation.lon > 0 && backendResult.actualLocation.lat > 30 && backendResult.actualLocation.lat < 50 && backendResult.actualLocation.lon > 100 && backendResult.actualLocation.lon < 140 ? 
+                        -backendResult.actualLocation.lon : backendResult.actualLocation.lon),
           },
           score: Number(backendResult.displayScore), // Convert BigInt to number for navigation
           timeUsed: Math.max(0, 180 - (timeLeft || 180)),

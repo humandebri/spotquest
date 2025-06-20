@@ -41,16 +41,17 @@ export default function SessionSummaryScreen() {
   const scaleAnim = useRef(new Animated.Value(0)).current;
   const scoreAnim = useRef(new Animated.Value(0)).current;
 
-  // Calculate total score
-  const totalScore = roundResults.reduce((sum, round) => sum + round.score, 0);
-  const maxPossibleScore = roundResults.length * 5000; // rounds * 5000 points per round
+  // Calculate total score (cap at 5 rounds to prevent issues)
+  const validRounds = roundResults.slice(0, 5); // Only use first 5 rounds
+  const totalScore = validRounds.reduce((sum, round) => sum + round.score, 0);
+  const maxPossibleScore = Math.min(validRounds.length, 5) * 5000; // Max 5 rounds * 5000 points per round
   
   // Calculate reward based on simple formula: 1 SPOT per round (max)
   // Each round can earn up to 1 SPOT based on score (0-5000)
   // Total max reward = rounds * 1 SPOT
   const calculateReward = () => {
     let totalReward = 0;
-    roundResults.forEach(round => {
+    validRounds.forEach(round => {
       // Each round: (score / 5000) * 1.0 SPOT
       const roundReward = (round.score / 5000) * 1.0;
       totalReward += roundReward;
@@ -93,10 +94,10 @@ export default function SessionSummaryScreen() {
 
   // Map zoom animation - simplified
   useEffect(() => {
-    if (mapReady && mapRef.current && roundResults.length > 0) {
+    if (mapReady && mapRef.current && validRounds.length > 0) {
       // Simple timer to fit coordinates without animation
       setTimeout(() => {
-        const allCoordinates = roundResults.flatMap(round => [
+        const allCoordinates = validRounds.flatMap(round => [
           round.guess,
           round.actualLocation,
         ]);
@@ -107,7 +108,7 @@ export default function SessionSummaryScreen() {
         });
       }, 100);
     }
-  }, [mapReady, roundResults]);
+  }, [mapReady, validRounds]);
 
   // Finalize session and mint tokens
   useEffect(() => {
@@ -118,7 +119,7 @@ export default function SessionSummaryScreen() {
         return;
       }
       
-      console.log('💰 Starting session finalization:', { sessionId, roundResults: roundResults.length });
+      console.log('💰 Starting session finalization:', { sessionId, roundResults: validRounds.length });
       setIsMinting(true);
       
       try {
@@ -161,7 +162,7 @@ export default function SessionSummaryScreen() {
             setMintComplete(true);
             
             console.log('✅ Session reward minting completed:', {
-              rounds: roundResults.length,
+              rounds: validRounds.length,
               totalScore: totalScore,
               calculatedReward: calculatedReward.toFixed(2),
               backendReward: backendReward.toFixed(2),
@@ -222,7 +223,7 @@ export default function SessionSummaryScreen() {
 
   // Calculate initial region for map
   const initialRegion = useMemo(() => {
-    if (roundResults.length === 0) {
+    if (validRounds.length === 0) {
       return {
         latitude: 0,
         longitude: 0,
@@ -231,8 +232,8 @@ export default function SessionSummaryScreen() {
       };
     }
 
-    const allLats = roundResults.flatMap(r => [r.guess.latitude, r.actualLocation.latitude]);
-    const allLons = roundResults.flatMap(r => [r.guess.longitude, r.actualLocation.longitude]);
+    const allLats = validRounds.flatMap(r => [r.guess.latitude, r.actualLocation.latitude]);
+    const allLons = validRounds.flatMap(r => [r.guess.longitude, r.actualLocation.longitude]);
     
     const minLat = Math.min(...allLats);
     const maxLat = Math.max(...allLats);
@@ -250,7 +251,7 @@ export default function SessionSummaryScreen() {
       latitudeDelta: deltaLat,
       longitudeDelta: deltaLon,
     };
-  }, [roundResults]);
+  }, [validRounds]);
 
   return (
     <View style={styles.container}>
@@ -264,7 +265,7 @@ export default function SessionSummaryScreen() {
       
       {/* Map Section - Full Width */}
       <View style={styles.mapContainer}>
-        {roundResults.length > 0 && (
+        {validRounds.length > 0 && (
           <MapView
             ref={mapRef}
             style={styles.fullMap}
@@ -289,7 +290,7 @@ export default function SessionSummaryScreen() {
             cacheEnabled={true}
             loadingEnabled={false}
           >
-            {roundResults.map((round, index) => (
+            {validRounds.map((round, index) => (
               <React.Fragment key={index}>
                 {/* Your guess marker */}
                 <Marker
@@ -383,7 +384,7 @@ export default function SessionSummaryScreen() {
             {/* Round Breakdown */}
             <View style={styles.roundsBreakdown}>
               <Text style={styles.breakdownTitle}>Round Breakdown</Text>
-              {roundResults.map((round, index) => (
+              {validRounds.map((round, index) => (
                 <View key={index} style={styles.roundItem}>
                   <View style={[styles.roundDot, { backgroundColor: roundColors[index] }]} />
                   <Text style={styles.roundLabel}>Round {index + 1}</Text>

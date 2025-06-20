@@ -91,6 +91,14 @@ actor GameUnified {
     private var reputationManager = ReputationModule.ReputationManager();
     private var iiIntegrationManager = IIIntegrationModule.IIIntegrationManager();
     
+    // Random number generator for photo selection (unique seed to avoid duplicates)
+    private var photoSelectionPrng = Random.Finite(
+        Blob.fromArray([99,88,77,66,55,44,33,22,11,10,9,8,7,6,5,4,3,2,1,0,100,101,102,103,104,105,106,107,108,109,110,111])
+    );
+    
+    // Counter for additional entropy
+    private var prngCounter : Nat = 0;
+    
     // Timers
     private var cleanupTimer : ?Timer.TimerId = null;
     
@@ -239,6 +247,36 @@ actor GameUnified {
     // HELPER FUNCTIONS FOR PHOTO SELECTION
     // ======================================
     
+    // Reseed PRNG with time and counter for better randomness
+    private func reseedPrng() {
+        prngCounter += 1;
+        let now = Time.now();
+        let timeBytes = Blob.toArray(Text.encodeUtf8(Int.toText(now)));
+        let counterBytes = Blob.toArray(Text.encodeUtf8(Nat.toText(prngCounter)));
+        
+        // Combine time, counter, and some fixed bytes for 32-byte seed
+        var seedArray = Buffer.Buffer<Nat8>(32);
+        
+        // Add time bytes
+        for (b in timeBytes.vals()) {
+            if (seedArray.size() < 32) { seedArray.add(b); };
+        };
+        
+        // Add counter bytes
+        for (b in counterBytes.vals()) {
+            if (seedArray.size() < 32) { seedArray.add(b); };
+        };
+        
+        // Fill remaining with pseudo-random values
+        var i = seedArray.size();
+        while (i < 32) {
+            seedArray.add(Nat8.fromNat((i * 37 + prngCounter) % 256));
+            i += 1;
+        };
+        
+        photoSelectionPrng := Random.Finite(Blob.fromArray(Buffer.toArray(seedArray)));
+    };
+    
     // Get random photo excluding already used ones
     private func getRandomPhotoExcluding(usedPhotoIds: [Nat]) : ?PhotoModuleV2.Photo {
         // Use search with minimal filter to get all active photos
@@ -275,10 +313,42 @@ actor GameUnified {
             return null;
         };
         
-        // Generate random index
-        let now = Time.now();
-        let seed = Int.abs(now);
-        let randomIndex = seed % availableCount;
+        // Reseed PRNG periodically for better randomness
+        if (prngCounter % 10 == 0) {
+            reseedPrng();
+        };
+        
+        // Generate random index using PRNG
+        // Get multiple bytes for large numbers
+        var randomValue : Nat = 0;
+        var needReseed = false;
+        
+        for (i in Iter.range(0, 3)) {
+            if (needReseed) {
+                reseedPrng();
+                needReseed := false;
+            };
+            
+            switch (photoSelectionPrng.byte()) {
+                case null {
+                    // PRNG exhausted, mark for reseed
+                    needReseed := true;
+                };
+                case (?byte) {
+                    randomValue := randomValue * 256 + Nat8.toNat(byte);
+                };
+            };
+        };
+        
+        // If we still couldn't get enough bytes, use fallback
+        if (randomValue == 0) {
+            // Fallback to time-based random
+            let now = Time.now();
+            let seed = Int.abs(now) + prngCounter;
+            randomValue := Int.abs(seed);
+        };
+        
+        let randomIndex = randomValue % availableCount;
         ?availablePhotos.get(randomIndex)
     };
     
@@ -327,10 +397,42 @@ actor GameUnified {
             return null;
         };
         
-        // Generate random index  
-        let now = Time.now();
-        let seed = Int.abs(now);
-        let randomIndex = seed % availableCount;
+        // Reseed PRNG periodically for better randomness
+        if (prngCounter % 10 == 0) {
+            reseedPrng();
+        };
+        
+        // Generate random index using PRNG
+        // Get multiple bytes for large numbers
+        var randomValue : Nat = 0;
+        var needReseed = false;
+        
+        for (i in Iter.range(0, 3)) {
+            if (needReseed) {
+                reseedPrng();
+                needReseed := false;
+            };
+            
+            switch (photoSelectionPrng.byte()) {
+                case null {
+                    // PRNG exhausted, mark for reseed
+                    needReseed := true;
+                };
+                case (?byte) {
+                    randomValue := randomValue * 256 + Nat8.toNat(byte);
+                };
+            };
+        };
+        
+        // If we still couldn't get enough bytes, use fallback
+        if (randomValue == 0) {
+            // Fallback to time-based random
+            let now = Time.now();
+            let seed = Int.abs(now) + prngCounter;
+            randomValue := Int.abs(seed);
+        };
+        
+        let randomIndex = randomValue % availableCount;
         ?availablePhotos.get(randomIndex)
     };
 
@@ -382,6 +484,17 @@ actor GameUnified {
             case (?session) {
                 if (session.userId != msg.caller) {
                     return #err("Unauthorized");
+                };
+
+                // Check if there's an active round that hasn't been completed yet
+                if (session.currentRound > 0 and session.currentRound <= session.rounds.size()) {
+                    let currentRoundIndex = session.currentRound - 1;
+                    let currentRound = session.rounds[currentRoundIndex];
+                    if (currentRound.status == #Active) {
+                        // There's already an active round, return it instead of creating a new one
+                        Debug.print("🎮 Returning existing active round for session: " # sessionId);
+                        return #ok(currentRound);
+                    };
                 };
 
                 // Get list of already used photo IDs in this session

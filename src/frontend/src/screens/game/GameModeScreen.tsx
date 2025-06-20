@@ -21,6 +21,8 @@ import {
 import { RootStackParamList } from '../../navigation/AppNavigator';
 import { photoServiceV2 } from '../../services/photoV2';
 import { useAuth } from '../../hooks/useAuth';
+import { useGameStore } from '../../store/gameStore';
+import { useFocusEffect } from '@react-navigation/native';
 
 export default function GameModeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'Game'>>();
@@ -28,6 +30,19 @@ export default function GameModeScreen() {
   const [photoCount, setPhotoCount] = useState<number | null>(null);
   const [isCheckingPhotos, setIsCheckingPhotos] = useState(false);
   const { identity } = useAuth();
+  const { resetGame, sessionId, sessionStatus } = useGameStore();
+
+  // Reset game state when screen gains focus to ensure fresh start
+  useFocusEffect(
+    React.useCallback(() => {
+      // Reset game state when entering game mode selection
+      // This ensures any previous session is cleared
+      if (sessionId || sessionStatus === 'Active') {
+        console.log('🎮 Resetting previous game session on GameModeScreen focus');
+        resetGame();
+      }
+    }, [sessionId, sessionStatus, resetGame])
+  );
 
   // Check photo count on component mount
   useEffect(() => {

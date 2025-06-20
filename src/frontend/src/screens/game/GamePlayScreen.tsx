@@ -128,6 +128,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     createNewSession,
     updateSessionStatus,
     clearSessionData,
+    resetGame,
   } = useGameStore();
   
   // Auth store
@@ -156,11 +157,18 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
       }
       
       // Additional check: if we already have a session and photo for current round, don't re-initialize
+      // BUT: validate that this is a valid continuation (roundNumber should be <= 5)
       if (sessionId && currentPhoto && roundNumber > 0) {
-        console.log('🎮 Skipping re-initialization - already have active game state');
-        setIsLoading(false);
-        setSessionLoading(false);
-        return;
+        if (roundNumber > 5) {
+          // Invalid state - round number exceeds max, force reset
+          console.log('🎮 Invalid round number detected:', roundNumber, '- forcing reset');
+          resetGame();
+        } else {
+          console.log('🎮 Skipping re-initialization - already have active game state');
+          setIsLoading(false);
+          setSessionLoading(false);
+          return;
+        }
       }
       
       setIsLoading(true);
@@ -389,8 +397,19 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
+      
+      // Finalize session if leaving before completing all 5 rounds
+      // This prevents old sessions from continuing when user returns
+      if (sessionId && roundNumber < 5 && sessionStatus === 'Active') {
+        console.log('🎮 Finalizing incomplete session:', sessionId, 'at round', roundNumber);
+        gameService.finalizeSession(sessionId).catch(err => {
+          console.error('Failed to finalize session:', err);
+        });
+        // Update local session status immediately to Completed
+        updateSessionStatus(sessionId, 'Completed');
+      }
     };
-  }, []);
+  }, [sessionId, roundNumber, sessionStatus, updateSessionStatus]);
   
   // 画面のフォーカス状態を監視
   useFocusEffect(

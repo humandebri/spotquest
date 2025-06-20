@@ -145,7 +145,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     sessionStatus: null,
     sessionCreatedAt: null,
     roundNumber: 1,
-    roundResults: [],
+    roundResults: [], // Clear all previous round results
     sessionError: null,
   }),
   

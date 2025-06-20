@@ -31,17 +31,22 @@ export default function GameResultScreen() {
   // Extract values directly from route to avoid object recreation
   const params = route?.params || {};
   
-  // Initialize with lightweight pattern if needed
-  const [dashPattern, setDashPattern] = useState(() => {
-    const initialScore = params.score ? (typeof params.score === 'bigint' ? Number(params.score) : params.score) : 0;
-    return initialScore <= 500 ? [30, 30] : [20, 20];
-  });
+  // Initialize dash pattern (will be set properly after map ready)
+  const [dashPattern, setDashPattern] = useState<number[]>([20, 20]);
   const timeUsed = params.timeUsed ?? 0;
-  // Fixed: Use stable references for coordinates
+  // Fixed: Use stable references for coordinates with validation
   const guessLat = params.guess?.latitude ?? 0;
   const guessLon = params.guess?.longitude ?? 0;
-  const actualLat = params.actualLocation?.latitude ?? 35.6762;
-  const actualLon = params.actualLocation?.longitude ?? 139.6503;
+  let actualLat = params.actualLocation?.latitude ?? 35.6762;
+  let actualLon = params.actualLocation?.longitude ?? 139.6503;
+  
+  // Additional validation for extreme coordinates
+  if (Math.abs(actualLat) > 90) actualLat = 35.6762;
+  if (Math.abs(actualLon) > 180) actualLon = 139.6503;
+  if (Math.abs(guessLat) > 90 || Math.abs(guessLon) > 180) {
+    // Invalid guess coordinates, use defaults
+    console.warn('🚨 Invalid coordinates detected in GameResult params');
+  }
   const guess = useMemo(() => ({ latitude: guessLat, longitude: guessLon }), [guessLat, guessLon]);
   const actualLocation = useMemo(() => ({ latitude: actualLat, longitude: actualLon }), [actualLat, actualLon]);
   const score = params.score ? (typeof params.score === 'bigint' ? Number(params.score) : params.score) : 0;
@@ -134,12 +139,14 @@ export default function GameResultScreen() {
       });
     }
 
-    // Conditional animations based on score
-    if (isLightweightMode) {
+    // Conditional animations based on score (check score directly instead of isLightweightMode)
+    if (score <= 500) {
       // No animations for low scores - instant display
       fadeAnim.setValue(1);
       scoreAnim.setValue(score || 0);
       markerScaleAnim.setValue(1);
+      // Set lightweight dash pattern
+      setDashPattern([30, 30]);
     } else {
       // Full animations for good scores
       Animated.timing(fadeAnim, {
@@ -159,7 +166,7 @@ export default function GameResultScreen() {
       
       return () => clearTimeout(scoreTimer);
     }
-  }, [addRoundResult, roundNumber, score, guess, actualLocation, timeUsed, difficulty, photoUrl, isLightweightMode, fadeAnim, scoreAnim, markerScaleAnim]);
+  }, []); // Empty dependency array - run only once on mount
 
   // Map region that includes both markers - memoized with debug logging moved
   const getMapRegion = useMemo(() => {
@@ -216,8 +223,12 @@ export default function GameResultScreen() {
     const finalMinLatDelta = latDiff < 0.01 ? 0.02 : minLatDelta;
     const finalMinLonDelta = lonDiff < 0.01 ? 0.02 : minLonDelta;
     
-    const deltaLat = Math.min(Math.max(paddedLatDiff, finalMinLatDelta), 90);
-    const deltaLon = Math.min(Math.max(paddedLonDiff, finalMinLonDelta), 180);
+    // Additional safety for extreme distances (> 1000km)
+    const distanceKm = Math.sqrt(latDiff * latDiff + lonDiff * lonDiff) * 111; // Rough km conversion
+    const maxDelta = distanceKm > 1000 ? 45 : 90; // Limit zoom out for extreme distances
+    
+    const deltaLat = Math.min(Math.max(paddedLatDiff, finalMinLatDelta), maxDelta);
+    const deltaLon = Math.min(Math.max(paddedLonDiff, finalMinLonDelta), maxDelta * 2);
 
     return {
       latitude: midLat,
@@ -230,12 +241,8 @@ export default function GameResultScreen() {
 
   // Calculate dash pattern based on map zoom level with performance optimization
   const calculateDashPattern = useCallback((region: any) => {
-    if (isLightweightMode) {
-      // Use fixed pattern for performance - avoid state update if already set
-      setDashPattern(prev => {
-        if (prev[0] === 30 && prev[1] === 30) return prev;
-        return [30, 30];
-      });
+    // Skip calculation for low scores - pattern already set in initial useEffect
+    if (score <= 500) {
       return;
     }
     
@@ -247,13 +254,23 @@ export default function GameResultScreen() {
       if (prev[0] === basePattern && prev[1] === basePattern) return prev;
       return [basePattern, basePattern];
     });
-  }, [isLightweightMode]);
+  }, [score]);
 
   // Removed - moved earlier for proper initialization order
 
   // Get distance-appropriate initial zoom level - memoized with stable values
   const initialZoomDelta = useMemo(() => {
     const distanceKm = distance / 1000;
+    
+    // Special handling for lightweight mode
+    if (isLightweightMode && distanceKm > 1000) {
+      // Use the calculated map region for extreme distances
+      const region = getMapRegion;
+      return { 
+        lat: Math.min(region.latitudeDelta, 45), 
+        lon: Math.min(region.longitudeDelta, 90) 
+      };
+    }
     
     if (distanceKm < 1) {
       return { lat: 0.01, lon: 0.01 };
@@ -266,10 +283,10 @@ export default function GameResultScreen() {
     } else if (distanceKm < 5000) {
       return { lat: 40, lon: 40 };
     } else {
-      // For very distant locations (> 5000km), use maximum zoom out
-      return { lat: 90, lon: 180 };
+      // For very distant locations (> 5000km), use reasonable zoom out
+      return { lat: 60, lon: 120 };
     }
-  }, [distance]);
+  }, [distance, isLightweightMode, getMapRegion]);
   
   const getInitialZoom = useMemo(() => ({
     latitudeDelta: initialZoomDelta.lat,
@@ -287,12 +304,12 @@ export default function GameResultScreen() {
   // Track if initial map setup is done to prevent repeated animations
   const mapSetupDone = useRef(false);
   
-  // Conditional map animation based on performance mode - Fixed infinite loop
+  // Conditional map animation based on performance mode
   useEffect(() => {
     if (mapReady && mapRef.current && actualLocation && guess && !mapSetupDone.current) {
       mapSetupDone.current = true;
       
-      // Get stable region object to avoid infinite loop
+      // Get stable region object
       const regionToAnimate = getMapRegion;
       
       // Validate region to prevent map crashes
@@ -305,26 +322,40 @@ export default function GameResultScreen() {
         return;
       }
       
-      if (isLightweightMode) {
-        // Lightweight mode: skip animation for extreme coordinates
-        // Extreme deltas can cause map freezing
-        if (regionToAnimate.latitudeDelta >= 45 || regionToAnimate.longitudeDelta >= 90) {
-          console.warn('🗺️ Skipping map animation for extreme coordinates');
-          markerScaleAnim.setValue(1);
-          return;
-        }
+      const isLowScore = score <= 500;
+      
+      if (isLowScore) {
+        // Lightweight mode: simplified animation for extreme coordinates
+        // Check if coordinates are extremely far apart
+        const isExtremeDistance = regionToAnimate.latitudeDelta >= 30 || regionToAnimate.longitudeDelta >= 60;
         
-        const lightweightTimer = setTimeout(() => {
+        if (isExtremeDistance) {
+          // For extreme distances, just set the region without animation
           try {
-            mapRef.current?.animateToRegion(regionToAnimate, 0); // No animation duration
-            // Don't call calculateDashPattern here - it's already set to [30,30]
-            markerScaleAnim.setValue(1); // Already set but for safety
+            mapRef.current?.setCamera({
+              center: {
+                latitude: regionToAnimate.latitude,
+                longitude: regionToAnimate.longitude,
+              },
+              zoom: 3, // Very zoomed out for extreme distances
+            });
+            markerScaleAnim.setValue(1);
           } catch (error) {
-            console.warn('🗺️ Lightweight mode map animation failed:', error);
+            console.warn('🗺️ Extreme distance camera set failed:', error);
           }
-        }, 50); // Reduced timeout for instant feel
-        
-        return () => clearTimeout(lightweightTimer);
+        } else {
+          // Normal lightweight animation
+          const lightweightTimer = setTimeout(() => {
+            try {
+              mapRef.current?.animateToRegion(regionToAnimate, 100); // Very fast animation
+              markerScaleAnim.setValue(1);
+            } catch (error) {
+              console.warn('🗺️ Lightweight mode map animation failed:', error);
+            }
+          }, 50);
+          
+          return () => clearTimeout(lightweightTimer);
+        }
       } else {
         // Full animation for good scores
         const mapTimer = setTimeout(() => {
@@ -346,18 +377,19 @@ export default function GameResultScreen() {
         return () => clearTimeout(mapTimer);
       }
     }
-  }, [mapReady, getMapRegion, isLightweightMode]);
+  }, [mapReady, getMapRegion, score]); // Use score directly instead of isLightweightMode
 
   // No token minting here - will be done at session completion
 
   const handlePlayAgain = () => {
-    // Check if this was the last round
+    // Check if this was the last round (or if we've somehow exceeded 5 rounds)
     if (roundNumber >= 5) {
       // Navigate to session summary
       navigation.replace('SessionSummary');
     } else {
-      // Increment round number for next round
-      setRoundNumber(roundNumber + 1);
+      // Validate round number before incrementing
+      const nextRound = Math.min(roundNumber + 1, 5); // Cap at 5 to prevent exceeding max rounds
+      setRoundNumber(nextRound);
       
       // Navigate directly to GamePlayScreen for next round
       navigation.navigate('GamePlay', {
@@ -406,7 +438,10 @@ export default function GameResultScreen() {
             onMapReady={() => {
               if (mapReady) return; // Prevent double execution
               setMapReady(true);
-              calculateDashPattern({ latitudeDelta: getInitialZoom.latitudeDelta });
+              // Only calculate dash pattern for non-lightweight mode
+              if (!isLightweightMode) {
+                calculateDashPattern({ latitudeDelta: getInitialZoom.latitudeDelta });
+              }
             }}
             onRegionChangeComplete={isLightweightMode ? undefined : (region) => {
               // Debounce region changes to prevent excessive updates
@@ -418,13 +453,13 @@ export default function GameResultScreen() {
                 }
               });
             }}
-            scrollEnabled={!isLightweightMode}
-            zoomEnabled={!isLightweightMode}
+            scrollEnabled={!isLightweightMode || distance > 100000} // Allow scroll for extreme distances
+            zoomEnabled={!isLightweightMode || distance > 100000} // Allow zoom for extreme distances
             rotateEnabled={false}
             pitchEnabled={false}
-            // Prevent map from trying to render extreme zoom levels
-            minZoomLevel={isLightweightMode ? 3 : 0}
-            maxZoomLevel={isLightweightMode ? 10 : 20}
+            // Adjust zoom levels based on distance
+            minZoomLevel={distance > 5000000 ? 0 : (isLightweightMode ? 2 : 0)} // Allow full zoom out for extreme distances
+            maxZoomLevel={isLightweightMode ? 15 : 20} // Allow more zoom in lightweight mode
           >
             {/* Your guess marker - Google Maps style current location */}
             <Marker

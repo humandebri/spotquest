@@ -51,38 +51,32 @@ npm run android
 
 # Build for web
 npm run build:web
+
+# Fix TypeScript errors
+npx tsc --noEmit
+
+# Clear Expo cache
+npx expo start -c
+
+# Update dependencies
+npm update --legacy-peer-deps
 ```
 
 ### Backend (ICP Canisters)
 
 ```bash
-# Deploy to mainnet
+# Deploy to mainnet (データを保持したままアップグレード)
 dfx deploy unified --network ic
 
-# Deploy with reinstall (WARNING: deletes all data)
-echo "yes" | dfx deploy unified --network ic --mode reinstall
+# ⚠️ 重要: --mode reinstall は使用しない！
+# 決して deployの際に --mode reinstallでcanisterを再インストールしないでください
+# これは全てのデータ（ゲーム履歴、写真、トークンバランス等）を削除します
 
 # Check canister status
 dfx canister --network ic status unified
 
 # View canister logs
 dfx canister --network ic logs unified
-```
-
-### Common Development Tasks
-
-```bash
-# Fix TypeScript errors
-cd src/frontend && npx tsc --noEmit
-
-# Run linter (if configured)
-cd src/frontend && npm run lint
-
-# Clear Expo cache
-cd src/frontend && npx expo start -c
-
-# Update dependencies
-cd src/frontend && npm update --legacy-peer-deps
 ```
 
 ## Critical Architecture Decisions
@@ -102,7 +96,7 @@ The backend uses a **unified canister architecture** (`src/backend/unified/main.
 - `TreasuryModule.mo` - Game costs, rewards, economic calculations
 - `ReputationModule.mo` - Photo quality scoring, banning system
 
-### 1. Photo Storage System (V2) - UPDATED
+### 1. Photo Storage System (V2)
 - Uses chunk-based upload (256KB chunks)
 - Supports search by location, region, tags
 - **Stable memory storage only** (legacy system removed)
@@ -119,7 +113,7 @@ Dev Mode: Ed25519KeyIdentity → Direct canister calls (verifyQuerySignatures: t
 - Production: `DelegationIdentity` via Internet Identity
 - Dev Mode: `Ed25519KeyIdentity` with fixed test principal `6lvto-wk4rq-wwea5-neix6-nelpy-tgifs-crt3y-whqnf-5kns5-t3il6-xae`
 
-### 3. Certificate Verification (Dev Mode) - UPDATED
+### 3. Certificate Verification (Dev Mode)
 All service files now use `verifyQuerySignatures: true` for proper dev mode authentication:
 ```typescript
 const agent = new HttpAgent({
@@ -129,7 +123,7 @@ const agent = new HttpAgent({
 });
 ```
 
-### 4. Region-based Game Mode - UPDATED
+### 4. Region-based Game Mode
 - Frontend sends region filter to backend
 - Backend uses Photo V2 search to filter photos by region
 - Uses English location names (e.g., "Tokyo, Japan") instead of ISO codes
@@ -146,6 +140,19 @@ const agent = new HttpAgent({
 2. Photo Upload: `CameraScreen`/`PhotoLibraryScreen` → `PhotoUploadScreenV2` → Backend processing
 3. Identity flows through all service calls via `useAuth` hook with singleton service initialization
 
+### 6. Token Minting System
+**Minting occurs only at session finalization** (`finalizeSession`):
+- Player rewards: Each round earns up to 1.0 SPOT based on score (score/5000 × 1.0)
+- Uploader rewards: 30% of player's normalized score per round
+- Maximum reward per game: 5.0 SPOT (5 rounds × 1.0 SPOT)
+- Admin can manually mint tokens via `adminMint` function
+
+### 7. Stable Storage & Upgrades
+- All data stored in stable variables (survives canister upgrades)
+- `preupgrade()` and `postupgrade()` hooks properly implemented
+- **Normal upgrade**: `dfx deploy` preserves all data
+- **Reinstall**: `--mode reinstall` DELETES ALL DATA - avoid unless absolutely necessary
+
 ## Important Constraints
 
 1. **No Local Replica**: Always use mainnet (ic0.app)
@@ -153,6 +160,8 @@ const agent = new HttpAgent({
 3. **Chunk Size**: Photo uploads limited to 256KB per chunk
 4. **Dev Mode**: Uses fixed test principal for consistency
 5. **Stable Storage**: Data persists across canister upgrades (except with --mode reinstall)
+6. **Session Limits**: Maximum 5 rounds per game session
+7. **Score Cap**: Maximum 5000 points per round, 25000 per session
 
 ## Environment Configuration
 
@@ -176,14 +185,15 @@ Use helper functions in `src/frontend/src/utils/locationHelpers.ts`
 ### Stable Storage Compatibility
 When changing data structures, may need `--mode reinstall` (data loss)
 
-### Dev Mode Query Authentication (2025-06-18) - RESOLVED
-**Problem**: Photos uploaded in dev mode not visible in profile
+### Dev Mode Query Authentication
 - `verifyQuerySignatures: false` caused query calls to use anonymous principal
-- `getUserPhotosV2` as query function returned empty results
-
-**Solution**: Changed certificate verification to `verifyQuerySignatures: true`
+- Solution: Changed certificate verification to `verifyQuerySignatures: true`
 - All service files now use proper identity verification
-- Maintained query functions for performance while ensuring correct principal authentication
+
+### Session Management Issues
+- Sessions may persist across game starts if not properly reset
+- GameModeScreen now resets game state on focus
+- GamePlayScreen finalizes incomplete sessions on unmount
 
 ## Current Canister IDs
 
@@ -193,9 +203,9 @@ When changing data structures, may need `--mode reinstall` (data loss)
 
 ## Token Economics
 
-- Play cost: 2.00 SPOT per game
-- Rewards: 0-1.00 SPOT based on accuracy
-- Photo uploader reward: 5% of player score
+- Play cost: 0.00 SPOT (free to play)
+- Rewards: 0-1.00 SPOT per round based on accuracy
+- Photo uploader reward: 30% of player's score
 - Hints: 1.00-3.00 SPOT each
 
 ## Anti-cheat Measures
@@ -204,6 +214,7 @@ When changing data structures, may need `--mode reinstall` (data loss)
 - Time validation (2 seconds minimum, 5 minutes maximum)
 - Fixed confidence radius values (500m, 1km, 2km, 5km)
 - Repeated coordinate detection
+- Suspicious activity flagging for excessive perfect scores
 
 ## Development Guidelines
 
@@ -212,24 +223,21 @@ When changing data structures, may need `--mode reinstall` (data loss)
 3. Use existing patterns and conventions
 4. Verify canister deployments with Candid UI
 5. Monitor console logs for debugging
+6. Never use `--mode reinstall` unless absolutely necessary
 
-## Recent Updates (2025-06-18)
+## Recent Updates (2025-06-20)
+
+### Session Management Fixes ✅
+- Fixed incorrect max score display (was showing 35000, now correctly 25000)
+- Fixed round count cap at 5 rounds maximum
+- Added session reset when entering GameModeScreen
+- Sessions properly finalize when leaving game mid-way
+- Round results array properly cleared on game reset
 
 ### Photo Upload Experience Improvements ✅
-1. **Detailed compression progress**
-   - Shows compression attempts (e.g., "Quality adjustment (75%) (3/10)")
-   - Visual progress bar during compression
-   - Phase-specific descriptions
-
-2. **Interactive waiting UI**
-   - Can edit metadata during compression
-   - Helpful hints panel explaining the process
-   - "You can edit description and tags during this time"
-
-3. **Optimistic UI**
-   - Shows success immediately after heavy processing
-   - Background sync for final confirmation
-   - "Upload complete! Syncing in background..."
+- Detailed compression progress with visual feedback
+- Interactive waiting UI during processing
+- Optimistic UI with background sync
 
 ### Dev Mode Authentication Fix ✅
 - Fixed certificate verification to use `verifyQuerySignatures: true`
@@ -237,18 +245,16 @@ When changing data structures, may need `--mode reinstall` (data loss)
 - Added debug logging for principal tracking
 
 ### Legacy Storage Cleanup ✅
-- Removed unused legacy `photos` and `photoChunks` storage systems
+- Removed unused legacy storage systems
 - Unified all photo operations to use V2 stable storage
-- Cleaned up deprecated functions while preserving admin functionality
+- Cleaned up deprecated functions
 
 ### Region Management Redesign ✅
 - Migrated from ISO-3166 codes to English location names
 - Implemented search-focused utilities in `regionMapping.ts`
 - Supports partial matching and hierarchical location display
-- Format: "City, Country" or "City, State, Country"
 
 ### UI/UX Improvements ✅
-- Fixed success popup buttons to use appropriate actions
-- GameResult screen handles extreme distances (3000km+) without freezing
+- GameResult screen handles extreme distances without freezing
 - Optimized map zoom calculations for better performance
-- Navigation parameter serialization fixes (BigInt → Number)
+- Navigation parameter serialization fixes
