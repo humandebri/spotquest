@@ -391,6 +391,7 @@ class GameService {
           gamesPlayed: IDL.Nat,
           photosUploaded: IDL.Nat,
           totalRewards: IDL.Nat,
+          username: IDL.Opt(IDL.Text),
         })))], ['query']),
         getTopPhotosByUsage: IDL.Func([IDL.Nat], [IDL.Vec(IDL.Tuple(IDL.Nat, IDL.Record({
           photoId: IDL.Nat,
@@ -401,6 +402,7 @@ class GameService {
         getTopUploaders: IDL.Func([IDL.Nat], [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Record({
           totalPhotos: IDL.Nat,
           totalTimesUsed: IDL.Nat,
+          username: IDL.Opt(IDL.Text),
         })))], ['query']),
         
         // Admin functions (for dev mode)
@@ -409,6 +411,13 @@ class GameService {
           err: IDL.Text,
         })], []),
         getOwner: IDL.Func([], [IDL.Principal], ['query']),
+        
+        // User profile functions
+        setUsername: IDL.Func([IDL.Text], [IDL.Variant({
+          ok: IDL.Null,
+          err: IDL.Text,
+        })], []),
+        getUsername: IDL.Func([IDL.Principal], [IDL.Opt(IDL.Text)], ['query']),
         
         // Debug functions
         debugGetTokenInfo: IDL.Func([], [IDL.Record({
@@ -668,19 +677,6 @@ class GameService {
     }
   }
 
-  async debugCalculatePlayerReward(sessionId: string): Promise<any> {
-    if (!this.initialized || !this.actor) {
-      return null;
-    }
-    
-    try {
-      const result = await this.actor.debugCalculatePlayerReward(sessionId);
-      return result;
-    } catch (error) {
-      console.error('Failed to debug calculate player reward:', error);
-      return null;
-    }
-  }
 
   async getPlayerStats(principal: any): Promise<any> {
     if (!this.initialized || !this.actor) {
@@ -758,6 +754,35 @@ class GameService {
     }
   }
 
+  // User profile functions
+  async setUsername(username: string): Promise<{ ok?: null; err?: string }> {
+    if (!this.initialized || !this.actor) {
+      return { err: 'Service not initialized. Please login first.' };
+    }
+    
+    try {
+      const result = await this.actor.setUsername(username);
+      return result;
+    } catch (error) {
+      console.error('Failed to set username:', error);
+      return { err: 'Failed to set username' };
+    }
+  }
+
+  async getUsername(principal: any): Promise<string | null> {
+    if (!this.initialized || !this.actor) {
+      return null;
+    }
+    
+    try {
+      const result = await this.actor.getUsername(principal);
+      return result[0] || null; // IDL.Opt returns an array
+    } catch (error) {
+      console.error('Failed to get username:', error);
+      return null;
+    }
+  }
+
   // Hint cost constants (matching backend)
   getHintCost(hintType: string): number {
     switch (hintType) {
@@ -793,6 +818,7 @@ class GameService {
     gamesPlayed: bigint;
     photosUploaded: bigint;
     totalRewards: bigint;
+    username?: string;
   }[]> {
     if (!this.initialized || !this.actor) {
       return [];
@@ -806,6 +832,7 @@ class GameService {
         gamesPlayed: stats.gamesPlayed,
         photosUploaded: stats.photosUploaded,
         totalRewards: stats.totalRewards,
+        username: stats.username?.[0] || undefined,
       }));
     } catch (error) {
       console.error('Failed to get leaderboard with stats:', error);
@@ -830,7 +857,12 @@ class GameService {
     }
   }
 
-  async getTopUploaders(limit: number): Promise<any[]> {
+  async getTopUploaders(limit: number): Promise<{
+    principal: any;
+    totalPhotos: bigint;
+    totalTimesUsed: bigint;
+    username?: string;
+  }[]> {
     if (!this.initialized || !this.actor) {
       return [];
     }
@@ -839,7 +871,9 @@ class GameService {
       const result = await this.actor.getTopUploaders(BigInt(limit));
       return result.map(([principal, data]: [any, any]) => ({
         principal,
-        ...data
+        totalPhotos: data.totalPhotos,
+        totalTimesUsed: data.totalTimesUsed,
+        username: data.username?.[0] || undefined,
       }));
     } catch (error) {
       console.error('Failed to get top uploaders:', error);
@@ -847,21 +881,6 @@ class GameService {
     }
   }
 
-  // Debug function to check player sessions
-  async debugGetPlayerSessions(principal: any): Promise<any> {
-    if (!this.initialized || !this.actor) {
-      return null;
-    }
-    
-    try {
-      const result = await this.actor.debugGetPlayerSessions(principal);
-      console.log('🔍 Debug player sessions:', result);
-      return result;
-    } catch (error) {
-      console.error('Failed to debug player sessions:', error);
-      return null;
-    }
-  }
 }
 
 export const gameService = new GameService();

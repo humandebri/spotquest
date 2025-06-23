@@ -152,18 +152,30 @@ export default function ProfileScreen() {
     }
   }, [principal]);
 
-  // Save username to storage
+  // Save username to storage and backend
   const saveUsername = useCallback(async (newUsername: string) => {
     if (principal && newUsername.trim()) {
       try {
+        // Save to local storage first
         await AsyncStorage.setItem(`username_${principal.toString()}`, newUsername.trim());
         setUsername(newUsername.trim());
+        
+        // Save to backend
+        if (isServiceInitialized) {
+          const result = await gameService.setUsername(newUsername.trim());
+          if (result.err) {
+            console.error('Failed to save username to backend:', result.err);
+            Alert.alert('Warning', 'Username saved locally but failed to save to server: ' + result.err);
+          } else {
+            console.log('Username saved to backend successfully');
+          }
+        }
       } catch (error) {
         console.error('Failed to save username:', error);
         Alert.alert('Error', 'Failed to save username');
       }
     }
-  }, [principal]);
+  }, [principal, isServiceInitialized]);
 
   // Load token balance
   const loadTokenBalance = useCallback(async () => {
@@ -204,8 +216,24 @@ export default function ProfileScreen() {
   React.useEffect(() => {
     if (isServiceInitialized) {
       loadTokenBalance();
+      
+      // Sync username to backend if we have one locally
+      const syncUsername = async () => {
+        if (principal && username && username !== 'Anonymous User') {
+          const backendUsername = await gameService.getUsername(principal);
+          if (!backendUsername) {
+            // Username exists locally but not on backend - sync it
+            const result = await gameService.setUsername(username);
+            if (result.ok !== undefined) {
+              console.log('Username synced to backend');
+            }
+          }
+        }
+      };
+      
+      syncUsername();
     }
-  }, [isServiceInitialized, loadTokenBalance]);
+  }, [isServiceInitialized, loadTokenBalance, principal, username]);
 
   // Load player stats
   const loadPlayerStats = React.useCallback(async () => {

@@ -38,6 +38,7 @@ interface PhotoLeaderboardEntry {
 interface UploaderLeaderboardEntry {
   rank: number;
   principal: string;
+  username?: string;
   totalPhotos: number;
   totalTimesUsed: number;
 }
@@ -75,6 +76,16 @@ export default function LeaderboardScreen() {
       if (auth && auth.identity) {
         console.log('🏆 Initializing game service...');
         await gameService.init(auth.identity);
+        
+        // Debug: Check player's own stats to see if they exist in the system
+        const myPrincipal = auth.identity.getPrincipal();
+        console.log('🏆 My principal:', myPrincipal.toString());
+        try {
+          const myStats = await gameService.getPlayerStats(myPrincipal);
+          console.log('🏆 My player stats:', myStats);
+        } catch (e) {
+          console.log('🏆 Could not get my stats:', e);
+        }
       } else {
         console.log('🏆 Loading without authentication');
       }
@@ -92,41 +103,28 @@ export default function LeaderboardScreen() {
       switch (selectedType) {
         case 'global':
           // Get player leaderboard with stats
-          console.log('🏆 Fetching global leaderboard...');
           const playerLeaderboard = await gameService.getLeaderboardWithStats(50);
-          console.log('🏆 Global leaderboard response:', playerLeaderboard);
-          console.log('🏆 Global leaderboard length:', playerLeaderboard.length);
-          console.log('🏆 Global leaderboard first entry:', playerLeaderboard[0]);
+          console.log('🏆 Global leaderboard loaded:', playerLeaderboard.length, 'players');
           leaderboardData = playerLeaderboard.map((entry, index) => ({
             rank: index + 1,
             principal: entry.principal.toString(),
+            username: entry.username,
             score: Number(entry.score),
             gamesPlayed: Number(entry.gamesPlayed),
             photosUploaded: Number(entry.photosUploaded),
             totalRewards: Number(entry.totalRewards),
           }));
           
-          // Get user's stats and rank if authenticated
-          if (auth && auth.identity) {
-            const principal = auth.identity.getPrincipal();
-            const stats = await gameService.getPlayerStats(principal);
-            if (stats) {
-              setUserStats(stats);
-              setUserRank(stats.rank ? Number(stats.rank) : null);
-            }
-          }
           break;
           
         case 'uploaders':
           // Get top uploaders
-          console.log('🏆 Fetching uploaders leaderboard...');
           const uploaders = await gameService.getTopUploaders(50);
-          console.log('🏆 Uploaders response:', uploaders);
-          console.log('🏆 Uploaders length:', uploaders.length);
-          console.log('🏆 Uploaders first entry:', uploaders[0]);
+          console.log('🏆 Uploaders leaderboard loaded:', uploaders.length, 'uploaders');
           leaderboardData = uploaders.map((entry, index) => ({
             rank: index + 1,
             principal: entry.principal.toString(),
+            username: entry.username,
             score: Number(entry.totalTimesUsed), // Use total times used as score
             totalPhotos: Number(entry.totalPhotos),
             totalTimesUsed: Number(entry.totalTimesUsed),
@@ -140,6 +138,7 @@ export default function LeaderboardScreen() {
           leaderboardData = weeklyLeaderboard.map((entry, index) => ({
             rank: index + 1,
             principal: entry.principal.toString(),
+            username: entry.username,
             score: Number(entry.score),
             gamesPlayed: Number(entry.gamesPlayed),
             photosUploaded: Number(entry.photosUploaded),
@@ -154,6 +153,7 @@ export default function LeaderboardScreen() {
           leaderboardData = monthlyLeaderboard.map((entry, index) => ({
             rank: index + 1,
             principal: entry.principal.toString(),
+            username: entry.username,
             score: Number(entry.score),
             gamesPlayed: Number(entry.gamesPlayed),
             photosUploaded: Number(entry.photosUploaded),
@@ -164,6 +164,17 @@ export default function LeaderboardScreen() {
       
       console.log('🏆 Leaderboard data loaded:', leaderboardData.length, 'items');
       setData(leaderboardData);
+      
+      // Get user's stats and rank if authenticated (for all tabs)
+      if (auth && auth.identity) {
+        const principal = auth.identity.getPrincipal();
+        const stats = await gameService.getPlayerStats(principal);
+        if (stats) {
+          setUserStats(stats);
+          setUserRank(stats.rank ? Number(stats.rank) : null);
+        }
+      }
+      
       setIsLoading(false);
       setIsRefreshing(false);
     } catch (error) {
@@ -197,7 +208,9 @@ export default function LeaderboardScreen() {
           </View>
 
           <View style={styles.userInfo}>
-            <Text style={styles.username}>{String(item.principal || 'Unknown').slice(0, 8)}...</Text>
+            <Text style={styles.username}>
+              {item.username || `${String(item.principal || 'Unknown').slice(0, 8)}...`}
+            </Text>
             <View style={styles.statsRow}>
               <View style={styles.statItem}>
                 <Ionicons name="camera-outline" size={14} color="#94a3b8" />
@@ -284,22 +297,98 @@ export default function LeaderboardScreen() {
             >
               <View style={styles.rankCardContent}>
                 <View>
-                  <Text style={styles.rankCardLabel}>Your Rank</Text>
+                  <Text style={styles.rankCardLabel}>
+                    {selectedType === 'global' ? 'Your Rank' : 
+                     selectedType === 'uploaders' ? 'Uploader Rank' :
+                     selectedType === 'weekly' ? 'Weekly Rank' : 'Monthly Rank'}
+                  </Text>
                   <Text style={styles.rankCardValue}>
-                    {userRank ? `#${userRank}` : 'Unranked'}
+                    {selectedType === 'uploaders' ? (
+                      // Find user's position in uploaders list
+                      (() => {
+                        const userIndex = data.findIndex(item => item.principal === auth.identity?.getPrincipal().toString());
+                        return userIndex >= 0 ? `#${userIndex + 1}` : 'N/A';
+                      })()
+                    ) : selectedType === 'weekly' || selectedType === 'monthly' ? (
+                      // Find user's position in weekly/monthly list
+                      (() => {
+                        const userIndex = data.findIndex(item => item.principal === auth.identity?.getPrincipal().toString());
+                        return userIndex >= 0 ? `#${userIndex + 1}` : 'Unranked';
+                      })()
+                    ) : (
+                      userRank ? `#${userRank}` : 'Unranked'
+                    )}
                   </Text>
                   <View style={styles.rankCardChange}>
-                    <Ionicons name="game-controller" size={16} color="#94a3b8" />
-                    <Text style={styles.rankCardChangeText}>
-                      {Number(userStats.totalGamesPlayed)} games played
-                    </Text>
+                    {selectedType === 'uploaders' ? (
+                      <>
+                        <Ionicons name="camera" size={16} color="#94a3b8" />
+                        <Text style={styles.rankCardChangeText}>
+                          {Number(userStats.totalPhotosUploaded)} photos uploaded
+                        </Text>
+                      </>
+                    ) : selectedType === 'weekly' ? (
+                      <>
+                        <Ionicons name="calendar" size={16} color="#94a3b8" />
+                        <Text style={styles.rankCardChangeText}>
+                          Last 7 days activity
+                        </Text>
+                      </>
+                    ) : selectedType === 'monthly' ? (
+                      <>
+                        <Ionicons name="calendar" size={16} color="#94a3b8" />
+                        <Text style={styles.rankCardChangeText}>
+                          Last 30 days • Avg: {Number(userStats.averageScore30Days || 0).toLocaleString()}
+                        </Text>
+                      </>
+                    ) : (
+                      <>
+                        <Ionicons name="game-controller" size={16} color="#94a3b8" />
+                        <Text style={styles.rankCardChangeText}>
+                          {Number(userStats.totalGamesPlayed)} games played
+                        </Text>
+                      </>
+                    )}
                   </View>
                 </View>
                 <View style={styles.rankCardRight}>
-                  <Text style={styles.rankCardLabel}>Best Score</Text>
-                  <Text style={styles.rankCardScore}>{Number(userStats.bestScore).toLocaleString()}</Text>
+                  <Text style={styles.rankCardLabel}>
+                    {selectedType === 'uploaders' ? 'Photo Stats' :
+                     selectedType === 'weekly' ? 'This Week' :
+                     selectedType === 'monthly' ? 'This Month' : 'Best Score'}
+                  </Text>
+                  <Text style={styles.rankCardScore}>
+                    {selectedType === 'uploaders' ? (
+                      (() => {
+                        // Calculate total times photos were used
+                        const myPrincipal = auth.identity?.getPrincipal().toString();
+                        console.log('🏆 Looking for uploader data for:', myPrincipal);
+                        const uploaderData = data.find(item => {
+                          console.log('🏆 Comparing with:', item.principal);
+                          return item.principal === myPrincipal;
+                        });
+                        console.log('🏆 Found uploader data:', uploaderData);
+                        return uploaderData ? uploaderData.totalTimesUsed.toLocaleString() : '0';
+                      })()
+                    ) : selectedType === 'weekly' || selectedType === 'monthly' ? (
+                      (() => {
+                        // Show score from current leaderboard
+                        const myPrincipal = auth.identity?.getPrincipal().toString();
+                        const userData = data.find(item => item.principal === myPrincipal);
+                        return userData ? userData.score.toLocaleString() : '0';
+                      })()
+                    ) : (
+                      Number(userStats.bestScore).toLocaleString()
+                    )}
+                  </Text>
                   <Text style={styles.rankCardRewards}>
-                    {(Number(userStats.totalRewardsEarned) / 100).toFixed(2)} SPOT
+                    {selectedType === 'uploaders' ? (
+                      'total plays'
+                    ) : selectedType === 'weekly' || selectedType === 'monthly' ? (
+                      'points'
+                    ) : (
+                      `${(Number(userStats.totalRewardsEarned) / 100).toFixed(2)} SPOT`
+                    )}
                   </Text>
                 </View>
               </View>
@@ -350,13 +439,15 @@ export default function LeaderboardScreen() {
             <MaterialCommunityIcons name="trophy-outline" size={64} color="#475569" />
             <Text style={styles.emptyTitle}>
               {selectedType === 'global' || selectedType === 'weekly' 
-                ? 'No Rankings Yet' 
+                ? 'Limited Players' 
                 : selectedType === 'uploaders' 
-                ? 'No Photo Uploaders' 
-                : 'No Photo Statistics'}
+                ? 'Limited Uploaders' 
+                : 'Limited Activity'}
             </Text>
             <Text style={styles.emptyMessage}>
-              {selectedType === 'global' || selectedType === 'weekly'
+              {data.length === 1 
+                ? 'You are the only player currently! Invite friends to compete on the leaderboard.'
+                : selectedType === 'global' || selectedType === 'weekly'
                 ? 'Complete some games to appear on the leaderboard!'
                 : selectedType === 'uploaders'
                 ? 'Upload photos and have them used in games to appear here!'

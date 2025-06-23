@@ -177,6 +177,14 @@ actor GameUnified {
         userScheduledPhotos: [(Principal, [Nat])];
     } = null;
     
+    // User profile storage for usernames
+    private stable var userProfileStable : ?{
+        usernames: [(Principal, Text)];
+    } = null;
+    
+    // Runtime username map
+    private var usernames = HashMap.HashMap<Principal, Text>(100, Principal.equal, Principal.hash);
+    
     // ======================================
     // INITIALIZATION
     // ======================================
@@ -496,7 +504,6 @@ actor GameUnified {
             case null { #err("No sessions found for user") };
             case (?sessionIds) {
                 Debug.print("🏠 getRecentSessionsWithScores for " # Principal.toText(player) # " - Found " # Nat.toText(sessionIds.size()) # " session IDs");
-                let sessionSummaries = Buffer.Buffer<GameV2.SessionSummary>(limit);
                 
                 // Convert session IDs to summaries with scores
                 let tempSummaries = Buffer.Buffer<GameV2.SessionSummary>(sessionIds.size());
@@ -1465,6 +1472,32 @@ actor GameUnified {
     };
     
     // ======================================
+    // USER PROFILE FUNCTIONS
+    // ======================================
+    
+    // Set username for the caller
+    public shared(msg) func setUsername(username: Text) : async Result.Result<(), Text> {
+        // Validate username
+        if (Text.size(username) == 0) {
+            return #err("Username cannot be empty");
+        };
+        
+        if (Text.size(username) > 50) {
+            return #err("Username must be 50 characters or less");
+        };
+        
+        // TODO: Add more validation (e.g., no offensive words, unique usernames)
+        
+        usernames.put(msg.caller, username);
+        #ok()
+    };
+    
+    // Get username for a principal
+    public query func getUsername(principal: Principal) : async ?Text {
+        usernames.get(principal)
+    };
+    
+    // ======================================
     // RANKING FUNCTIONS
     // ======================================
     
@@ -1585,9 +1618,10 @@ actor GameUnified {
         gamesPlayed: Nat;
         photosUploaded: Nat;
         totalRewards: Nat;
+        username: ?Text;
     })] {
         // Get all players with their stats
-        var playerStats : [(Principal, { score: Nat; gamesPlayed: Nat; photosUploaded: Nat; totalRewards: Nat })] = [];
+        var playerStats : [(Principal, { score: Nat; gamesPlayed: Nat; photosUploaded: Nat; totalRewards: Nat; username: ?Text })] = [];
         
         for ((p, sessionIds) in gameEngineManager.getPlayerSessionsMap().vals()) {
             var bestScore : Nat = 0;
@@ -1630,14 +1664,15 @@ actor GameUnified {
                     gamesPlayed = gamesPlayed;
                     photosUploaded = photosUploaded;
                     totalRewards = totalRewards;
+                    username = usernames.get(p);
                 })]);
             };
         };
         
         // Sort by best score (descending)
         let sortedStats = Array.sort(playerStats, 
-            func(a: (Principal, { score: Nat; gamesPlayed: Nat; photosUploaded: Nat; totalRewards: Nat }), 
-                 b: (Principal, { score: Nat; gamesPlayed: Nat; photosUploaded: Nat; totalRewards: Nat })) : {#less; #equal; #greater} {
+            func(a: (Principal, { score: Nat; gamesPlayed: Nat; photosUploaded: Nat; totalRewards: Nat; username: ?Text }), 
+                 b: (Principal, { score: Nat; gamesPlayed: Nat; photosUploaded: Nat; totalRewards: Nat; username: ?Text })) : {#less; #equal; #greater} {
             if (a.1.score > b.1.score) { #less }
             else if (a.1.score < b.1.score) { #greater }
             else { #equal }
@@ -1645,7 +1680,7 @@ actor GameUnified {
         
         // Return top N players
         let actualLimit = Nat.min(limit, sortedStats.size());
-        Array.tabulate<(Principal, { score: Nat; gamesPlayed: Nat; photosUploaded: Nat; totalRewards: Nat })>(
+        Array.tabulate<(Principal, { score: Nat; gamesPlayed: Nat; photosUploaded: Nat; totalRewards: Nat; username: ?Text })>(
             actualLimit, 
             func(i) = sortedStats[i]
         )
@@ -1702,7 +1737,7 @@ actor GameUnified {
     };
     
     // Get top photo uploaders by total photos uploaded
-    public query func getTopUploaders(limit: Nat) : async [(Principal, { totalPhotos: Nat; totalTimesUsed: Nat })] {
+    public query func getTopUploaders(limit: Nat) : async [(Principal, { totalPhotos: Nat; totalTimesUsed: Nat; username: ?Text })] {
         // Map to track uploader stats
         let uploaderStats = HashMap.HashMap<Principal, { totalPhotos: Nat; totalTimesUsed: Nat }>(10, Principal.equal, Principal.hash);
         
@@ -1758,7 +1793,17 @@ actor GameUnified {
         
         // Return top N uploaders
         let actualLimit = Nat.min(limit, sortedUploaders.size());
-        Array.tabulate<(Principal, { totalPhotos: Nat; totalTimesUsed: Nat })>(actualLimit, func(i) = sortedUploaders[i])
+        Array.tabulate<(Principal, { totalPhotos: Nat; totalTimesUsed: Nat; username: ?Text })>(
+            actualLimit, 
+            func(i) {
+                let (principal, stats) = sortedUploaders[i];
+                (principal, {
+                    totalPhotos = stats.totalPhotos;
+                    totalTimesUsed = stats.totalTimesUsed;
+                    username = usernames.get(principal);
+                })
+            }
+        )
     };
     
     // ======================================
@@ -2557,6 +2602,11 @@ actor GameUnified {
         photoManagerV2.prepareUpgrade();
         reputationStable := ?reputationManager.toStable();
         iiIntegrationStable := ?iiIntegrationManager.preupgrade();
+        
+        // Save usernames
+        userProfileStable := ?{
+            usernames = Iter.toArray(usernames.entries());
+        };
     };
     
     system func postupgrade() {
@@ -2643,6 +2693,17 @@ actor GameUnified {
         
         // StableTrieMapのpostupgrade処理
         photoManagerV2.restoreFromUpgrade();
+        
+        // Restore usernames
+        switch(userProfileStable) {
+            case null { };
+            case (?profileData) {
+                for ((principal, username) in profileData.usernames.vals()) {
+                    usernames.put(principal, username);
+                };
+                userProfileStable := null;
+            };
+        };
         
         // Restart cleanup timer if initialized
         if (initialized) {

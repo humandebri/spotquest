@@ -160,13 +160,19 @@ const idlFactory = ({ IDL }: any) => {
     hint: IDL.Text,
     country: IDL.Text,
     region: IDL.Text,
-    sceneKind: IDL.Text,
+    sceneKind: IDL.Variant({
+      'Nature': IDL.Null,
+      'Building': IDL.Null,
+      'Store': IDL.Null,
+      'Facility': IDL.Null,
+      'Other': IDL.Null,
+    }),
     tags: IDL.Vec(IDL.Text),
     chunkCount: IDL.Nat,
     totalSize: IDL.Nat,
     uploadState: IDL.Variant({
-      'Uploading': IDL.Null,
-      'Completed': IDL.Null,
+      'Incomplete': IDL.Null,
+      'Complete': IDL.Null,
       'Failed': IDL.Null,
     }),
     status: IDL.Variant({
@@ -493,8 +499,17 @@ class PhotoService {
     }
 
     try {
+      console.log('📷 Fetching photo metadata V2 for photoId:', photoId);
       const result = await this.actor.getPhotoMetadataV2(BigInt(photoId));
-      return result;
+      
+      // Optional型のアンパック
+      if (result && result.length > 0) {
+        console.log('📷 Photo metadata V2 retrieved:', result[0]);
+        return result[0];
+      } else {
+        console.log('📷 No photo metadata found for photoId:', photoId);
+        return null;
+      }
     } catch (error) {
       console.error('Get photo metadata V2 error:', error);
       return null;

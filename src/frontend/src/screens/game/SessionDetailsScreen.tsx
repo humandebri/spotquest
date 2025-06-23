@@ -81,7 +81,7 @@ export default function SessionDetailsScreen() {
         
         // Process rounds and fetch photo data
         const roundsWithPhotos = await Promise.all(
-          sessionResult.ok.rounds.map(async (round: any) => {
+          sessionResult.ok.rounds.map(async (round: any, index: number) => {
             const roundData: RoundData = {
               ...round,
               photoUrl: undefined,
@@ -90,18 +90,45 @@ export default function SessionDetailsScreen() {
             
             // Fetch photo metadata
             try {
+              console.log('🎯 Fetching photo for round:', index + 1, 'photoId:', round.photoId);
               const photoMeta = await photoService.getPhotoMetadataV2(Number(round.photoId));
+              
               if (photoMeta) {
-                // Get photo chunks for display
-                const photoUrl = await photoService.getPhotoDataUrl(Number(round.photoId));
-                roundData.photoUrl = photoUrl || undefined;
+                console.log('🎯 Photo metadata found:', {
+                  id: photoMeta.id,
+                  title: photoMeta.title,
+                  uploadState: photoMeta.uploadState,
+                  status: photoMeta.status,
+                  lat: photoMeta.latitude,
+                  lon: photoMeta.longitude
+                });
+                
+                // Check if photo is complete and active
+                if (photoMeta.uploadState?.Complete !== undefined && photoMeta.status?.Active !== undefined) {
+                  // Get photo chunks for display
+                  const photoUrl = await photoService.getPhotoDataUrl(Number(round.photoId));
+                  if (photoUrl) {
+                    console.log('🎯 Photo URL generated for round:', index + 1);
+                    roundData.photoUrl = photoUrl;
+                  } else {
+                    console.warn('🎯 Failed to generate photo URL for round:', index + 1);
+                  }
+                } else {
+                  console.warn('🎯 Photo not available:', {
+                    uploadState: photoMeta.uploadState,
+                    status: photoMeta.status
+                  });
+                }
+                
                 roundData.photoLocation = {
                   lat: photoMeta.latitude,
                   lon: photoMeta.longitude,
                 };
+              } else {
+                console.warn('🎯 No photo metadata found for photoId:', round.photoId);
               }
             } catch (error) {
-              console.error('Failed to fetch photo data for round:', error);
+              console.error('🎯 Failed to fetch photo data for round:', error);
             }
             
             return roundData;
@@ -251,13 +278,18 @@ export default function SessionDetailsScreen() {
           {/* Round Details */}
           <View style={styles.roundDetails}>
             {/* Photo */}
-            {currentRound.photoUrl && (
+            {currentRound.photoUrl ? (
               <View style={styles.photoContainer}>
                 <Image
                   source={{ uri: currentRound.photoUrl }}
                   style={styles.photo}
                   resizeMode="cover"
                 />
+              </View>
+            ) : (
+              <View style={[styles.photoContainer, styles.photoPlaceholder]}>
+                <Ionicons name="image-outline" size={48} color="#64748b" />
+                <Text style={styles.photoPlaceholderText}>Photo not available</Text>
               </View>
             )}
 
@@ -533,5 +565,16 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  photoPlaceholder: {
+    backgroundColor: '#1e293b',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 200,
+  },
+  photoPlaceholderText: {
+    color: '#64748b',
+    fontSize: 14,
+    marginTop: 8,
   },
 });

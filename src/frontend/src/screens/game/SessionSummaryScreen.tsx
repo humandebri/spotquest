@@ -133,14 +133,8 @@ export default function SessionSummaryScreen() {
         if (result.ok) {
           setSessionFinalized(true);
           
-          // Debug: Check session state after finalization
-          console.log('🔍 Checking session state after finalization...');
-          try {
-            const debugSessions = await gameService.debugGetPlayerSessions(principal);
-            console.log('🔍 Debug - Sessions after finalization:', debugSessions);
-          } catch (debugError) {
-            console.log('🔍 Debug function not available:', debugError.message);
-          }
+          // Debug: Session finalization complete
+          console.log('🔍 Session finalization completed successfully');
           
           // バックエンドからの実際の報酬を取得
           const backendReward = Number(result.ok.playerReward) / 100; // Convert to decimal SPOT
@@ -157,15 +151,6 @@ export default function SessionSummaryScreen() {
             finalReward: finalReward.toFixed(4)
           });
           
-          // Debug: Check backend reward calculation details
-          try {
-            const debugResult = await gameService.debugCalculatePlayerReward(sessionId);
-            if (debugResult) {
-              console.log('🔍 Backend reward calculation debug:', debugResult);
-            }
-          } catch (debugError) {
-            console.log('🔍 Debug function not available:', debugError.message);
-          }
           
           // バックエンドからトークンバランスを取得（バックエンドで既にmint済み）
           if (principal) {

@@ -354,12 +354,12 @@ export default function HomeScreen() {
                           })}
                         </Text>
                         <Text style={styles.sessionStatus}>
-                          {session.status === 'Completed' ? 'Completed' : 'In Progress'}
+                          {session.status?.Completed !== undefined ? 'Completed' : 'In Progress'}
                         </Text>
                       </View>
                       <View style={styles.sessionStats}>
                         <Text style={styles.sessionRounds}>
-                          {session.status === 'Completed' 
+                          {session.status?.Completed !== undefined 
                             ? `${session.roundCount}/${session.roundCount} rounds`
                             : `${session.currentRound || 0}/${session.roundCount} rounds`
                           }
