@@ -102,7 +102,7 @@ export default function SessionSummaryScreen() {
           round.actualLocation,
         ]);
         
-        mapRef.current.fitToCoordinates(allCoordinates, {
+        mapRef.current?.fitToCoordinates(allCoordinates, {
           edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
           animated: false,
         });
@@ -135,8 +135,12 @@ export default function SessionSummaryScreen() {
           
           // Debug: Check session state after finalization
           console.log('🔍 Checking session state after finalization...');
-          const debugSessions = await gameService.debugGetPlayerSessions(principal);
-          console.log('🔍 Debug - Sessions after finalization:', debugSessions);
+          try {
+            const debugSessions = await gameService.debugGetPlayerSessions(principal);
+            console.log('🔍 Debug - Sessions after finalization:', debugSessions);
+          } catch (debugError) {
+            console.log('🔍 Debug function not available:', debugError.message);
+          }
           
           // バックエンドからの実際の報酬を取得
           const backendReward = Number(result.ok.playerReward) / 100; // Convert to decimal SPOT
@@ -154,9 +158,13 @@ export default function SessionSummaryScreen() {
           });
           
           // Debug: Check backend reward calculation details
-          const debugResult = await gameService.debugCalculatePlayerReward(sessionId);
-          if (debugResult) {
-            console.log('🔍 Backend reward calculation debug:', debugResult);
+          try {
+            const debugResult = await gameService.debugCalculatePlayerReward(sessionId);
+            if (debugResult) {
+              console.log('🔍 Backend reward calculation debug:', debugResult);
+            }
+          } catch (debugError) {
+            console.log('🔍 Debug function not available:', debugError.message);
           }
           
           // バックエンドからトークンバランスを取得（バックエンドで既にmint済み）
