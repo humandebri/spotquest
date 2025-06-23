@@ -523,36 +523,47 @@ class PhotoService {
     }
 
     try {
+      console.log('📷 Fetching chunk', chunkIndex, 'for photo', photoId);
       const result = await this.actor.getPhotoChunkV2(BigInt(photoId), BigInt(chunkIndex));
-      return result;
+      
+      // Optional型のアンパック
+      if (result && result.length > 0) {
+        console.log('📷 Chunk retrieved, size:', result[0].length);
+        return new Uint8Array(result[0]);
+      } else {
+        console.log('📷 No chunk data found for photoId:', photoId, 'chunkIndex:', chunkIndex);
+        return null;
+      }
     } catch (error) {
       console.error('Get photo chunk V2 error:', error);
       return null;
     }
   }
 
-  async getPhotoDataUrl(photoId: number): Promise<string | null> {
+  async getPhotoDataUrl(photoId: number, metadata?: any): Promise<string | null> {
     if (!this.actor) {
       console.error('Photo service not initialized');
       return null;
     }
 
     try {
-      // First get metadata to know how many chunks there are
-      const metadata = await this.getPhotoMetadataV2(photoId);
+      // Use provided metadata or fetch it
       if (!metadata) {
-        console.error('Photo metadata not found');
-        return null;
-      }
-
-      // Fetch all chunks
-      const chunks: Uint8Array[] = [];
-      for (let i = 0; i < Number(metadata.chunkCount); i++) {
-        const chunk = await this.getPhotoChunkV2(photoId, i);
-        if (chunk) {
-          chunks.push(chunk);
+        metadata = await this.getPhotoMetadataV2(photoId);
+        if (!metadata) {
+          console.error('Photo metadata not found');
+          return null;
         }
       }
+
+      // Fetch all chunks in parallel for better performance
+      const chunkPromises: Promise<Uint8Array | null>[] = [];
+      for (let i = 0; i < Number(metadata.chunkCount); i++) {
+        chunkPromises.push(this.getPhotoChunkV2(photoId, i));
+      }
+      
+      const chunkResults = await Promise.all(chunkPromises);
+      const chunks: Uint8Array[] = chunkResults.filter((chunk): chunk is Uint8Array => chunk !== null);
 
       if (chunks.length === 0) {
         console.error('No photo chunks found');
@@ -568,19 +579,53 @@ class PhotoService {
         offset += chunk.length;
       }
 
-      // BufferでUint8ArrayからBase64に簡単に変換
-      const base64 = Buffer.from(combined).toString('base64');
-      
-      // ローカルファイルに保存
-      const localUri = `${FileSystem.cacheDirectory}photo_${photoId}.jpg`;
-      await FileSystem.writeAsStringAsync(localUri, base64, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      
-      console.log('📷 Photo saved to local cache:', localUri);
-      
-      // file://パスを返す（Data-URIのサイズ制限を回避）
-      return localUri;
+      // React Nativeで動作するbase64変換
+      try {
+        // Option 1: Use Buffer if available (with polyfill)
+        if (typeof Buffer !== 'undefined') {
+          const base64 = Buffer.from(combined).toString('base64');
+          const dataUri = `data:image/jpeg;base64,${base64}`;
+          console.log('📷 Photo data URI generated using Buffer for photoId:', photoId);
+          return dataUri;
+        }
+        
+        // Option 2: Manual base64 encoding
+        const uint8ToString = (u8a: Uint8Array): string => {
+          const CHUNK_SIZE = 0x8000; // Arbitrary chunk size
+          const chunks: string[] = [];
+          for (let i = 0; i < u8a.length; i += CHUNK_SIZE) {
+            chunks.push(String.fromCharCode.apply(null, Array.from(u8a.subarray(i, i + CHUNK_SIZE))));
+          }
+          return chunks.join('');
+        };
+        
+        const binaryString = uint8ToString(combined);
+        
+        // base64 encode
+        const base64 = globalThis.btoa ? globalThis.btoa(binaryString) : 
+          (function(input: string) {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+            let output = '';
+            for (let i = 0; i < input.length; i += 3) {
+              const byte1 = input.charCodeAt(i) & 0xff;
+              const byte2 = i + 1 < input.length ? input.charCodeAt(i + 1) & 0xff : 0;
+              const byte3 = i + 2 < input.length ? input.charCodeAt(i + 2) & 0xff : 0;
+              const bitmap = (byte1 << 16) | (byte2 << 8) | byte3;
+              output += chars.charAt((bitmap >> 18) & 0x3f);
+              output += chars.charAt((bitmap >> 12) & 0x3f);
+              output += i + 1 < input.length ? chars.charAt((bitmap >> 6) & 0x3f) : '=';
+              output += i + 2 < input.length ? chars.charAt(bitmap & 0x3f) : '=';
+            }
+            return output;
+          })(binaryString);
+        
+        const dataUri = `data:image/jpeg;base64,${base64}`;
+        console.log('📷 Photo data URI generated for photoId:', photoId, 'length:', dataUri.length);
+        return dataUri;
+      } catch (base64Error) {
+        console.error('Base64 encoding failed:', base64Error);
+        return null;
+      }
     } catch (error) {
       console.error('Get photo data URL error:', error);
       return null;

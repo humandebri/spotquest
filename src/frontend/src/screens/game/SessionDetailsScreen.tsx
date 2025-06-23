@@ -50,98 +50,198 @@ interface RoundData {
 }
 
 export default function SessionDetailsScreen() {
+  console.log('🎯 ===== SessionDetailsScreen RENDER START =====');
+  
   const route = useRoute<SessionDetailsRouteProp>();
   const navigation = useNavigation<NavigationProp>();
-  const { sessionId } = route.params;
+  const { sessionId } = route.params || {};
   const { identity } = useAuth();
+  
+  console.log('🎯 SessionDetailsScreen mounted with params:', {
+    sessionId,
+    params: route.params,
+    hasIdentity: !!identity,
+    identityType: identity?.constructor?.name,
+    routeName: route.name
+  });
   
   const [session, setSession] = useState<any>(null);
   const [rounds, setRounds] = useState<RoundData[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true); // Start with loading state
   const [selectedRound, setSelectedRound] = useState<number>(0);
+  const [imageErrors, setImageErrors] = useState<{ [key: number]: boolean }>({});
+  const [hasFetched, setHasFetched] = useState(false);
   const mapRef = useRef<MapView>(null);
 
   useEffect(() => {
-    fetchSessionDetails();
-  }, [sessionId]);
+    console.log('🎯 SessionDetailsScreen useEffect triggered:', {
+      sessionId,
+      hasIdentity: !!identity,
+      identityPrincipal: identity?.getPrincipal?.()?.toString(),
+      isLoading
+    });
+    
+    if (sessionId && identity) {
+      fetchSessionDetails();
+    } else {
+      console.warn('🎯 Missing sessionId or identity:', { sessionId, hasIdentity: !!identity });
+    }
+  }, [sessionId, identity]);
+  
+  // Debug selected round data
+  useEffect(() => {
+    if (rounds.length > 0 && rounds[selectedRound]) {
+      console.log('🎯 Current selected round:', {
+        round: selectedRound + 1,
+        photoUrl: rounds[selectedRound].photoUrl?.substring(0, 100),
+        hasGuessData: !!rounds[selectedRound].guessData,
+        hasPhotoLocation: !!rounds[selectedRound].photoLocation,
+      });
+    }
+  }, [selectedRound, rounds]);
 
   const fetchSessionDetails = async () => {
-    if (!identity) return;
+    console.log('🎯 fetchSessionDetails called:', { sessionId, hasIdentity: !!identity, hasFetched, isLoading });
     
-    setIsLoading(true);
+    if (!identity || !sessionId) {
+      console.error('🎯 Cannot fetch: missing identity or sessionId');
+      setIsLoading(false);
+      return;
+    }
+    
+    // Prevent duplicate fetches
+    if (hasFetched || (isLoading && session)) {
+      console.log('🎯 Already fetched or loading with data, skipping');
+      return;
+    }
+    
+    setHasFetched(true);
     try {
       // Initialize both game and photo services
       await gameService.init(identity);
       await photoService.init(identity);
       
       // Get session details
+      console.log('🎯 Calling gameService.getSession with:', sessionId);
       const sessionResult = await gameService.getSession(sessionId);
+      console.log('🎯 Session result:', sessionResult);
+      
+      if (!sessionResult) {
+        console.error('🎯 No session result returned');
+        Alert.alert('Error', 'Session not found');
+        return;
+      }
+      
       if (sessionResult?.ok) {
+        console.log('🎯 Session data:', sessionResult.ok);
         setSession(sessionResult.ok);
         
         // Process rounds and fetch photo data
         const roundsWithPhotos = await Promise.all(
-          sessionResult.ok.rounds.map(async (round: any, index: number) => {
+          sessionResult.ok.rounds.map(async (round: any) => {
+            // Convert BigInt to number for coordinates
             const roundData: RoundData = {
-              ...round,
+              photoId: Number(round.photoId),
+              status: round.status,
+              score: Number(round.score),
+              scoreNorm: Number(round.scoreNorm),
+              guessData: round.guessData?.[0] ? {
+                lat: round.guessData[0].lat,
+                lon: round.guessData[0].lon,
+                azimuth: round.guessData[0].azimuth?.[0] || undefined,
+                confidenceRadius: round.guessData[0].confidenceRadius,
+                submittedAt: round.guessData[0].submittedAt,
+              } : undefined,
+              retryAvailable: round.retryAvailable,
+              hintsPurchased: round.hintsPurchased,
+              startTime: round.startTime,
+              endTime: round.endTime?.[0] || undefined,
               photoUrl: undefined,
               photoLocation: undefined,
             };
-            
-            // Fetch photo metadata
-            try {
-              console.log('🎯 Fetching photo for round:', index + 1, 'photoId:', round.photoId);
-              const photoMeta = await photoService.getPhotoMetadataV2(Number(round.photoId));
-              
-              if (photoMeta) {
-                console.log('🎯 Photo metadata found:', {
-                  id: photoMeta.id,
-                  title: photoMeta.title,
-                  uploadState: photoMeta.uploadState,
-                  status: photoMeta.status,
-                  lat: photoMeta.latitude,
-                  lon: photoMeta.longitude
-                });
-                
-                // Check if photo is complete and active
-                if (photoMeta.uploadState?.Complete !== undefined && photoMeta.status?.Active !== undefined) {
-                  // Get photo chunks for display
-                  const photoUrl = await photoService.getPhotoDataUrl(Number(round.photoId));
-                  if (photoUrl) {
-                    console.log('🎯 Photo URL generated for round:', index + 1);
-                    roundData.photoUrl = photoUrl;
-                  } else {
-                    console.warn('🎯 Failed to generate photo URL for round:', index + 1);
-                  }
-                } else {
-                  console.warn('🎯 Photo not available:', {
-                    uploadState: photoMeta.uploadState,
-                    status: photoMeta.status
-                  });
-                }
-                
-                roundData.photoLocation = {
-                  lat: photoMeta.latitude,
-                  lon: photoMeta.longitude,
-                };
-              } else {
-                console.warn('🎯 No photo metadata found for photoId:', round.photoId);
-              }
-            } catch (error) {
-              console.error('🎯 Failed to fetch photo data for round:', error);
-            }
             
             return roundData;
           })
         );
         
+        // Fetch all photo data in parallel for better performance
+        console.log('🎯 Fetching photo data for all rounds in parallel...');
+        const photoPromises = roundsWithPhotos.map(async (roundData, index) => {
+          try {
+            console.log('🎯 Fetching photo for round:', index + 1, 'photoId:', roundData.photoId);
+            const photoMeta = await photoService.getPhotoMetadataV2(roundData.photoId);
+            
+            if (photoMeta) {
+              console.log('🎯 Photo metadata found:', {
+                id: photoMeta.id,
+                title: photoMeta.title,
+                uploadState: photoMeta.uploadState,
+                status: photoMeta.status,
+                lat: photoMeta.latitude,
+                lon: photoMeta.longitude
+              });
+              
+              // Set photo location
+              roundData.photoLocation = {
+                lat: photoMeta.latitude,
+                lon: photoMeta.longitude,
+              };
+              
+              // Check if photo is complete and active
+              if (photoMeta.uploadState?.Complete !== undefined && photoMeta.status?.Active !== undefined) {
+                // Get photo chunks for display (pass metadata to avoid duplicate fetch)
+                const photoUrl = await photoService.getPhotoDataUrl(roundData.photoId, photoMeta);
+                if (photoUrl) {
+                  console.log('🎯 Photo URL generated for round:', index + 1);
+                  roundData.photoUrl = photoUrl;
+                } else {
+                  console.warn('🎯 Failed to generate photo URL for round:', index + 1);
+                }
+              } else {
+                console.warn('🎯 Photo not available:', {
+                  uploadState: photoMeta.uploadState,
+                  status: photoMeta.status
+                });
+              }
+            } else {
+              console.warn('🎯 No photo metadata found for photoId:', roundData.photoId);
+            }
+          } catch (error) {
+            console.error('🎯 Failed to fetch photo data for round:', index + 1, error);
+          }
+        });
+        
+        // Wait for all photo fetches to complete
+        await Promise.all(photoPromises);
+        
         setRounds(roundsWithPhotos);
+        
+        // Debug: Log round data
+        console.log('🎯 Rounds data processed:', roundsWithPhotos.map((r, i) => ({
+          round: i + 1,
+          hasPhoto: !!r.photoUrl,
+          hasPhotoLocation: !!r.photoLocation,
+          hasGuessData: !!r.guessData,
+          photoLocation: r.photoLocation,
+          guessData: r.guessData ? {
+            lat: r.guessData.lat,
+            lon: r.guessData.lon,
+            confidenceRadius: r.guessData.confidenceRadius
+          } : null,
+          score: r.score
+        })));
       }
     } catch (error) {
       console.error('Failed to fetch session details:', error);
+      console.error('Error details:', {
+        error,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
       Alert.alert('Error', 'Failed to load session details');
     } finally {
       setIsLoading(false);
+      console.log('🎯 fetchSessionDetails completed, isLoading set to false');
     }
   };
 
@@ -179,7 +279,7 @@ export default function SessionDetailsScreen() {
     });
   };
 
-  if (isLoading) {
+  if (isLoading || (!session && sessionId)) {
     return (
       <LinearGradient colors={['#0f172a', '#1e293b']} style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
@@ -278,12 +378,20 @@ export default function SessionDetailsScreen() {
           {/* Round Details */}
           <View style={styles.roundDetails}>
             {/* Photo */}
-            {currentRound.photoUrl ? (
+            {currentRound.photoUrl && !imageErrors[currentRound.photoId] ? (
               <View style={styles.photoContainer}>
                 <Image
                   source={{ uri: currentRound.photoUrl }}
                   style={styles.photo}
                   resizeMode="cover"
+                  onError={(error) => {
+                    console.error('🎯 Image loading error:', error.nativeEvent.error);
+                    console.error('🎯 Failed to load image URL:', currentRound.photoUrl?.substring(0, 100));
+                    setImageErrors(prev => ({ ...prev, [currentRound.photoId]: true }));
+                  }}
+                  onLoad={() => {
+                    console.log('🎯 Image loaded successfully for round:', selectedRound + 1);
+                  }}
                 />
               </View>
             ) : (
@@ -294,7 +402,7 @@ export default function SessionDetailsScreen() {
             )}
 
             {/* Map */}
-            {currentRound.guessData && currentRound.photoLocation && (
+            {currentRound.guessData && currentRound.photoLocation ? (
               <View style={styles.mapContainer}>
                 <MapView
                   ref={mapRef}
@@ -364,6 +472,11 @@ export default function SessionDetailsScreen() {
                     ).toFixed(2)} km
                   </Text>
                 </View>
+              </View>
+            ) : (
+              <View style={[styles.mapContainer, styles.mapPlaceholder]}>
+                <Ionicons name="map-outline" size={48} color="#64748b" />
+                <Text style={styles.mapPlaceholderText}>Map not available</Text>
               </View>
             )}
 
@@ -573,6 +686,17 @@ const styles = StyleSheet.create({
     height: 200,
   },
   photoPlaceholderText: {
+    color: '#64748b',
+    fontSize: 14,
+    marginTop: 8,
+  },
+  mapPlaceholder: {
+    backgroundColor: '#1e293b',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 300,
+  },
+  mapPlaceholderText: {
     color: '#64748b',
     fontSize: 14,
     marginTop: 8,

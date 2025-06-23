@@ -362,20 +362,19 @@ export default function LeaderboardScreen() {
                       (() => {
                         // Calculate total times photos were used
                         const myPrincipal = auth.identity?.getPrincipal().toString();
-                        console.log('🏆 Looking for uploader data for:', myPrincipal);
-                        const uploaderData = data.find(item => {
-                          console.log('🏆 Comparing with:', item.principal);
-                          return item.principal === myPrincipal;
-                        });
-                        console.log('🏆 Found uploader data:', uploaderData);
-                        return uploaderData ? uploaderData.totalTimesUsed.toLocaleString() : '0';
+                        const uploaderData = data.find(item => item.principal === myPrincipal);
+                        // Check if totalTimesUsed exists before using it
+                        if (uploaderData && 'totalTimesUsed' in uploaderData) {
+                          return uploaderData.totalTimesUsed.toLocaleString();
+                        }
+                        return '0';
                       })()
                     ) : selectedType === 'weekly' || selectedType === 'monthly' ? (
                       (() => {
                         // Show score from current leaderboard
                         const myPrincipal = auth.identity?.getPrincipal().toString();
                         const userData = data.find(item => item.principal === myPrincipal);
-                        return userData ? userData.score.toLocaleString() : '0';
+                        return userData && userData.score ? userData.score.toLocaleString() : '0';
                       })()
                     ) : (
                       Number(userStats.bestScore).toLocaleString()

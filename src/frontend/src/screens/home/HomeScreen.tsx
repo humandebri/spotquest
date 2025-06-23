@@ -340,7 +340,10 @@ export default function HomeScreen() {
                   <TouchableOpacity
                     key={session.id}
                     style={styles.sessionCard}
-                    onPress={() => navigation.navigate('SessionDetails', { sessionId: session.id })}
+                    onPress={() => {
+                      console.log('🏠 Navigating to SessionDetails with:', { sessionId: session.id, session });
+                      navigation.navigate('SessionDetails', { sessionId: session.id });
+                    }}
                     activeOpacity={0.8}
                   >
                     <View style={styles.sessionHeader}>
