@@ -282,15 +282,15 @@ export default function HomeScreen() {
                 />
               </View>
               
-              {/* Anti-cheat warning if flagged */}
-              {playerStats?.suspiciousActivityFlags?.[0] && (
+              {/* Anti-cheat warning if flagged - disabled for now */}
+              {/* {playerStats?.suspiciousActivityFlags?.[0] && (
                 <View style={styles.warningBanner}>
                   <Ionicons name="warning" size={16} color="#f59e0b" />
                   <Text style={styles.warningText}>
                     {playerStats.suspiciousActivityFlags[0]}
                   </Text>
                 </View>
-              )}
+              )} */}
             </LinearGradient>
           </View>
 
