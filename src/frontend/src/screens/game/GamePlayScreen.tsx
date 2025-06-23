@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -21,7 +21,7 @@ import Slider from '@react-native-community/slider';
 import { useNavigation, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navigation/AppNavigator';
-import { useGameStore, SessionStatus, SessionInfo } from '../../store/gameStore';
+import { useGameStore, SessionStatus, SessionInfo, GamePhoto } from '../../store/gameStore';
 import { useAuth } from '../../hooks/useAuth';
 import { gameService, HintType as ServiceHintType, HintData, HintContent } from '../../services/game';
 import { photoServiceV2, PhotoMetaV2, PhotoStatsDetailsV2 } from '../../services/photoV2';
@@ -67,18 +67,7 @@ const DifficultySettings = {
   },
 };
 
-interface GamePhoto {
-  id: string;
-  url: string;
-  actualLocation: {
-    latitude: number;
-    longitude: number;
-  };
-  azimuth: number;
-  timestamp: number;
-  uploader: string;
-  difficulty: Difficulty;
-}
+// Use GamePhoto from gameStore instead of defining a local one
 
 interface Hint {
   id: string;
@@ -112,6 +101,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     tokenBalance,
     purchasedHints,
     roundNumber,
+    roundResults,
     setCurrentPhoto,
     setGuess: setGameGuess,
     setTimeLeft: setGameTimeLeft,
@@ -148,6 +138,35 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   // Navigation state guard to prevent re-initialization
   const [hasNavigated, setHasNavigated] = useState(false);
   
+  // Track round changes to fetch new photos
+  const previousRoundRef = useRef(roundNumber);
+  const [needsNewPhoto, setNeedsNewPhoto] = useState(false);
+  const [hasInitialized, setHasInitialized] = useState(false);
+  const [navigationDestination, setNavigationDestination] = useState<string | null>(null);
+  const navigationDestinationRef = useRef<string | null>(null);
+  
+  // Detect round changes and trigger new photo fetch
+  useEffect(() => {
+    // Check if round number has increased (new round)
+    if (roundNumber > previousRoundRef.current && roundNumber > 1 && roundNumber <= 5) {
+      console.log('🎮 Round changed from', previousRoundRef.current, 'to', roundNumber);
+      
+      // Reset states for new round
+      setHasNavigated(false);
+      setHasTimeoutBeenHandled(false);
+      setTimeLeft(DifficultySettings[difficulty].timeLimit);
+      setNeedsNewPhoto(true);
+      
+      // Update previous round ref
+      previousRoundRef.current = roundNumber;
+    }
+  }, [roundNumber, difficulty]);
+  
+  // Force initialization on mount
+  useEffect(() => {
+    console.log('🎮 GamePlayScreen mounted with params:', route.params);
+  }, []);
+  
   // Combined initialization - gameService and game session
   useEffect(() => {
     const initializeGame = async () => {
@@ -156,19 +175,33 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
         return;
       }
       
+      // Check if already initialized and not needing new photo
+      if (hasInitialized && !needsNewPhoto && sessionId) {
+        console.log('🎮 Already initialized for this session');
+        return;
+      }
+      
       // Additional check: if we already have a session and photo for current round, don't re-initialize
       // BUT: validate that this is a valid continuation (roundNumber should be <= 5)
-      if (sessionId && currentPhoto && roundNumber > 0) {
+      // Also check if we have the correct photo for the current round
+      if (sessionId && currentPhoto && roundNumber > 0 && !needsNewPhoto) {
         if (roundNumber > 5) {
           // Invalid state - round number exceeds max, force reset
           console.log('🎮 Invalid round number detected:', roundNumber, '- forcing reset');
           resetGame();
-        } else {
-          console.log('🎮 Skipping re-initialization - already have active game state');
+        } else if (currentPhoto && previousRoundRef.current === roundNumber) {
+          // We have a photo and haven't changed rounds, skip re-initialization
+          console.log('🎮 Skipping re-initialization - already have active game state for round', roundNumber);
           setIsLoading(false);
           setSessionLoading(false);
           return;
         }
+      }
+      
+      // If round changed or no photo, continue with initialization
+      if (needsNewPhoto) {
+        console.log('🎮 Need new photo for round', roundNumber);
+        setNeedsNewPhoto(false); // Reset the flag
       }
       
       setIsLoading(true);
@@ -202,14 +235,14 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
             newSessionId = result.ok;
             
             // First update user sessions to reflect cleanup
-            setUserSessions((prevSessions: SessionInfo[]) => {
-              const cleanedSessions = (Array.isArray(prevSessions) ? prevSessions : []).map(session => 
-                session.status === 'Active' && session.id !== newSessionId
-                  ? { ...session, status: 'Completed' as SessionStatus }
-                  : session
-              );
-              return cleanedSessions;
-            });
+            // Get current sessions and update them
+            const currentSessions = Array.isArray(userSessions) ? userSessions : [];
+            const cleanedSessions = currentSessions.map(session => 
+              session.status === 'Active' && session.id !== newSessionId
+                ? { ...session, status: 'Completed' as SessionStatus }
+                : session
+            );
+            setUserSessions(cleanedSessions);
             
             // Then create the new session
             createNewSession(newSessionId);
@@ -242,6 +275,71 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
           }
           
           if (roundResult.err) {
+            console.error('🎮 Backend error getting next round:', roundResult.err);
+            
+            // Special handling for "Session already ended" error
+            if (roundResult.err.includes('Session already ended')) {
+              console.log('🎮 Session marked as ended. Current round:', roundNumber);
+              
+              // Check if we have any round results to show
+              const hasRoundResults = roundResults && roundResults.length > 0;
+              
+              // If we're at round 5 or more, navigate to summary
+              if (roundNumber >= 5) {
+                console.log('🎮 Session completed all 5 rounds, navigating to summary');
+                navigation.replace('SessionSummary');
+                return;
+              }
+              
+              // If we have round results (even just 1), navigate to summary
+              if (hasRoundResults) {
+                console.log('🎮 Session ended early but we have', roundResults.length, 'round results, navigating to summary');
+                // Update session status to completed
+                updateSessionStatus(currentSessionId, 'Completed');
+                navigation.replace('SessionSummary');
+                return;
+              }
+              
+              // Otherwise, this is an unexpected error - session shouldn't be ended yet
+              console.error('🎮 Unexpected session end at round', roundNumber, 'with no results');
+              
+              // Try to get session info from backend
+              try {
+                const sessionInfo = await gameService.getUserSessions(principal);
+                console.log('🎮 User sessions from backend:', sessionInfo);
+                
+                if (sessionInfo.ok) {
+                  const currentSessionInfo = sessionInfo.ok.find(s => s.id === currentSessionId);
+                  console.log('🎮 Current session info from backend:', currentSessionInfo);
+                  
+                  // If the session is marked as completed, navigate to summary
+                  if (currentSessionInfo && currentSessionInfo.status === 'Completed') {
+                    console.log('🎮 Session is completed, navigating to summary');
+                    navigation.replace('SessionSummary');
+                    return;
+                  }
+                }
+              } catch (e) {
+                console.error('🎮 Failed to get session info:', e);
+              }
+              
+              // As a last resort, navigate to summary if we have any results
+              if (hasRoundResults) {
+                console.log('🎮 Navigating to summary with available results');
+                navigation.replace('SessionSummary');
+                return;
+              }
+              
+              // If no results at all, go back to game mode selection
+              console.log('🎮 No results available, returning to game mode selection');
+              Alert.alert(
+                'Session Error',
+                'The game session ended unexpectedly. Please start a new game.',
+                [{ text: 'OK', onPress: () => navigation.navigate('Game') }]
+              );
+              return;
+            }
+            
             throw new Error(roundResult.err);
           }
           
@@ -327,7 +425,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
                 azimuth: photoMeta.azimuth && photoMeta.azimuth.length > 0 ? photoMeta.azimuth[0] : 0,
                 timestamp: Number(photoMeta.uploadTime),
                 uploader: photoMeta.owner.toString(),
-                difficulty,
+                difficulty: difficulty as string,
               });
             } else {
               // Fallback if photo metadata not found
@@ -339,7 +437,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
                 azimuth: 45,
                 timestamp: Date.now(),
                 uploader: '2vxsx-fae',
-                difficulty,
+                difficulty: difficulty as string,
               });
             }
           }
@@ -349,7 +447,13 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
         
         setIsLoading(false);
         setSessionLoading(false);
-        console.log('🎮 Game initialization completed successfully');
+        
+        // Update previous round ref after successful initialization
+        previousRoundRef.current = roundNumber;
+        setHasInitialized(true);
+        setNeedsNewPhoto(false); // Clear the flag after successful initialization
+        
+        console.log('🎮 Game initialization completed successfully for round', roundNumber);
         
       } catch (err) {
         console.error('🎮 Failed to initialize game:', err);
@@ -386,30 +490,41 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     };
     
     initializeGame();
-  }, [principal, identity]); // Removed regionFilter to avoid re-initialization
+  }, [principal, identity, needsNewPhoto]); // Added needsNewPhoto to trigger re-initialization when round changes
   
-  // Cleanup on unmount
+  // Update ref when navigation destination changes
   useEffect(() => {
+    navigationDestinationRef.current = navigationDestination;
+  }, [navigationDestination]);
+  
+  // Cleanup on unmount ONLY - no dependencies to prevent false triggers
+  useEffect(() => {
+    // Store current values in the closure
+    const currentSessionId = sessionId;
+    const currentRoundNumber = roundNumber;
+    const currentSessionStatus = sessionStatus;
+    
     return () => {
-      // Clean up timer when component unmounts
+      // This cleanup runs ONLY when component unmounts
       isNavigatingAway.current = true;
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
       
-      // Finalize session if leaving before completing all 5 rounds
-      // This prevents old sessions from continuing when user returns
-      if (sessionId && roundNumber < 5 && sessionStatus === 'Active') {
-        console.log('🎮 Finalizing incomplete session:', sessionId, 'at round', roundNumber);
-        gameService.finalizeSession(sessionId).catch(err => {
+      // Use ref value to get the latest navigation destination
+      const isGameNavigation = navigationDestinationRef.current === 'GameResult' || 
+                             navigationDestinationRef.current === 'GuessMap';
+      
+      // Only finalize if we have a session and we're truly leaving the game
+      if (currentSessionId && currentRoundNumber < 5 && currentSessionStatus === 'Active' && !isGameNavigation) {
+        console.log('🎮 Component unmounting - finalizing incomplete session:', currentSessionId, 'at round', currentRoundNumber);
+        gameService.finalizeSession(currentSessionId).catch(err => {
           console.error('Failed to finalize session:', err);
         });
-        // Update local session status immediately to Completed
-        updateSessionStatus(sessionId, 'Completed');
       }
     };
-  }, [sessionId, roundNumber, sessionStatus, updateSessionStatus]);
+  }, []); // Empty dependency array - runs only on mount/unmount
   
   // 画面のフォーカス状態を監視
   useFocusEffect(
@@ -417,6 +532,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
       // 画面がフォーカスされた時
       isNavigatingAway.current = false;
       setHasTimeoutBeenHandled(false); // Reset timeout handling flag
+      setNavigationDestination(null); // Reset navigation destination when returning to screen
       
       // If coming back for a new round, reset navigation guard
       if (hasNavigated && roundNumber > 1) {
@@ -663,10 +779,10 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   };
   
   // Forward declaration of submitGuess for handleTimeout
-  const submitGuessRef = useRef<(isTimeout?: boolean) => Promise<void>>();
+  const submitGuessRef = useRef<((isTimeout?: boolean) => Promise<void>) | undefined>(undefined);
   
-  // Define handleTimeout
-  const handleTimeout = () => {
+  // Define handleTimeout as a function that will use submitGuessRef
+  const handleTimeout = useCallback(() => {
     // Multiple guards to prevent duplicate handling
     if (isNavigatingAway.current || hasNavigated || hasTimeoutBeenHandled) {
       console.log('⏰ Ignoring timeout - already handled');
@@ -687,9 +803,13 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     }
     
     Alert.alert('時間切れ！', 'ランダムな場所で推測を送信します。', [
-      { text: 'OK', onPress: () => submitGuessRef.current && submitGuessRef.current(true) }
+      { text: 'OK', onPress: () => {
+        if (submitGuessRef.current) {
+          submitGuessRef.current(true);
+        }
+      }}
     ]);
-  };
+  }, [hasNavigated, hasTimeoutBeenHandled]);
   
   submitGuessRef.current = async (isTimeout = false) => {
     if (isTimeout) {
@@ -778,24 +898,59 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
           // Guess submitted successfully
           console.log('✅ Guess submitted successfully to backend');
           
+          // Check if this was the last round
+          console.log('📡 Current round after submission:', roundNumber, 'of 5');
+          
           // Navigate to result screen with backend data
           const backendResult = result.ok;
           console.log('🗺️ Backend returned result:', backendResult);
           
+          // Debug: Check longitude value step by step
+          console.log('🔍 DEBUG - Backend actualLocation:', backendResult.actualLocation);
+          console.log('🔍 DEBUG - Backend lon value:', backendResult.actualLocation.lon);
+          console.log('🔍 DEBUG - Backend lon type:', typeof backendResult.actualLocation.lon);
+          console.log('🔍 DEBUG - Backend lon is number?:', typeof backendResult.actualLocation.lon === 'number');
+          
+          // Create actualLocation object separately to debug
+          const actualLocationObj = {
+            latitude: backendResult.actualLocation.lat,
+            longitude: backendResult.actualLocation.lon,
+          };
+          
+          console.log('🔍 DEBUG - actualLocationObj:', actualLocationObj);
+          console.log('🔍 DEBUG - actualLocationObj.longitude:', actualLocationObj.longitude);
+          
+          // Create flattened params to avoid object serialization issues
           const resultParams = {
+            // Flatten guess coordinates
+            guessLatitude: finalGuess.latitude,
+            guessLongitude: finalGuess.longitude,
+            // Flatten actual location coordinates (ensuring positive longitude)
+            actualLatitude: backendResult.actualLocation.lat,
+            actualLongitude: Math.abs(backendResult.actualLocation.lon), // Ensure positive longitude
+            // Reconstruct the nested objects for backward compatibility
             guess: {
               latitude: finalGuess.latitude,
               longitude: finalGuess.longitude,
             },
             actualLocation: {
               latitude: backendResult.actualLocation.lat,
-              longitude: backendResult.actualLocation.lon,
+              longitude: Math.abs(backendResult.actualLocation.lon), // Ensure positive longitude
             },
             score: Number(backendResult.displayScore), // Convert BigInt to number for navigation
             timeUsed: DifficultySettings[difficulty].timeLimit - timeLeft,
             difficulty: difficulty,
-            photoUrl: currentPhoto!.url,
+            // Don't pass large Base64 data through navigation to save memory
+            photoUrl: undefined,
+            // Pass region filter to preserve it for next round
+            regionFilter: regionFilter,
+            regionName: regionName,
           };
+          
+          // Debug: Check resultParams longitude
+          console.log('🔍 DEBUG - Final resultParams:', JSON.stringify(resultParams, null, 2));
+          console.log('🔍 DEBUG - Final actualLongitude:', resultParams.actualLongitude);
+          console.log('🔍 DEBUG - Final actualLocation.longitude:', resultParams.actualLocation.longitude);
           
           console.log('🗺️ Navigating to GameResult with backend data:', {
             ...resultParams,
@@ -804,6 +959,9 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
           
           // Navigate to result screen with backend data using replace to prevent stack issues
           console.log('🚀 Navigating to GameResult...');
+          
+          // Set navigation destination to prevent session finalization
+          setNavigationDestination('GameResult');
           
           // Use setTimeout to ensure all state updates are complete before navigation
           setTimeout(() => {
@@ -823,13 +981,27 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
         // Fallback navigation for network errors
         console.log('🔄 Using fallback navigation due to network error');
         const fallbackParams = {
+          // Flatten coordinates for serialization fix
+          guessLatitude: finalGuess.latitude,
+          guessLongitude: finalGuess.longitude,
+          actualLatitude: currentPhoto!.actualLocation.latitude,
+          actualLongitude: Math.abs(currentPhoto!.actualLocation.longitude), // Ensure positive
+          // Keep nested objects for backward compatibility
           guess: finalGuess,
-          actualLocation: currentPhoto!.actualLocation,
+          actualLocation: {
+            latitude: currentPhoto!.actualLocation.latitude,
+            longitude: Math.abs(currentPhoto!.actualLocation.longitude), // Ensure positive
+          },
           score: score, // Use local calculated score as fallback
           timeUsed: DifficultySettings[difficulty].timeLimit - timeLeft,
           difficulty: difficulty,
-          photoUrl: currentPhoto!.url,
+          // Don't pass large Base64 data through navigation to save memory
+          photoUrl: undefined,
+          // Pass region filter to preserve it for next round
+          regionFilter: regionFilter,
+          regionName: regionName,
         };
+        setNavigationDestination('GameResult');
         navigation.replace('GameResult', fallbackParams);
         return;
       } finally {
@@ -841,18 +1013,29 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
       // Fallback navigation when no session
       console.log('🔄 Using fallback navigation due to missing session');
       const fallbackParams = {
+        // Flatten coordinates for serialization fix
+        guessLatitude: finalGuess.latitude,
+        guessLongitude: finalGuess.longitude,
+        actualLatitude: currentPhoto!.actualLocation.latitude,
+        actualLongitude: Math.abs(currentPhoto!.actualLocation.longitude), // Ensure positive
+        // Keep nested objects for backward compatibility
         guess: finalGuess,
-        actualLocation: currentPhoto!.actualLocation,
+        actualLocation: {
+          latitude: currentPhoto!.actualLocation.latitude,
+          longitude: Math.abs(currentPhoto!.actualLocation.longitude), // Ensure positive
+        },
         score: score, // Use local calculated score as fallback
         timeUsed: DifficultySettings[difficulty].timeLimit - timeLeft,
         difficulty: difficulty,
         photoUrl: currentPhoto!.url,
+        // Pass region filter to preserve it for next round
+        regionFilter: regionFilter,
+        regionName: regionName,
       };
+      setNavigationDestination('GameResult');
       navigation.replace('GameResult', fallbackParams);
     }
   };
-  
-  const submitGuess = submitGuessRef.current;
   
   const purchaseHint = async (hint: Hint) => {
     if (!sessionId) {
@@ -1216,7 +1399,6 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
           <TouchableOpacity 
             style={styles.toolButton}
             onPress={() => setShowCompass(!showCompass)}
-            pointerEvents="auto"
           >
             <Ionicons name="compass" size={24} color="#fff" />
           </TouchableOpacity>
@@ -1224,7 +1406,6 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
           <TouchableOpacity 
             style={styles.toolButton}
             onPress={() => setShowAnalysis(true)}
-            pointerEvents="auto"
           >
             <Ionicons name="analytics" size={24} color="#fff" />
           </TouchableOpacity>
@@ -1232,7 +1413,6 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
           <TouchableOpacity 
             style={styles.toolButton}
             onPress={() => setShowHintModal(true)}
-            pointerEvents="auto"
           >
             <Ionicons name="bulb" size={24} color="#FFD700" />
             {hints.filter(h => h.unlocked).length > 0 && (
@@ -1247,7 +1427,6 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
           <TouchableOpacity 
             style={styles.toolButton}
             onPress={handleHomeButtonPress}
-            pointerEvents="auto"
           >
             <Ionicons name="home" size={24} color="#fff" />
           </TouchableOpacity>
@@ -1282,15 +1461,15 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
         <TouchableOpacity 
           style={[styles.mapButton, currentGuess && styles.mapButtonActive]}
           onPress={() => {
+            setNavigationDestination('GuessMap');
             navigation.navigate('GuessMap', {
               photoUrl: currentPhoto.url,
               difficulty: difficulty,
               timeLeft: timeLeft,
-              initialGuess: currentGuess,
+              initialGuess: currentGuess || undefined,
               confidenceRadius: confidenceRadius,
             });
           }}
-          pointerEvents="auto"
           activeOpacity={0.8}
         >
           <LinearGradient
@@ -1361,7 +1540,15 @@ const getDirectionLabel = (angle: number): string => {
 
 
 // ヒントモーダル
-const HintModal = ({ visible, hints, onPurchase, onClose, costMultiplier }) => {
+interface HintModalProps {
+  visible: boolean;
+  hints: Hint[];
+  onPurchase: (hint: Hint) => void;
+  onClose: () => void;
+  costMultiplier: number;
+}
+
+const HintModal = ({ visible, hints, onPurchase, onClose, costMultiplier }: HintModalProps) => {
   const { tokenBalance } = useGameStore();
   
   return (
@@ -1410,7 +1597,13 @@ const HintModal = ({ visible, hints, onPurchase, onClose, costMultiplier }) => {
 };
 
 // 写真分析モーダル
-const PhotoAnalysisModal = ({ visible, photo, onClose }) => {
+interface PhotoAnalysisModalProps {
+  visible: boolean;
+  photo: GamePhoto;
+  onClose: () => void;
+}
+
+const PhotoAnalysisModal = ({ visible, photo, onClose }: PhotoAnalysisModalProps) => {
   const [analysis] = useState({
     vegetation: '温帯林',
     architecture: '現代的な都市建築',
@@ -1458,7 +1651,7 @@ const PhotoAnalysisModal = ({ visible, photo, onClose }) => {
 // ヘルパー関数
 
 const getAnalysisIcon = (key: string): string => {
-  const icons = {
+  const icons: Record<string, string> = {
     vegetation: 'leaf',
     architecture: 'business',
     shadows: 'sunny',
@@ -1470,7 +1663,7 @@ const getAnalysisIcon = (key: string): string => {
 };
 
 const getAnalysisLabel = (key: string): string => {
-  const labels = {
+  const labels: Record<string, string> = {
     vegetation: '植生',
     architecture: '建築様式',
     shadows: '影の分析',

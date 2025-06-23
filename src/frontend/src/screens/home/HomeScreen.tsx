@@ -200,14 +200,6 @@ export default function HomeScreen() {
       screen: 'Admin' as const,
       gradient: ['#ef4444', '#dc2626'],
     }] : []),
-    // Dev mode only debug tools
-    ...(isDevMode ? [{
-      title: 'Location Debug',
-      description: 'Test photo location extraction',
-      icon: 'bug',
-      screen: 'PhotoLocationDebug' as const,
-      gradient: ['#6b7280', '#4b5563'],
-    }] : []),
   ];
 
   return (

@@ -14,9 +14,9 @@ module {
     // ======================================
     // GAME ENGINE CONSTANTS
     // ======================================
-    public let MAX_CONCURRENT_SESSIONS : Nat = 1;
+    public let MAX_CONCURRENT_SESSIONS : Nat = 2;
     public let SESSION_TIMEOUT : Nat = 1_800_000_000_000; // 30 minutes in nanoseconds
-    public let ROUNDS_PER_SESSION : Nat = 10;
+    public let ROUNDS_PER_SESSION : Nat = 5;
     public let RETRY_SCORE_THRESHOLD : Nat = 60; // Must score >= 60 to retry
     public let MAX_RETRIES_PER_SESSION : Nat = 2;
     public let BASIC_RADIUS_KM : Nat = 50; // 50km radius for basic hint

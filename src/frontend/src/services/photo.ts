@@ -120,7 +120,7 @@ const idlFactory = ({ IDL }: any) => {
     id: IDL.Nat,
     photoMeta: PhotoMetadata,
     imageChunks: IDL.Vec(IDL.Record({ photoId: IDL.Nat, chunkIndex: IDL.Nat, data: IDL.Vec(IDL.Nat8) })),
-    scheduledPublishTime: IDL.Nat,
+    scheduledPublishTime: IDL.Int,  // Time.Time in Motoko is Int
     status: IDL.Variant({
       'pending': IDL.Null,
       'published': IDL.Null,
@@ -136,15 +136,15 @@ const idlFactory = ({ IDL }: any) => {
     }),
     hint: IDL.Text,
     tags: IDL.Vec(IDL.Text),
-    createdAt: IDL.Nat,
-    updatedAt: IDL.Nat,
+    createdAt: IDL.Int,  // Time.Time in Motoko is Int
+    updatedAt: IDL.Int,  // Time.Time in Motoko is Int
   });
 
   // Photo V2 types
   const PhotoMetaV2 = IDL.Record({
     id: IDL.Nat,
     owner: IDL.Principal,
-    uploadTime: IDL.Nat,
+    uploadTime: IDL.Int,  // Time.Time in Motoko is Int
     latitude: IDL.Float64,
     longitude: IDL.Float64,
     azimuth: IDL.Opt(IDL.Float64),
@@ -176,7 +176,7 @@ const idlFactory = ({ IDL }: any) => {
     }),
     qualityScore: IDL.Float64,
     timesUsed: IDL.Nat,
-    lastUsedTime: IDL.Opt(IDL.Nat),
+    lastUsedTime: IDL.Opt(IDL.Int),  // Time.Time in Motoko is Int
   });
 
   return IDL.Service({

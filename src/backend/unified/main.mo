@@ -355,14 +355,17 @@ actor GameUnified {
     // Get region photo excluding already used ones
     private func getRegionPhotoExcluding(region: Text, usedPhotoIds: [Nat]) : ?PhotoModuleV2.Photo {
         // Build filter for region
+        // Support both country names (e.g., "Japan") and region names (e.g., "Tokyo, Japan")
         let filter: Photo.SearchFilter = {
             status = ?#Active;
-            country = if (Text.size(region) == 2 and not Text.contains(region, #char '-')) { 
+            country = if (not Text.contains(region, #char ',')) { 
+                // If no comma, treat as country name
                 ?region 
             } else { 
                 null 
             };
-            region = if (Text.contains(region, #char '-') and Text.size(region) >= 3) { 
+            region = if (Text.contains(region, #char ',')) { 
+                // If has comma, treat as full region name
                 ?region 
             } else { 
                 null 
@@ -450,16 +453,26 @@ actor GameUnified {
         switch(gameEngineManager.getUserSessions(player)) {
             case null { #err("No sessions found for user") };
             case (?sessionIds) {
+                Debug.print("🎮 getUserSessions for " # Principal.toText(player) # " - Found " # Nat.toText(sessionIds.size()) # " session IDs");
                 let sessions = Buffer.Buffer<GameV2.SessionInfo>(sessionIds.size());
                 for (sessionId in sessionIds.vals()) {
                     switch(gameEngineManager.getSession(sessionId)) {
-                        case null {};
+                        case null {
+                            Debug.print("🎮 Session not found in storage: " # sessionId);
+                        };
                         case (?session) {
                             // Determine session status based on endTime
                             let status : GameV2.SessionStatus = switch(session.endTime) {
                                 case null { #Active };
                                 case (?_) { #Completed };
                             };
+                            
+                            Debug.print("🎮 Session " # sessionId # " - status: " # 
+                                (switch(status) {
+                                    case (#Active) { "Active" };
+                                    case (#Completed) { "Completed" };
+                                    case (#Abandoned) { "Abandoned" };
+                                }) # ", rounds: " # Nat.toText(session.rounds.size()));
                             
                             sessions.add({
                                 id = session.id;
@@ -809,6 +822,60 @@ actor GameUnified {
         switch(gameEngineManager.getSession(sessionId)) {
             case null { #err("Session not found") };
             case (?session) { #ok(session) };
+        }
+    };
+    
+    // Debug function to check all sessions for a player
+    public query func debugGetPlayerSessions(player: Principal) : async {
+        sessionIds: [Text];
+        sessions: [{
+            id: Text;
+            hasEndTime: Bool;
+            rounds: Nat;
+            totalScore: Nat;
+            currentRound: Nat;
+        }];
+        totalCompleted: Nat;
+    } {
+        let sessionIds = switch(gameEngineManager.getUserSessions(player)) {
+            case null { [] };
+            case (?ids) { ids };
+        };
+        
+        var sessions = Buffer.Buffer<{
+            id: Text;
+            hasEndTime: Bool;
+            rounds: Nat;
+            totalScore: Nat;
+            currentRound: Nat;
+        }>(sessionIds.size());
+        
+        var totalCompleted = 0;
+        
+        for (sessionId in sessionIds.vals()) {
+            switch(gameEngineManager.getSession(sessionId)) {
+                case null { };
+                case (?session) {
+                    let hasEndTime = session.endTime != null;
+                    if (hasEndTime) {
+                        totalCompleted += 1;
+                    };
+                    
+                    sessions.add({
+                        id = session.id;
+                        hasEndTime = hasEndTime;
+                        rounds = session.rounds.size();
+                        totalScore = session.totalScore;
+                        currentRound = session.currentRound;
+                    });
+                };
+            };
+        };
+        
+        {
+            sessionIds = sessionIds;
+            sessions = Buffer.toArray(sessions);
+            totalCompleted = totalCompleted;
         }
     };
 
@@ -1185,6 +1252,9 @@ actor GameUnified {
             case (?buffer) { buffer };
         };
         
+        // Debug logging
+        Debug.print("📊 getPlayerStats for " # Principal.toText(player) # " - Found " # Nat.toText(userSessionBuffer.size()) # " sessions");
+        
         var totalGamesPlayed = 0;
         var totalScore : Nat = 0;
         var bestScore : Nat = 0;
@@ -1198,9 +1268,18 @@ actor GameUnified {
         
         // Calculate stats from completed sessions
         for (sessionId in userSessionBuffer.vals()) {
+            Debug.print("📊 Checking session: " # sessionId);
             switch(gameEngineManager.getSession(sessionId)) {
-                case null { };
+                case null { 
+                    Debug.print("📊 Session not found: " # sessionId);
+                };
                 case (?session) {
+                    Debug.print("📊 Session " # sessionId # " - endTime: " # 
+                        (switch(session.endTime) {
+                            case null { "null (active)" };
+                            case (?endTime) { "completed at " # Int.toText(endTime) };
+                        }) # ", rounds: " # Nat.toText(session.rounds.size()));
+                    
                     if (session.endTime != null) {
                         totalGamesPlayed += 1;
                         totalScore += session.totalScore;
@@ -1324,6 +1403,45 @@ actor GameUnified {
     // ======================================
     // RANKING FUNCTIONS
     // ======================================
+    
+    // TODO: Future Rating System Implementation
+    // ========================================
+    // rating.mdに基づくEloレーティングシステムの実装計画:
+    //
+    // 1. プレイヤーレーティング（初期値1500）
+    //    - 各プレイヤーのスキルレベルを表す数値
+    //    - 勝敗に応じて上下する
+    //
+    // 2. 写真レーティング（初期値1500）
+    //    - 各写真の難易度を表す数値
+    //    - プレイヤーの成績に応じて調整される
+    //
+    // 3. 動的K係数
+    //    - 低レート（<1600）: K=32
+    //    - 中レート（1600-1999）: K=24
+    //    - 高レート（≥2000）: K=16
+    //
+    // 4. 勝敗判定
+    //    - プレイヤーのスコア vs 写真の平均スコア
+    //    - result = 1 (勝利), 0.5 (引き分け), 0 (敗北)
+    //
+    // 5. レーティング更新式
+    //    - expected = 1 / (1 + 10^((photoRating - playerRating) / 400))
+    //    - playerRating += K * (result - expected)
+    //
+    // 6. インフレ抑制
+    //    - レート上限: 2500
+    //    - 日次上昇幅制限: +100pt/day
+    //
+    // 7. 必要な新しいデータ構造
+    //    - PlayerRating: HashMap<Principal, { rating: Nat; lastUpdated: Time.Time }>
+    //    - PhotoRating: HashMap<Nat, { rating: Nat; avgScore: Float; playCount: Nat }>
+    //
+    // 実装時の注意:
+    // - レーティング計算はゲーム終了時（submitGuess）に実行
+    // - 初回プレイヤーは1500から開始
+    // - 写真の初期レーティングは難易度に基づいて設定
+    // ========================================
     public query func getPlayerRank(player: Principal) : async ?Nat {
         // Get all players with their best scores
         var playerScores : [(Principal, Nat)] = [];
@@ -1395,6 +1513,188 @@ actor GameUnified {
         // Return top N players
         let actualLimit = Nat.min(limit, sortedScores.size());
         Array.tabulate<(Principal, Nat)>(actualLimit, func(i) = sortedScores[i])
+    };
+    
+    // Get leaderboard with detailed player statistics
+    public query func getLeaderboardWithStats(limit: Nat) : async [(Principal, {
+        score: Nat;
+        gamesPlayed: Nat;
+        photosUploaded: Nat;
+        totalRewards: Nat;
+    })] {
+        // Get all players with their stats
+        var playerStats : [(Principal, { score: Nat; gamesPlayed: Nat; photosUploaded: Nat; totalRewards: Nat })] = [];
+        
+        for ((p, sessionIds) in gameEngineManager.getPlayerSessionsMap().vals()) {
+            var bestScore : Nat = 0;
+            var gamesPlayed : Nat = 0;
+            var totalRewards : Nat = 0;
+            
+            for (sessionId in sessionIds.vals()) {
+                switch(gameEngineManager.getSession(sessionId)) {
+                    case null { };
+                    case (?session) {
+                        if (session.endTime != null) {
+                            gamesPlayed += 1;
+                            if (session.totalScore > bestScore) {
+                                bestScore := session.totalScore;
+                            };
+                            // Calculate rewards for this session
+                            totalRewards += calculatePlayerReward(session);
+                        };
+                    };
+                };
+            };
+            
+            if (bestScore > 0) {
+                // Get photos uploaded count
+                let userPhotoFilter : Photo.SearchFilter = {
+                    country = null;
+                    region = null;
+                    sceneKind = null;
+                    tags = null;
+                    nearLocation = null;
+                    owner = ?p;
+                    difficulty = null;
+                    status = ?#Active;
+                };
+                let userPhotosResult = photoManagerV2.search(userPhotoFilter, null, 1000);
+                let photosUploaded = userPhotosResult.totalCount;
+                
+                playerStats := Array.append(playerStats, [(p, {
+                    score = bestScore;
+                    gamesPlayed = gamesPlayed;
+                    photosUploaded = photosUploaded;
+                    totalRewards = totalRewards;
+                })]);
+            };
+        };
+        
+        // Sort by best score (descending)
+        let sortedStats = Array.sort(playerStats, 
+            func(a: (Principal, { score: Nat; gamesPlayed: Nat; photosUploaded: Nat; totalRewards: Nat }), 
+                 b: (Principal, { score: Nat; gamesPlayed: Nat; photosUploaded: Nat; totalRewards: Nat })) : {#less; #equal; #greater} {
+            if (a.1.score > b.1.score) { #less }
+            else if (a.1.score < b.1.score) { #greater }
+            else { #equal }
+        });
+        
+        // Return top N players
+        let actualLimit = Nat.min(limit, sortedStats.size());
+        Array.tabulate<(Principal, { score: Nat; gamesPlayed: Nat; photosUploaded: Nat; totalRewards: Nat })>(
+            actualLimit, 
+            func(i) = sortedStats[i]
+        )
+    };
+    
+    // Get top photos by times used (play count)
+    public query func getTopPhotosByUsage(limit: Nat) : async [(Nat, { photoId: Nat; owner: Principal; timesUsed: Nat; title: Text })] {
+        // Get all photos with their usage stats
+        var photoStats : [(Nat, { photoId: Nat; owner: Principal; timesUsed: Nat; title: Text })] = [];
+        
+        // Use V2 search to get all active photos
+        let filter : Photo.SearchFilter = {
+            status = ?#Active;
+            country = null;
+            region = null;
+            sceneKind = null;
+            tags = null;
+            nearLocation = null;
+            owner = null;
+            difficulty = null;
+        };
+        
+        let searchResult = photoManagerV2.search(filter, null, 1000); // Get up to 1000 photos
+        
+        for (photo in searchResult.photos.vals()) {
+            // Get photo stats
+            let stats = switch(photoManagerV2.getPhotoStatsById(photo.id)) {
+                case null { { playCount = 0; totalScore = 0; averageScore = 0.0 } };
+                case (?s) { s };
+            };
+            
+            photoStats := Array.append(photoStats, [(
+                photo.id,
+                {
+                    photoId = photo.id;
+                    owner = photo.owner;
+                    timesUsed = stats.playCount;
+                    title = photo.title;
+                }
+            )]);
+        };
+        
+        // Sort by times used (descending)
+        let sortedPhotos = Array.sort(photoStats, func(a: (Nat, { photoId: Nat; owner: Principal; timesUsed: Nat; title: Text }), 
+                                                       b: (Nat, { photoId: Nat; owner: Principal; timesUsed: Nat; title: Text })) : {#less; #equal; #greater} {
+            if (a.1.timesUsed > b.1.timesUsed) { #less }
+            else if (a.1.timesUsed < b.1.timesUsed) { #greater }
+            else { #equal }
+        });
+        
+        // Return top N photos
+        let actualLimit = Nat.min(limit, sortedPhotos.size());
+        Array.tabulate<(Nat, { photoId: Nat; owner: Principal; timesUsed: Nat; title: Text })>(actualLimit, func(i) = sortedPhotos[i])
+    };
+    
+    // Get top photo uploaders by total photos uploaded
+    public query func getTopUploaders(limit: Nat) : async [(Principal, { totalPhotos: Nat; totalTimesUsed: Nat })] {
+        // Map to track uploader stats
+        let uploaderStats = HashMap.HashMap<Principal, { totalPhotos: Nat; totalTimesUsed: Nat }>(10, Principal.equal, Principal.hash);
+        
+        // Use V2 search to get all active photos
+        let filter : Photo.SearchFilter = {
+            status = ?#Active;
+            country = null;
+            region = null;
+            sceneKind = null;
+            tags = null;
+            nearLocation = null;
+            owner = null;
+            difficulty = null;
+        };
+        
+        let searchResult = photoManagerV2.search(filter, null, 1000);
+        
+        for (photo in searchResult.photos.vals()) {
+            // Get photo stats
+            let stats = switch(photoManagerV2.getPhotoStatsById(photo.id)) {
+                case null { { playCount = 0; totalScore = 0; averageScore = 0.0 } };
+                case (?s) { s };
+            };
+            
+            switch(uploaderStats.get(photo.owner)) {
+                case null {
+                    uploaderStats.put(photo.owner, { 
+                        totalPhotos = 1; 
+                        totalTimesUsed = stats.playCount 
+                    });
+                };
+                case (?current) {
+                    uploaderStats.put(photo.owner, {
+                        totalPhotos = current.totalPhotos + 1;
+                        totalTimesUsed = current.totalTimesUsed + stats.playCount;
+                    });
+                };
+            };
+        };
+        
+        // Convert to array and sort
+        let uploaderArray = Iter.toArray(uploaderStats.entries());
+        
+        // Sort by total times used (descending), then by total photos
+        let sortedUploaders = Array.sort(uploaderArray, func(a: (Principal, { totalPhotos: Nat; totalTimesUsed: Nat }), 
+                                                            b: (Principal, { totalPhotos: Nat; totalTimesUsed: Nat })) : {#less; #equal; #greater} {
+            if (a.1.totalTimesUsed > b.1.totalTimesUsed) { #less }
+            else if (a.1.totalTimesUsed < b.1.totalTimesUsed) { #greater }
+            else if (a.1.totalPhotos > b.1.totalPhotos) { #less }
+            else if (a.1.totalPhotos < b.1.totalPhotos) { #greater }
+            else { #equal }
+        });
+        
+        // Return top N uploaders
+        let actualLimit = Nat.min(limit, sortedUploaders.size());
+        Array.tabulate<(Principal, { totalPhotos: Nat; totalTimesUsed: Nat })>(actualLimit, func(i) = sortedUploaders[i])
     };
     
     // ======================================

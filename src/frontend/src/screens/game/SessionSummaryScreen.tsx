@@ -125,12 +125,18 @@ export default function SessionSummaryScreen() {
       try {
         // セッションの終了処理
         console.log('📞 Calling gameService.finalizeSession with sessionId:', sessionId);
+        console.log('📞 Principal:', principal?.toString());
         const result = await gameService.finalizeSession(sessionId);
         
         console.log('📋 FinalizeSession result:', result);
         
         if (result.ok) {
           setSessionFinalized(true);
+          
+          // Debug: Check session state after finalization
+          console.log('🔍 Checking session state after finalization...');
+          const debugSessions = await gameService.debugGetPlayerSessions(principal);
+          console.log('🔍 Debug - Sessions after finalization:', debugSessions);
           
           // バックエンドからの実際の報酬を取得
           const backendReward = Number(result.ok.playerReward) / 100; // Convert to decimal SPOT

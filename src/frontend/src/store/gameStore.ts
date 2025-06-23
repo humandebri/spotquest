@@ -11,7 +11,7 @@ export interface SessionInfo {
   currentRound: [] | [bigint];
 }
 
-interface GamePhoto {
+export interface GamePhoto {
   id: string;
   url: string;
   actualLocation: {
@@ -41,7 +41,7 @@ interface RoundResult {
   actualLocation: { latitude: number; longitude: number };
   timeUsed: number;
   difficulty: string;
-  photoUrl: string;
+  photoUrl?: string; // Made optional to save memory
 }
 
 interface GameStore {

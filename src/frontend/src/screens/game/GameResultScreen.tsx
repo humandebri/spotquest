@@ -34,11 +34,18 @@ export default function GameResultScreen() {
   // Initialize dash pattern (will be set properly after map ready)
   const [dashPattern, setDashPattern] = useState<number[]>([20, 20]);
   const timeUsed = params.timeUsed ?? 0;
-  // Fixed: Use stable references for coordinates with validation
-  const guessLat = params.guess?.latitude ?? 0;
-  const guessLon = params.guess?.longitude ?? 0;
-  let actualLat = params.actualLocation?.latitude ?? 35.6762;
-  let actualLon = params.actualLocation?.longitude ?? 139.6503;
+  
+  // Use flattened parameters if available (for React Navigation serialization fix)
+  const guessLat = (params as any).guessLatitude ?? params.guess?.latitude ?? 0;
+  const guessLon = (params as any).guessLongitude ?? params.guess?.longitude ?? 0;
+  let actualLat = (params as any).actualLatitude ?? params.actualLocation?.latitude ?? 35.6762;
+  let actualLon = (params as any).actualLongitude ?? params.actualLocation?.longitude ?? 139.6503;
+  
+  // Ensure longitude is positive (fix for serialization issue)
+  actualLon = Math.abs(actualLon);
+  
+  // Debug: Log values after assignment
+  console.log('🔍 DEBUG GameResult - actualLon after assignment (fixed):', actualLon);
   
   // Additional validation for extreme coordinates
   if (Math.abs(actualLat) > 90) actualLat = 35.6762;
@@ -52,28 +59,22 @@ export default function GameResultScreen() {
   const score = params.score ? (typeof params.score === 'bigint' ? Number(params.score) : params.score) : 0;
   const difficulty = (params.difficulty || 'NORMAL') as 'NORMAL' | 'EASY' | 'HARD' | 'EXTREME';
   
-  // Log params once on mount only
+  // Log params once on mount only (without photoUrl to avoid memory issues)
   useEffect(() => {
+    const { photoUrl, ...safeParams } = params;
     console.log('🎯 GameResult route params:', {
-      actualLocation: params.actualLocation,
-      guess: params.guess,
-      score: params.score,
-      timeUsed: params.timeUsed,
-      difficulty: params.difficulty,
-      photoUrl: params.photoUrl ? '[IMAGE_DATA]' : undefined,
+      ...safeParams,
+      photoUrl: photoUrl ? `[BASE64_${Math.round((photoUrl.length || 0) / 1024)}KB]` : undefined,
       isTimeout: timeUsed >= 180,
     });
   }, []); // Empty dependency array to run only once
   
-  // Optimize photo URL handling for performance
+  // Optimize photo URL handling - don't keep in memory, use placeholder
   const photoUrl = useMemo(() => {
-    const url = params.photoUrl;
-    // For very large Base64 strings, use placeholder to avoid memory issues
-    if (url && url.length > 2000000) { // 2MB
-      return 'https://picsum.photos/800/600';
-    }
-    return url || 'https://picsum.photos/800/600';
-  }, []);
+    // For GameResult, we don't need the photo anymore
+    // Use a placeholder to save memory
+    return 'https://picsum.photos/800/600';
+  }, []); // No dependencies, static value
 
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -120,6 +121,33 @@ export default function GameResultScreen() {
 
   // Use ref to track if initial setup is done
   const initialSetupDone = useRef(false);
+  const [isMapLoading, setIsMapLoading] = useState(true);
+  const isMountedRef = useRef(true);
+  
+  // Cleanup on unmount - stop animations and clean up
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      // Stop all animations to prevent memory leaks
+      fadeAnim.stopAnimation();
+      scoreAnim.stopAnimation();
+      markerScaleAnim.stopAnimation();
+      // Remove any listeners
+      fadeAnim.removeAllListeners();
+      scoreAnim.removeAllListeners();
+      markerScaleAnim.removeAllListeners();
+    };
+  }, []);
+  
+  // Delay map rendering for performance
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (isMountedRef.current) {
+        setIsMapLoading(false);
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
   
   useEffect(() => {
     // Only run once on mount
@@ -135,7 +163,7 @@ export default function GameResultScreen() {
         actualLocation,
         timeUsed,
         difficulty,
-        photoUrl,
+        photoUrl: undefined, // Don't store large Base64 in memory
       });
     }
 
@@ -157,11 +185,13 @@ export default function GameResultScreen() {
 
       // Delayed score animation to reduce initial load
       const scoreTimer = setTimeout(() => {
-        Animated.timing(scoreAnim, {
-          toValue: score || 0,
-          duration: 1000,
-          useNativeDriver: false,
-        }).start();
+        if (isMountedRef.current) {
+          Animated.timing(scoreAnim, {
+            toValue: score || 0,
+            duration: 1000,
+            useNativeDriver: false,
+          }).start();
+        }
       }, 200);
       
       return () => clearTimeout(scoreTimer);
@@ -197,6 +227,20 @@ export default function GameResultScreen() {
         longitudeDelta: 180,
       };
     }
+    
+    // Performance optimization: For extreme distances, use simpler calculation
+    const latDiff = Math.abs(actualLat - guessLat);
+    const lonDiff = Math.abs(actualLon - guessLon);
+    
+    if (latDiff > 45 || lonDiff > 90) {
+      // Extreme distance - use simplified region
+      return {
+        latitude: 0,
+        longitude: 0,
+        latitudeDelta: 90,
+        longitudeDelta: 180,
+      };
+    }
 
     const minLat = Math.min(guessLat, actualLat);
     const maxLat = Math.max(guessLat, actualLat);
@@ -207,8 +251,8 @@ export default function GameResultScreen() {
     const midLon = (minLon + maxLon) / 2;
     
     // Calculate deltas with sufficient padding to ensure both points are visible
-    const latDiff = Math.abs(maxLat - minLat);
-    const lonDiff = Math.abs(maxLon - minLon);
+    const latRange = Math.abs(maxLat - minLat);
+    const lonRange = Math.abs(maxLon - minLon);
     
     // Use larger multiplier for better visibility, with minimum zoom levels
     const paddingMultiplier = 4.0;
@@ -216,12 +260,12 @@ export default function GameResultScreen() {
     const minLonDelta = 0.005;
     
     // Ensure adequate padding especially for close points
-    const paddedLatDiff = Math.max(latDiff * paddingMultiplier, minLatDelta);
-    const paddedLonDiff = Math.max(lonDiff * paddingMultiplier, minLonDelta);
+    const paddedLatDiff = Math.max(latRange * paddingMultiplier, minLatDelta);
+    const paddedLonDiff = Math.max(lonRange * paddingMultiplier, minLonDelta);
     
     // For very close points, ensure minimum visible area
-    const finalMinLatDelta = latDiff < 0.01 ? 0.02 : minLatDelta;
-    const finalMinLonDelta = lonDiff < 0.01 ? 0.02 : minLonDelta;
+    const finalMinLatDelta = latRange < 0.01 ? 0.02 : minLatDelta;
+    const finalMinLonDelta = lonRange < 0.01 ? 0.02 : minLonDelta;
     
     // Additional safety for extreme distances (> 1000km)
     const distanceKm = Math.sqrt(latDiff * latDiff + lonDiff * lonDiff) * 111; // Rough km conversion
@@ -241,8 +285,8 @@ export default function GameResultScreen() {
 
   // Calculate dash pattern based on map zoom level with performance optimization
   const calculateDashPattern = useCallback((region: any) => {
-    // Skip calculation for low scores - pattern already set in initial useEffect
-    if (score <= 500) {
+    // Skip calculation for low scores or long distances - pattern already set
+    if (score <= 500 || !region || distance > 500000) {
       return;
     }
     
@@ -254,7 +298,7 @@ export default function GameResultScreen() {
       if (prev[0] === basePattern && prev[1] === basePattern) return prev;
       return [basePattern, basePattern];
     });
-  }, [score]);
+  }, [score, distance]);
 
   // Removed - moved earlier for proper initialization order
 
@@ -346,11 +390,13 @@ export default function GameResultScreen() {
         } else {
           // Normal lightweight animation
           const lightweightTimer = setTimeout(() => {
-            try {
-              mapRef.current?.animateToRegion(regionToAnimate, 100); // Very fast animation
-              markerScaleAnim.setValue(1);
-            } catch (error) {
-              console.warn('🗺️ Lightweight mode map animation failed:', error);
+            if (isMountedRef.current) {
+              try {
+                mapRef.current?.animateToRegion(regionToAnimate, 100); // Very fast animation
+                markerScaleAnim.setValue(1);
+              } catch (error) {
+                console.warn('🗺️ Lightweight mode map animation failed:', error);
+              }
             }
           }, 50);
           
@@ -359,18 +405,20 @@ export default function GameResultScreen() {
       } else {
         // Full animation for good scores
         const mapTimer = setTimeout(() => {
-          try {
-            mapRef.current?.animateToRegion(regionToAnimate, 1500);
-            calculateDashPattern(regionToAnimate);
-            
-            // Animated marker appearance
-            Animated.timing(markerScaleAnim, {
-              toValue: 1,
-              duration: 600,
-              useNativeDriver: true,
-            }).start();
-          } catch (error) {
-            console.warn('🗺️ Full animation failed:', error);
+          if (isMountedRef.current) {
+            try {
+              mapRef.current?.animateToRegion(regionToAnimate, 1500);
+              calculateDashPattern(regionToAnimate);
+              
+              // Animated marker appearance
+              Animated.timing(markerScaleAnim, {
+                toValue: 1,
+                duration: 600,
+                useNativeDriver: true,
+              }).start();
+            } catch (error) {
+              console.warn('🗺️ Full mode map animation failed:', error);
+            }
           }
         }, 300);
         
@@ -389,12 +437,19 @@ export default function GameResultScreen() {
     } else {
       // Validate round number before incrementing
       const nextRound = Math.min(roundNumber + 1, 5); // Cap at 5 to prevent exceeding max rounds
+      console.log('🎮 GameResult - Moving to round', nextRound, 'from round', roundNumber);
       setRoundNumber(nextRound);
       
-      // Navigate directly to GamePlayScreen for next round
-      navigation.navigate('GamePlay', {
+      // Navigate directly to GamePlayScreen for next round using replace to avoid stack issues
+      // Important: preserve any region filter from the original game params
+      const regionFilter = (route.params as any)?.regionFilter;
+      const regionName = (route.params as any)?.regionName;
+      
+      navigation.replace('GamePlay', {
         gameMode: 'normal',
         difficulty: difficulty,
+        regionFilter: regionFilter,
+        regionName: regionName,
       });
     }
   };
@@ -430,6 +485,11 @@ export default function GameResultScreen() {
          !isNaN(actualLocation.latitude) && !isNaN(actualLocation.longitude) &&
          Math.abs(guess.latitude) <= 90 && Math.abs(actualLocation.latitude) <= 90 &&
          Math.abs(guess.longitude) <= 180 && Math.abs(actualLocation.longitude) <= 180 ? (
+          isMapLoading ? (
+            <View style={styles.mapLoadingContainer}>
+              <Text style={styles.mapLoadingText}>Loading Map...</Text>
+            </View>
+          ) : (
           <MapView
             ref={mapRef}
             style={styles.fullMap}
@@ -443,16 +503,7 @@ export default function GameResultScreen() {
                 calculateDashPattern({ latitudeDelta: getInitialZoom.latitudeDelta });
               }
             }}
-            onRegionChangeComplete={isLightweightMode ? undefined : (region) => {
-              // Debounce region changes to prevent excessive updates
-              requestAnimationFrame(() => {
-                try {
-                  calculateDashPattern(region);
-                } catch (error) {
-                  console.warn('🚨 Error in region change:', error);
-                }
-              });
-            }}
+            onRegionChangeComplete={undefined} // Disable to prevent memory leak
             scrollEnabled={!isLightweightMode || distance > 100000} // Allow scroll for extreme distances
             zoomEnabled={!isLightweightMode || distance > 100000} // Allow zoom for extreme distances
             rotateEnabled={false}
@@ -508,25 +559,45 @@ export default function GameResultScreen() {
               </Animated.View>
             </Marker>
             
-            {/* Black dotted line */}
-            <Polyline
-              coordinates={[
-                {
-                  latitude: Number(guess.latitude),
-                  longitude: Number(guess.longitude),
-                },
-                {
-                  latitude: Number(actualLocation.latitude),
-                  longitude: Number(actualLocation.longitude),
-                },
-              ]}
-              strokeColor="#000000"
-              strokeWidth={2}
-              lineDashPattern={dashPattern}
-              lineJoin="round"
-              lineCap="round"
-            />
+            {/* Connection line - solid for long distances to save memory */}
+            {distance < 500000 ? ( // Show dotted line only for distances < 500km
+              <Polyline
+                coordinates={[
+                  {
+                    latitude: Number(guess.latitude),
+                    longitude: Number(guess.longitude),
+                  },
+                  {
+                    latitude: Number(actualLocation.latitude),
+                    longitude: Number(actualLocation.longitude),
+                  },
+                ]}
+                strokeColor="#000000"
+                strokeWidth={2}
+                lineDashPattern={dashPattern}
+                lineJoin="round"
+                lineCap="round"
+              />
+            ) : (
+              // Solid line for long distances to prevent memory issues
+              <Polyline
+                coordinates={[
+                  {
+                    latitude: Number(guess.latitude),
+                    longitude: Number(guess.longitude),
+                  },
+                  {
+                    latitude: Number(actualLocation.latitude),
+                    longitude: Number(actualLocation.longitude),
+                  },
+                ]}
+                strokeColor="#000000"
+                strokeWidth={2}
+                geodesic={true} // Use geodesic for accurate long-distance lines
+              />
+            )}
           </MapView>
+          )
         ) : (
           // Fallback when coordinates are invalid
           <View style={styles.mapFallback}>
@@ -774,5 +845,15 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     letterSpacing: 1,
+  },
+  mapLoadingContainer: {
+    flex: 1,
+    backgroundColor: '#e5e7eb',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mapLoadingText: {
+    color: '#6b7280',
+    fontSize: 16,
   },
 });

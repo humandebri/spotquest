@@ -50,6 +50,10 @@ class GameService {
   private identity: Identity | null = null;
   private initialized = false;
   
+  get isInitialized(): boolean {
+    return this.initialized;
+  }
+  
   constructor() {
     // Constructor no longer initializes actor
   }
@@ -368,6 +372,22 @@ class GameService {
         // Ranking functions
         getPlayerRank: IDL.Func([IDL.Principal], [IDL.Opt(IDL.Nat)], ['query']),
         getLeaderboard: IDL.Func([IDL.Nat], [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Nat))], ['query']),
+        getLeaderboardWithStats: IDL.Func([IDL.Nat], [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Record({
+          score: IDL.Nat,
+          gamesPlayed: IDL.Nat,
+          photosUploaded: IDL.Nat,
+          totalRewards: IDL.Nat,
+        })))], ['query']),
+        getTopPhotosByUsage: IDL.Func([IDL.Nat], [IDL.Vec(IDL.Tuple(IDL.Nat, IDL.Record({
+          photoId: IDL.Nat,
+          owner: IDL.Principal,
+          timesUsed: IDL.Nat,
+          title: IDL.Text,
+        })))], ['query']),
+        getTopUploaders: IDL.Func([IDL.Nat], [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Record({
+          totalPhotos: IDL.Nat,
+          totalTimesUsed: IDL.Nat,
+        })))], ['query']),
         
         // Admin functions (for dev mode)
         adminMint: IDL.Func([IDL.Principal, IDL.Nat], [IDL.Variant({
@@ -719,6 +739,97 @@ class GameService {
         return 100; // 1.00 SPOT
       default:
         return 0;
+    }
+  }
+
+  // Leaderboard functions
+  async getLeaderboard(limit: number): Promise<{ principal: any; score: bigint }[]> {
+    if (!this.initialized || !this.actor) {
+      return [];
+    }
+    
+    try {
+      const result = await this.actor.getLeaderboard(BigInt(limit));
+      return result.map(([principal, score]: [any, bigint]) => ({ principal, score }));
+    } catch (error) {
+      console.error('Failed to get leaderboard:', error);
+      return [];
+    }
+  }
+
+  async getLeaderboardWithStats(limit: number): Promise<{
+    principal: any;
+    score: bigint;
+    gamesPlayed: bigint;
+    photosUploaded: bigint;
+    totalRewards: bigint;
+  }[]> {
+    if (!this.initialized || !this.actor) {
+      return [];
+    }
+    
+    try {
+      const result = await this.actor.getLeaderboardWithStats(BigInt(limit));
+      return result.map(([principal, stats]: [any, any]) => ({
+        principal,
+        score: stats.score,
+        gamesPlayed: stats.gamesPlayed,
+        photosUploaded: stats.photosUploaded,
+        totalRewards: stats.totalRewards,
+      }));
+    } catch (error) {
+      console.error('Failed to get leaderboard with stats:', error);
+      return [];
+    }
+  }
+
+  async getTopPhotosByUsage(limit: number): Promise<any[]> {
+    if (!this.initialized || !this.actor) {
+      return [];
+    }
+    
+    try {
+      const result = await this.actor.getTopPhotosByUsage(BigInt(limit));
+      return result.map(([id, data]: [bigint, any]) => ({
+        photoId: id,
+        ...data
+      }));
+    } catch (error) {
+      console.error('Failed to get top photos by usage:', error);
+      return [];
+    }
+  }
+
+  async getTopUploaders(limit: number): Promise<any[]> {
+    if (!this.initialized || !this.actor) {
+      return [];
+    }
+    
+    try {
+      const result = await this.actor.getTopUploaders(BigInt(limit));
+      return result.map(([principal, data]: [any, any]) => ({
+        principal,
+        ...data
+      }));
+    } catch (error) {
+      console.error('Failed to get top uploaders:', error);
+      return [];
+    }
+  }
+
+  // Debug function to check player sessions
+  async debugGetPlayerSessions(principal: any): Promise<any> {
+    if (!this.initialized || !this.actor) {
+      return null;
+    }
+    
+    try {
+      const result = await this.actor.debugGetPlayerSessions(principal);
+      console.log('🔍 Debug player sessions:', result);
+      return result;
+    } catch (error) {
+      console.error('Failed to debug player sessions:', error);
+      return null;
     }
   }
 }

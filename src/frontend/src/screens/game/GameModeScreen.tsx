@@ -35,13 +35,13 @@ export default function GameModeScreen() {
   // Reset game state when screen gains focus to ensure fresh start
   useFocusEffect(
     React.useCallback(() => {
-      // Reset game state when entering game mode selection
-      // This ensures any previous session is cleared
-      if (sessionId || sessionStatus === 'Active') {
-        console.log('🎮 Resetting previous game session on GameModeScreen focus');
+      // Only reset game state if there's a completed or abandoned session
+      // Don't reset if there's an active session that should continue
+      if (sessionStatus === 'Completed' || sessionStatus === 'Abandoned') {
+        console.log('🎮 Resetting completed/abandoned game session on GameModeScreen focus');
         resetGame();
       }
-    }, [sessionId, sessionStatus, resetGame])
+    }, [sessionStatus, resetGame])
   );
 
   // Check photo count on component mount

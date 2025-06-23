@@ -12,27 +12,52 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons, Foundation } from '@expo/vector-icons';
+import { gameService } from '../../services/game';
+import { useAuth } from '../../hooks/useAuth';
+import { CustomPrincipal as Principal } from '../../utils/principal';
 
 interface LeaderboardEntry {
   rank: number;
   principal: string;
   username?: string;
   score: number;
-  gamesPlayed: number;
-  photosUploaded: number;
-  totalRewards: number;
+  gamesPlayed?: number;
+  photosUploaded?: number;
+  totalRewards?: number;
   change?: number;
+}
+
+interface PhotoLeaderboardEntry {
+  rank: number;
+  photoId: number;
+  owner: string;
+  timesUsed: number;
+  title: string;
+}
+
+interface UploaderLeaderboardEntry {
+  rank: number;
+  principal: string;
+  totalPhotos: number;
+  totalTimesUsed: number;
 }
 
 type LeaderboardType = 'global' | 'uploaders' | 'weekly' | 'monthly';
 
 export default function LeaderboardScreen() {
+  const auth = useAuth();
   const [selectedType, setSelectedType] = useState<LeaderboardType>('global');
-  const [data, setData] = useState<LeaderboardEntry[]>([]);
+  const [data, setData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [userStats, setUserStats] = useState<any>(null);
+  const [userRank, setUserRank] = useState<number | null>(null);
 
   useEffect(() => {
+    // Clear data immediately when tab changes to prevent stale data display
+    setData([]);
+    setUserStats(null);
+    setUserRank(null);
     loadLeaderboard();
   }, [selectedType]);
 
@@ -44,25 +69,103 @@ export default function LeaderboardScreen() {
     }
     
     try {
-      // TODO: Fetch from ICP
-      setTimeout(() => {
-        const mockData: LeaderboardEntry[] = Array.from({ length: 50 }, (_, i) => ({
-          rank: i + 1,
-          principal: `2vxsx-${Math.random().toString(36).substr(2, 5)}`,
-          username: `Player${i + 1}`,
-          score: Math.floor(Math.random() * 1000) + 100,
-          gamesPlayed: Math.floor(Math.random() * 100) + 10,
-          photosUploaded: Math.floor(Math.random() * 50),
-          totalRewards: Math.floor(Math.random() * 500) + 50,
-          change: i < 5 ? Math.floor(Math.random() * 5) - 2 : Math.floor(Math.random() * 10) - 5,
-        })).sort((a, b) => b.score - a.score);
+      console.log('🏆 Auth state:', { isAuthenticated: auth?.isAuthenticated, hasIdentity: !!auth?.identity });
+      
+      // Initialize game service if authenticated
+      if (auth && auth.identity) {
+        console.log('🏆 Initializing game service...');
+        await gameService.init(auth.identity);
+      } else {
+        console.log('🏆 Loading without authentication');
+      }
 
-        setData(mockData);
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }, 1000);
+      // Debug: Log backend connection status
+      console.log('🏆 Backend status check:', {
+        serviceInitialized: gameService.isInitialized,
+        selectedType,
+        timestamp: new Date().toISOString(),
+      });
+
+      console.log('🏆 Loading leaderboard for type:', selectedType);
+      let leaderboardData: any[] = [];
+      
+      switch (selectedType) {
+        case 'global':
+          // Get player leaderboard with stats
+          console.log('🏆 Fetching global leaderboard...');
+          const playerLeaderboard = await gameService.getLeaderboardWithStats(50);
+          console.log('🏆 Global leaderboard response:', playerLeaderboard);
+          leaderboardData = playerLeaderboard.map((entry, index) => ({
+            rank: index + 1,
+            principal: entry.principal.toString(),
+            score: Number(entry.score),
+            gamesPlayed: Number(entry.gamesPlayed),
+            photosUploaded: Number(entry.photosUploaded),
+            totalRewards: Number(entry.totalRewards),
+          }));
+          
+          // Get user's stats and rank if authenticated
+          if (auth && auth.identity) {
+            const principal = auth.identity.getPrincipal();
+            const stats = await gameService.getPlayerStats(principal);
+            if (stats) {
+              setUserStats(stats);
+              setUserRank(stats.rank ? Number(stats.rank) : null);
+            }
+          }
+          break;
+          
+        case 'uploaders':
+          // Get top uploaders
+          const uploaders = await gameService.getTopUploaders(50);
+          leaderboardData = uploaders.map((entry, index) => ({
+            rank: index + 1,
+            principal: entry.principal.toString(),
+            score: Number(entry.totalTimesUsed), // Use total times used as score
+            totalPhotos: Number(entry.totalPhotos),
+            totalTimesUsed: Number(entry.totalTimesUsed),
+          }));
+          break;
+          
+        case 'weekly':
+          // TODO: Implement weekly leaderboard when backend supports it
+          // For now, use the same as global
+          const weeklyLeaderboard = await gameService.getLeaderboardWithStats(50);
+          leaderboardData = weeklyLeaderboard.map((entry, index) => ({
+            rank: index + 1,
+            principal: entry.principal.toString(),
+            score: Number(entry.score),
+            gamesPlayed: Number(entry.gamesPlayed),
+            photosUploaded: Number(entry.photosUploaded),
+            totalRewards: Number(entry.totalRewards),
+          }));
+          break;
+          
+        case 'monthly':
+          // TODO: Implement monthly leaderboard when backend supports it
+          // For now, use top photos by usage
+          const topPhotos = await gameService.getTopPhotosByUsage(50);
+          leaderboardData = topPhotos.map((entry, index) => ({
+            rank: index + 1,
+            photoId: Number(entry.photoId),
+            owner: entry.owner.toString(),
+            timesUsed: Number(entry.timesUsed),
+            title: entry.title,
+            score: Number(entry.timesUsed), // Use times used as score
+          }));
+          break;
+      }
+      
+      console.log('🏆 Leaderboard data loaded:', leaderboardData.length, 'items');
+      setData(leaderboardData);
+      setIsLoading(false);
+      setIsRefreshing(false);
     } catch (error) {
-      console.error('Failed to load leaderboard:', error);
+      console.error('🏆 Failed to load leaderboard:', error);
+      // Clear all state on error to prevent inconsistent data
+      setData([]);
+      setUserStats(null);
+      setUserRank(null);
       setIsLoading(false);
       setIsRefreshing(false);
     }
@@ -75,52 +178,112 @@ export default function LeaderboardScreen() {
     { key: 'monthly' as LeaderboardType, label: 'Monthly', icon: 'calendar-month', color: '#10b981' },
   ];
 
-  const renderItem = ({ item, index }: { item: LeaderboardEntry; index: number }) => {
+  const renderItem = ({ item, index }: { item: any; index: number }) => {
     if (item.rank <= 3) return null; // Top 3 shown in podium
     
-    return (
-      <TouchableOpacity style={styles.listItem} activeOpacity={0.7}>
-        <View style={styles.rankContainer}>
-          <Text style={styles.rankText}>#{item.rank}</Text>
-          {item.change !== 0 && item.change !== undefined && (
-            <View style={styles.changeContainer}>
-              <Ionicons 
-                name={item.change > 0 ? 'caret-up' : 'caret-down'} 
-                size={12} 
-                color={item.change > 0 ? '#10b981' : '#ef4444'} 
-              />
-              <Text style={[styles.changeText, { color: item.change > 0 ? '#10b981' : '#ef4444' }]}>
-                {Math.abs(item.change)}
-              </Text>
-            </View>
-          )}
-        </View>
+    // Render different content based on leaderboard type
+    if (selectedType === 'monthly' && 'photoId' in item) {
+      // Photo leaderboard entry
+      return (
+        <TouchableOpacity style={styles.listItem} activeOpacity={0.7}>
+          <View style={styles.rankContainer}>
+            <Text style={styles.rankText}>#{item.rank}</Text>
+          </View>
 
-        <View style={styles.userInfo}>
-          <Text style={styles.username}>
-            {item.username || `${item.principal.slice(0, 8)}...`}
-          </Text>
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Ionicons name="game-controller-outline" size={14} color="#94a3b8" />
-              <Text style={styles.statText}>{item.gamesPlayed}</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Ionicons name="camera-outline" size={14} color="#94a3b8" />
-              <Text style={styles.statText}>{item.photosUploaded}</Text>
+          <View style={styles.userInfo}>
+            <Text style={styles.username}>{item.title || `Photo #${item.photoId}`}</Text>
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <Ionicons name="play-circle-outline" size={14} color="#94a3b8" />
+                <Text style={styles.statText}>{item.timesUsed} plays</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Ionicons name="person-outline" size={14} color="#94a3b8" />
+                <Text style={styles.statText}>{String(item.owner || 'Unknown').slice(0, 6)}...</Text>
+              </View>
             </View>
           </View>
-        </View>
 
-        <View style={styles.scoreContainer}>
-          <Text style={styles.scoreText}>{item.score}</Text>
-          <View style={styles.rewardsContainer}>
-            <Foundation name="bitcoin-circle" size={14} color="#f59e0b" />
-            <Text style={styles.rewardsText}>{item.totalRewards}</Text>
+          <View style={styles.scoreContainer}>
+            <Text style={styles.scoreText}>{item.timesUsed}</Text>
+            <Text style={styles.scoreLabel}>plays</Text>
           </View>
-        </View>
-      </TouchableOpacity>
-    );
+        </TouchableOpacity>
+      );
+    } else if (selectedType === 'uploaders' && 'totalPhotos' in item) {
+      // Uploader leaderboard entry
+      return (
+        <TouchableOpacity style={styles.listItem} activeOpacity={0.7}>
+          <View style={styles.rankContainer}>
+            <Text style={styles.rankText}>#{item.rank}</Text>
+          </View>
+
+          <View style={styles.userInfo}>
+            <Text style={styles.username}>{String(item.principal || 'Unknown').slice(0, 8)}...</Text>
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <Ionicons name="camera-outline" size={14} color="#94a3b8" />
+                <Text style={styles.statText}>{item.totalPhotos} photos</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Ionicons name="play-circle-outline" size={14} color="#94a3b8" />
+                <Text style={styles.statText}>{item.totalTimesUsed} plays</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.scoreContainer}>
+            <Text style={styles.scoreText}>{item.totalTimesUsed}</Text>
+            <Text style={styles.scoreLabel}>total plays</Text>
+          </View>
+        </TouchableOpacity>
+      );
+    } else {
+      // Player leaderboard entry (global/weekly)
+      return (
+        <TouchableOpacity style={styles.listItem} activeOpacity={0.7}>
+          <View style={styles.rankContainer}>
+            <Text style={styles.rankText}>#{item.rank}</Text>
+            {item.change !== 0 && item.change !== undefined && (
+              <View style={styles.changeContainer}>
+                <Ionicons 
+                  name={item.change > 0 ? 'caret-up' : 'caret-down'} 
+                  size={12} 
+                  color={item.change > 0 ? '#10b981' : '#ef4444'} 
+                />
+                <Text style={[styles.changeText, { color: item.change > 0 ? '#10b981' : '#ef4444' }]}>
+                  {Math.abs(item.change)}
+                </Text>
+              </View>
+            )}
+          </View>
+
+          <View style={styles.userInfo}>
+            <Text style={styles.username}>
+              {item.username || `${String(item.principal || 'Unknown').slice(0, 8)}...`}
+            </Text>
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <Ionicons name="game-controller-outline" size={14} color="#94a3b8" />
+                <Text style={styles.statText}>{item.gamesPlayed || 0}</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Ionicons name="camera-outline" size={14} color="#94a3b8" />
+                <Text style={styles.statText}>{item.photosUploaded || 0}</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.scoreContainer}>
+            <Text style={styles.scoreText}>{item.score.toLocaleString()}</Text>
+            <View style={styles.rewardsContainer}>
+              <Foundation name="bitcoin-circle" size={14} color="#f59e0b" />
+              <Text style={styles.rewardsText}>{item.totalRewards || 0}</Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      );
+    }
   };
 
   return (
@@ -133,30 +296,38 @@ export default function LeaderboardScreen() {
         </View>
 
         {/* Your Rank Card */}
-        <View style={styles.rankCardContainer}>
-          <LinearGradient
-            colors={['#3b82f6', '#2563eb']}
-            style={styles.rankCard}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-            <View style={styles.rankCardContent}>
-              <View>
-                <Text style={styles.rankCardLabel}>Your Rank</Text>
-                <Text style={styles.rankCardValue}>#42</Text>
-                <View style={styles.rankCardChange}>
-                  <Ionicons name="trending-up" size={16} color="#10b981" />
-                  <Text style={styles.rankCardChangeText}>+3 from last week</Text>
+        {auth && auth.identity && userStats && (
+          <View style={styles.rankCardContainer}>
+            <LinearGradient
+              colors={['#3b82f6', '#2563eb']}
+              style={styles.rankCard}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <View style={styles.rankCardContent}>
+                <View>
+                  <Text style={styles.rankCardLabel}>Your Rank</Text>
+                  <Text style={styles.rankCardValue}>
+                    {userRank ? `#${userRank}` : 'Unranked'}
+                  </Text>
+                  <View style={styles.rankCardChange}>
+                    <Ionicons name="game-controller" size={16} color="#94a3b8" />
+                    <Text style={styles.rankCardChangeText}>
+                      {Number(userStats.totalGamesPlayed)} games played
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.rankCardRight}>
+                  <Text style={styles.rankCardLabel}>Best Score</Text>
+                  <Text style={styles.rankCardScore}>{Number(userStats.bestScore).toLocaleString()}</Text>
+                  <Text style={styles.rankCardRewards}>
+                    {(Number(userStats.totalRewardsEarned) / 100).toFixed(2)} SPOT
+                  </Text>
                 </View>
               </View>
-              <View style={styles.rankCardRight}>
-                <Text style={styles.rankCardLabel}>Total Score</Text>
-                <Text style={styles.rankCardScore}>1,245</Text>
-                <Text style={styles.rankCardRewards}>156.78 SPOT</Text>
-              </View>
-            </View>
-          </LinearGradient>
-        </View>
+            </LinearGradient>
+          </View>
+        )}
 
         {/* Tabs */}
         <ScrollView 
@@ -177,7 +348,7 @@ export default function LeaderboardScreen() {
             >
               <MaterialCommunityIcons 
                 name={tab.icon as any} 
-                size={18} 
+                size={16} 
                 color={selectedType === tab.key ? '#ffffff' : '#94a3b8'} 
               />
               <Text style={[
@@ -196,11 +367,48 @@ export default function LeaderboardScreen() {
             <ActivityIndicator size="large" color="#3b82f6" />
             <Text style={styles.loadingText}>Loading rankings...</Text>
           </View>
+        ) : data.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <MaterialCommunityIcons name="trophy-outline" size={64} color="#475569" />
+            <Text style={styles.emptyTitle}>
+              {selectedType === 'global' || selectedType === 'weekly' 
+                ? 'No Rankings Yet' 
+                : selectedType === 'uploaders' 
+                ? 'No Photo Uploaders' 
+                : 'No Photo Statistics'}
+            </Text>
+            <Text style={styles.emptyMessage}>
+              {selectedType === 'global' || selectedType === 'weekly'
+                ? 'Complete some games to appear on the leaderboard!'
+                : selectedType === 'uploaders'
+                ? 'Upload photos and have them used in games to appear here!'
+                : 'Photos need to be used in games to generate usage statistics.'}
+            </Text>
+            <TouchableOpacity 
+              style={styles.emptyButton}
+              onPress={() => loadLeaderboard(true)}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="refresh" size={20} color="#ffffff" />
+              <Text style={styles.emptyButtonText}>Refresh</Text>
+            </TouchableOpacity>
+          </View>
         ) : (
           <FlatList
             data={data}
             renderItem={renderItem}
-            keyExtractor={(item) => item.principal}
+            keyExtractor={(item, index) => {
+              // Generate unique key based on type and data
+              if (item.photoId !== undefined) {
+                return `photo-${item.photoId}`;
+              } else if (item.principal) {
+                return `${selectedType}-${item.principal}-${index}`;
+              } else if (item.owner) {
+                return `owner-${item.owner}-${index}`;
+              } else {
+                return `item-${item.rank || index}`;
+              }
+            }}
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
             refreshControl={
@@ -215,38 +423,80 @@ export default function LeaderboardScreen() {
                 {data.length >= 3 && (
                   <View style={styles.podium}>
                     {/* 2nd Place */}
-                    <View style={styles.podiumPlace}>
-                      <View style={[styles.podiumBox, { height: 100 }]}>
-                        <Text style={styles.medal}>🥈</Text>
-                        <Text style={styles.podiumName} numberOfLines={1}>
-                          {data[1].username || `${data[1].principal.slice(0, 6)}...`}
-                        </Text>
-                        <Text style={styles.podiumScore}>{data[1].score}</Text>
-                        <Text style={styles.podiumRewards}>{data[1].totalRewards} SPOT</Text>
+                    {data[1] && (
+                      <View style={styles.podiumPlace}>
+                        <View style={[styles.podiumBox, { height: 100 }]}>
+                          <Text style={styles.medal}>🥈</Text>
+                          <Text style={styles.podiumName} numberOfLines={1}>
+                            {selectedType === 'monthly' && 'photoId' in data[1] 
+                              ? (data[1].title || `Photo #${data[1].photoId}`)
+                              : (data[1].username || `${String(data[1].principal || data[1].owner || 'Unknown').slice(0, 6)}...`)}
+                          </Text>
+                          <Text style={styles.podiumScore}>
+                            {selectedType === 'uploaders' && 'totalTimesUsed' in data[1]
+                              ? data[1].totalTimesUsed
+                              : (data[1].score || 0).toLocaleString()}
+                          </Text>
+                          <Text style={styles.podiumRewards}>
+                            {selectedType === 'monthly' && 'timesUsed' in data[1]
+                              ? `${data[1].timesUsed} plays`
+                              : selectedType === 'uploaders' && 'totalPhotos' in data[1]
+                              ? `${data[1].totalPhotos} photos`
+                              : `${data[1].totalRewards || 0} SPOT`}
+                          </Text>
+                        </View>
                       </View>
-                    </View>
+                    )}
                     {/* 1st Place */}
-                    <View style={styles.podiumPlace}>
-                      <View style={[styles.podiumBox, { height: 120 }]}>
-                        <Text style={styles.medal}>🥇</Text>
-                        <Text style={styles.podiumName} numberOfLines={1}>
-                          {data[0].username || `${data[0].principal.slice(0, 6)}...`}
-                        </Text>
-                        <Text style={styles.podiumScore}>{data[0].score}</Text>
-                        <Text style={styles.podiumRewards}>{data[0].totalRewards} SPOT</Text>
+                    {data[0] && (
+                      <View style={styles.podiumPlace}>
+                        <View style={[styles.podiumBox, { height: 120 }]}>
+                          <Text style={styles.medal}>🥇</Text>
+                          <Text style={styles.podiumName} numberOfLines={1}>
+                            {selectedType === 'monthly' && 'photoId' in data[0] 
+                              ? (data[0].title || `Photo #${data[0].photoId}`)
+                              : (data[0].username || `${String(data[0].principal || data[0].owner || 'Unknown').slice(0, 6)}...`)}
+                          </Text>
+                          <Text style={styles.podiumScore}>
+                            {selectedType === 'uploaders' && 'totalTimesUsed' in data[0]
+                              ? data[0].totalTimesUsed
+                              : (data[0].score || 0).toLocaleString()}
+                          </Text>
+                          <Text style={styles.podiumRewards}>
+                            {selectedType === 'monthly' && 'timesUsed' in data[0]
+                              ? `${data[0].timesUsed} plays`
+                              : selectedType === 'uploaders' && 'totalPhotos' in data[0]
+                              ? `${data[0].totalPhotos} photos`
+                              : `${data[0].totalRewards || 0} SPOT`}
+                          </Text>
+                        </View>
                       </View>
-                    </View>
+                    )}
                     {/* 3rd Place */}
-                    <View style={styles.podiumPlace}>
-                      <View style={[styles.podiumBox, { height: 80 }]}>
-                        <Text style={styles.medal}>🥉</Text>
-                        <Text style={styles.podiumName} numberOfLines={1}>
-                          {data[2].username || `${data[2].principal.slice(0, 6)}...`}
-                        </Text>
-                        <Text style={styles.podiumScore}>{data[2].score}</Text>
-                        <Text style={styles.podiumRewards}>{data[2].totalRewards} SPOT</Text>
+                    {data[2] && (
+                      <View style={styles.podiumPlace}>
+                        <View style={[styles.podiumBox, { height: 80 }]}>
+                          <Text style={styles.medal}>🥉</Text>
+                          <Text style={styles.podiumName} numberOfLines={1}>
+                            {selectedType === 'monthly' && 'photoId' in data[2] 
+                              ? (data[2].title || `Photo #${data[2].photoId}`)
+                              : (data[2].username || `${String(data[2].principal || data[2].owner || 'Unknown').slice(0, 6)}...`)}
+                          </Text>
+                          <Text style={styles.podiumScore}>
+                            {selectedType === 'uploaders' && 'totalTimesUsed' in data[2]
+                              ? data[2].totalTimesUsed
+                              : (data[2].score || 0).toLocaleString()}
+                          </Text>
+                          <Text style={styles.podiumRewards}>
+                            {selectedType === 'monthly' && 'timesUsed' in data[2]
+                              ? `${data[2].timesUsed} plays`
+                              : selectedType === 'uploaders' && 'totalPhotos' in data[2]
+                              ? `${data[2].totalPhotos} photos`
+                              : `${data[2].totalRewards || 0} SPOT`}
+                          </Text>
+                        </View>
                       </View>
-                    </View>
+                    )}
                   </View>
                 )}
               </View>
@@ -328,16 +578,17 @@ const styles = StyleSheet.create({
   },
   tabContainer: {
     paddingHorizontal: 24,
-    marginBottom: 16,
+    marginBottom: 12,
+    maxHeight: 40,
   },
   tabContent: {
     paddingRight: 20,
   },
   tab: {
     marginRight: 12,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(30, 41, 59, 0.3)',
@@ -349,8 +600,9 @@ const styles = StyleSheet.create({
     borderColor: '#3b82f6',
   },
   tabText: {
-    marginLeft: 8,
+    marginLeft: 6,
     fontWeight: '600',
+    fontSize: 14,
     color: '#94a3b8',
   },
   tabTextActive: {
@@ -470,6 +722,11 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
   },
+  scoreLabel: {
+    color: '#94a3b8',
+    fontSize: 12,
+    marginTop: 2,
+  },
   rewardsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -479,5 +736,41 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     fontSize: 14,
     marginLeft: 4,
+  },
+  emptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    paddingVertical: 64,
+  },
+  emptyTitle: {
+    color: '#ffffff',
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginTop: 24,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  emptyMessage: {
+    color: '#94a3b8',
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 32,
+  },
+  emptyButton: {
+    backgroundColor: '#3b82f6',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  emptyButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
   },
 });
