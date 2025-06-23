@@ -69,7 +69,7 @@ interface GameStore {
   purchasedHints: HintInfo[];
   
   // Actions - Game state
-  setCurrentPhoto: (photo: GamePhoto) => void;
+  setCurrentPhoto: (photo: GamePhoto | null) => void;
   setGuess: (guess: { latitude: number; longitude: number }, radius: number) => void;
   setTimeLeft: (time: number) => void;
   setTokenBalance: (balance: bigint) => void;

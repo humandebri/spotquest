@@ -154,11 +154,14 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
       // Reset states for new round
       setHasNavigated(false);
       setHasTimeoutBeenHandled(false);
+      setHasInitialized(false); // Reset to allow re-initialization
       setTimeLeft(DifficultySettings[difficulty].timeLimit);
       setNeedsNewPhoto(true);
+      // Clear current photo to show loading state instead of old photo
+      setCurrentPhoto(null);
       
-      // Update previous round ref
-      previousRoundRef.current = roundNumber;
+      // DON'T update previousRoundRef here - wait until new photo is loaded
+      // previousRoundRef.current = roundNumber;
     }
   }, [roundNumber, difficulty]);
   
