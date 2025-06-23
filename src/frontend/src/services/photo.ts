@@ -210,6 +210,8 @@ class PhotoService {
   private agent: HttpAgent | null = null;
   private actor: any = null;
   private identity: Identity | null = null;
+  private metadataCache: Map<number, any> = new Map();
+  private photoUrlCache: Map<number, string> = new Map();
 
   async init(identity: Identity) {
     try {
@@ -220,6 +222,11 @@ class PhotoService {
       // Reuse existing actor if identity hasn't changed
       if (this.identity === identity && this.actor) {
         return;
+      }
+
+      // Clear caches when switching identities
+      if (this.identity !== identity) {
+        this.clearCaches();
       }
 
       this.identity = identity;
@@ -491,11 +498,24 @@ class PhotoService {
     }
   }
 
+  // Clear caches (useful when switching users or logging out)
+  clearCaches() {
+    this.metadataCache.clear();
+    this.photoUrlCache.clear();
+    console.log('📷 Photo service caches cleared');
+  }
+
   // V2 methods for SessionDetailsScreen
   async getPhotoMetadataV2(photoId: number): Promise<any | null> {
     if (!this.actor) {
       console.error('Photo service not initialized');
       return null;
+    }
+
+    // Check cache first
+    if (this.metadataCache.has(photoId)) {
+      console.log('📷 Returning cached metadata for photoId:', photoId);
+      return this.metadataCache.get(photoId);
     }
 
     try {
@@ -505,6 +525,8 @@ class PhotoService {
       // Optional型のアンパック
       if (result && result.length > 0) {
         console.log('📷 Photo metadata V2 retrieved:', result[0]);
+        // Cache the metadata
+        this.metadataCache.set(photoId, result[0]);
         return result[0];
       } else {
         console.log('📷 No photo metadata found for photoId:', photoId);
@@ -544,6 +566,12 @@ class PhotoService {
     if (!this.actor) {
       console.error('Photo service not initialized');
       return null;
+    }
+
+    // Check cache first
+    if (this.photoUrlCache.has(photoId)) {
+      console.log('📷 Returning cached photo URL for photoId:', photoId);
+      return this.photoUrlCache.get(photoId)!;
     }
 
     try {
@@ -621,6 +649,10 @@ class PhotoService {
         
         const dataUri = `data:image/jpeg;base64,${base64}`;
         console.log('📷 Photo data URI generated for photoId:', photoId, 'length:', dataUri.length);
+        
+        // Cache the photo URL
+        this.photoUrlCache.set(photoId, dataUri);
+        
         return dataUri;
       } catch (base64Error) {
         console.error('Base64 encoding failed:', base64Error);

@@ -10,7 +10,6 @@ import {
   Image,
   Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -47,16 +46,17 @@ interface RoundData {
     lat: number;
     lon: number;
   };
+  photoMeta?: any; // Store full metadata
 }
 
 export default function SessionDetailsScreen() {
   console.log('🎯 ===== SessionDetailsScreen RENDER START =====');
-  
+
   const route = useRoute<SessionDetailsRouteProp>();
   const navigation = useNavigation<NavigationProp>();
   const { sessionId } = route.params || {};
   const { identity } = useAuth();
-  
+
   console.log('🎯 SessionDetailsScreen mounted with params:', {
     sessionId,
     params: route.params,
@@ -64,13 +64,14 @@ export default function SessionDetailsScreen() {
     identityType: identity?.constructor?.name,
     routeName: route.name
   });
-  
+
   const [session, setSession] = useState<any>(null);
   const [rounds, setRounds] = useState<RoundData[]>([]);
   const [isLoading, setIsLoading] = useState(true); // Start with loading state
   const [selectedRound, setSelectedRound] = useState<number>(0);
   const [imageErrors, setImageErrors] = useState<{ [key: number]: boolean }>({});
   const [hasFetched, setHasFetched] = useState(false);
+  const [loadingPhotos, setLoadingPhotos] = useState<{ [key: number]: boolean }>({});
   const mapRef = useRef<MapView>(null);
 
   useEffect(() => {
@@ -80,15 +81,15 @@ export default function SessionDetailsScreen() {
       identityPrincipal: identity?.getPrincipal?.()?.toString(),
       isLoading
     });
-    
+
     if (sessionId && identity) {
       fetchSessionDetails();
     } else {
       console.warn('🎯 Missing sessionId or identity:', { sessionId, hasIdentity: !!identity });
     }
   }, [sessionId, identity]);
-  
-  // Debug selected round data
+
+  // Debug selected round data and update map
   useEffect(() => {
     if (rounds.length > 0 && rounds[selectedRound]) {
       console.log('🎯 Current selected round:', {
@@ -97,139 +98,158 @@ export default function SessionDetailsScreen() {
         hasGuessData: !!rounds[selectedRound].guessData,
         hasPhotoLocation: !!rounds[selectedRound].photoLocation,
       });
+      
+      // Fit map to markers when round changes
+      setTimeout(() => {
+        fitMapToMarkers();
+      }, 100);
     }
   }, [selectedRound, rounds]);
 
   const fetchSessionDetails = async () => {
     console.log('🎯 fetchSessionDetails called:', { sessionId, hasIdentity: !!identity, hasFetched, isLoading });
-    
+
     if (!identity || !sessionId) {
       console.error('🎯 Cannot fetch: missing identity or sessionId');
       setIsLoading(false);
       return;
     }
-    
+
     // Prevent duplicate fetches
     if (hasFetched || (isLoading && session)) {
       console.log('🎯 Already fetched or loading with data, skipping');
       return;
     }
-    
+
     setHasFetched(true);
     try {
       // Initialize both game and photo services
       await gameService.init(identity);
       await photoService.init(identity);
-      
+
       // Get session details
       console.log('🎯 Calling gameService.getSession with:', sessionId);
       const sessionResult = await gameService.getSession(sessionId);
       console.log('🎯 Session result:', sessionResult);
-      
+
       if (!sessionResult) {
         console.error('🎯 No session result returned');
         Alert.alert('Error', 'Session not found');
         return;
       }
-      
+
       if (sessionResult?.ok) {
         console.log('🎯 Session data:', sessionResult.ok);
         setSession(sessionResult.ok);
-        
-        // Process rounds and fetch photo data
-        const roundsWithPhotos = await Promise.all(
-          sessionResult.ok.rounds.map(async (round: any) => {
-            // Convert BigInt to number for coordinates
-            const roundData: RoundData = {
-              photoId: Number(round.photoId),
-              status: round.status,
-              score: Number(round.score),
-              scoreNorm: Number(round.scoreNorm),
-              guessData: round.guessData?.[0] ? {
-                lat: round.guessData[0].lat,
-                lon: round.guessData[0].lon,
-                azimuth: round.guessData[0].azimuth?.[0] || undefined,
-                confidenceRadius: round.guessData[0].confidenceRadius,
-                submittedAt: round.guessData[0].submittedAt,
-              } : undefined,
-              retryAvailable: round.retryAvailable,
-              hintsPurchased: round.hintsPurchased,
-              startTime: round.startTime,
-              endTime: round.endTime?.[0] || undefined,
-              photoUrl: undefined,
-              photoLocation: undefined,
-            };
-            
-            return roundData;
-          })
-        );
-        
-        // Fetch all photo data in parallel for better performance
-        console.log('🎯 Fetching photo data for all rounds in parallel...');
-        const photoPromises = roundsWithPhotos.map(async (roundData, index) => {
+
+        // Process rounds WITHOUT photo data first
+        const initialRounds = sessionResult.ok.rounds.map((round: any, index: number) => {
+          const roundData: RoundData = {
+            photoId: Number(round.photoId),
+            status: round.status,
+            score: Number(round.score),
+            scoreNorm: Number(round.scoreNorm),
+            guessData: round.guessData?.[0] ? {
+              lat: round.guessData[0].lat,
+              lon: round.guessData[0].lon,
+              azimuth: round.guessData[0].azimuth?.[0] || undefined,
+              confidenceRadius: round.guessData[0].confidenceRadius,
+              submittedAt: round.guessData[0].submittedAt,
+            } : undefined,
+            retryAvailable: round.retryAvailable,
+            hintsPurchased: round.hintsPurchased,
+            startTime: round.startTime,
+            endTime: round.endTime?.[0] || undefined,
+            photoUrl: undefined,
+            photoLocation: undefined,
+            photoMeta: undefined,
+          };
+          return roundData;
+        });
+
+        // Set rounds immediately so UI can render
+        setRounds(initialRounds);
+        setIsLoading(false); // Stop loading spinner
+        console.log('🎯 Initial rounds set, UI should be visible now');
+
+        // Fetch photo data asynchronously after UI is rendered
+        console.log('🎯 Starting async photo data fetch...');
+
+        // Mark all photos as loading
+        const loadingStates: { [key: number]: boolean } = {};
+        initialRounds.forEach((_, index) => {
+          loadingStates[index] = true;
+        });
+        setLoadingPhotos(loadingStates);
+
+        // Create array of indices to fetch, starting with selected round
+        const fetchOrder = [0]; // Start with first round (default selected)
+        for (let i = 1; i < initialRounds.length; i++) {
+          fetchOrder.push(i);
+        }
+
+        // Fetch photos in order of priority with slight delay
+        fetchOrder.forEach(async (index, orderIndex) => {
+          // Add small delay between requests (except for first one)
+          if (orderIndex > 0) {
+            await new Promise(resolve => setTimeout(resolve, orderIndex * 100));
+          }
+
+          const roundData = initialRounds[index];
           try {
             console.log('🎯 Fetching photo for round:', index + 1, 'photoId:', roundData.photoId);
             const photoMeta = await photoService.getPhotoMetadataV2(roundData.photoId);
-            
+
             if (photoMeta) {
-              console.log('🎯 Photo metadata found:', {
-                id: photoMeta.id,
-                title: photoMeta.title,
-                uploadState: photoMeta.uploadState,
-                status: photoMeta.status,
-                lat: photoMeta.latitude,
-                lon: photoMeta.longitude
+              // Update photo location and metadata immediately
+              setRounds(prevRounds => {
+                const newRounds = [...prevRounds];
+                newRounds[index] = {
+                  ...newRounds[index],
+                  photoLocation: {
+                    lat: photoMeta.latitude,
+                    lon: photoMeta.longitude,
+                  },
+                  photoMeta: photoMeta,
+                };
+                return newRounds;
               });
-              
-              // Set photo location
-              roundData.photoLocation = {
-                lat: photoMeta.latitude,
-                lon: photoMeta.longitude,
-              };
-              
+
               // Check if photo is complete and active
               if (photoMeta.uploadState?.Complete !== undefined && photoMeta.status?.Active !== undefined) {
-                // Get photo chunks for display (pass metadata to avoid duplicate fetch)
+                // Get photo chunks for display
                 const photoUrl = await photoService.getPhotoDataUrl(roundData.photoId, photoMeta);
                 if (photoUrl) {
                   console.log('🎯 Photo URL generated for round:', index + 1);
-                  roundData.photoUrl = photoUrl;
-                } else {
-                  console.warn('🎯 Failed to generate photo URL for round:', index + 1);
+                  // Update specific round with photo URL
+                  setRounds(prevRounds => {
+                    const newRounds = [...prevRounds];
+                    newRounds[index] = {
+                      ...newRounds[index],
+                      photoUrl: photoUrl
+                    };
+                    return newRounds;
+                  });
                 }
-              } else {
-                console.warn('🎯 Photo not available:', {
-                  uploadState: photoMeta.uploadState,
-                  status: photoMeta.status
-                });
               }
-            } else {
-              console.warn('🎯 No photo metadata found for photoId:', roundData.photoId);
             }
+
+            // Clear loading state for this photo
+            setLoadingPhotos(prev => ({
+              ...prev,
+              [index]: false
+            }));
           } catch (error) {
             console.error('🎯 Failed to fetch photo data for round:', index + 1, error);
+            // Clear loading state even on error
+            setLoadingPhotos(prev => ({
+              ...prev,
+              [index]: false
+            }));
           }
         });
-        
-        // Wait for all photo fetches to complete
-        await Promise.all(photoPromises);
-        
-        setRounds(roundsWithPhotos);
-        
-        // Debug: Log round data
-        console.log('🎯 Rounds data processed:', roundsWithPhotos.map((r, i) => ({
-          round: i + 1,
-          hasPhoto: !!r.photoUrl,
-          hasPhotoLocation: !!r.photoLocation,
-          hasGuessData: !!r.guessData,
-          photoLocation: r.photoLocation,
-          guessData: r.guessData ? {
-            lat: r.guessData.lat,
-            lon: r.guessData.lon,
-            confidenceRadius: r.guessData.confidenceRadius
-          } : null,
-          score: r.score
-        })));
+
+        return; // Exit early, don't wait for photos
       }
     } catch (error) {
       console.error('Failed to fetch session details:', error);
@@ -249,19 +269,35 @@ export default function SessionDetailsScreen() {
     const R = 6371; // Earth's radius in km
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLon/2) * Math.sin(dLon/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
+  };
+  
+  const calculateRoundDuration = (startTime: bigint, endTime?: bigint): string => {
+    if (!endTime) return 'In Progress';
+    
+    // Convert nanoseconds to seconds
+    const durationNanos = endTime - startTime;
+    const durationSeconds = Number(durationNanos / BigInt(1000000000));
+    
+    if (durationSeconds < 60) {
+      return `${durationSeconds}s`;
+    } else {
+      const minutes = Math.floor(durationSeconds / 60);
+      const seconds = durationSeconds % 60;
+      return `${minutes}m ${seconds}s`;
+    }
   };
 
   const fitMapToMarkers = () => {
     if (!mapRef.current || !rounds[selectedRound]) return;
-    
+
     const round = rounds[selectedRound];
     if (!round.guessData || !round.photoLocation) return;
-    
+
     const coords = [
       {
         latitude: round.guessData.lat,
@@ -272,9 +308,22 @@ export default function SessionDetailsScreen() {
         longitude: round.photoLocation.lon,
       },
     ];
+
+    // Calculate distance to determine appropriate padding
+    const distance = calculateDistance(
+      round.guessData.lat,
+      round.guessData.lon,
+      round.photoLocation.lat,
+      round.photoLocation.lon
+    );
     
+    // Adjust padding based on distance
+    const padding = distance < 5 ? 100 : 
+                   distance < 50 ? 80 : 
+                   distance < 500 ? 60 : 50;
+
     mapRef.current.fitToCoordinates(coords, {
-      edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
+      edgePadding: { top: padding, right: padding, bottom: padding, left: padding },
       animated: true,
     });
   };
@@ -282,12 +331,12 @@ export default function SessionDetailsScreen() {
   if (isLoading || (!session && sessionId)) {
     return (
       <LinearGradient colors={['#0f172a', '#1e293b']} style={styles.container}>
-        <SafeAreaView style={styles.safeArea}>
+        <View style={styles.safeArea}>
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#3b82f6" />
             <Text style={styles.loadingText}>Loading session...</Text>
           </View>
-        </SafeAreaView>
+        </View>
       </LinearGradient>
     );
   }
@@ -295,15 +344,13 @@ export default function SessionDetailsScreen() {
   if (!session || rounds.length === 0) {
     return (
       <LinearGradient colors={['#0f172a', '#1e293b']} style={styles.container}>
-        <SafeAreaView style={styles.safeArea}>
+        <View style={styles.safeArea}>
           <View style={styles.header}>
-            <TouchableOpacity onPress={() => navigation.goBack()}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
               <Ionicons name="arrow-back" size={24} color="#ffffff" />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>Session Not Found</Text>
-            <View style={{ width: 24 }} />
           </View>
-        </SafeAreaView>
+        </View>
       </LinearGradient>
     );
   }
@@ -312,13 +359,11 @@ export default function SessionDetailsScreen() {
 
   return (
     <LinearGradient colors={['#0f172a', '#1e293b']} style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
+      <View style={styles.safeArea}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#ffffff" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Session Details</Text>
-          <View style={{ width: 24 }} />
         </View>
 
         <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -371,6 +416,12 @@ export default function SessionDetailsScreen() {
                 ]}>
                   {round.score} pts
                 </Text>
+                <Text style={[
+                  styles.roundTabTime,
+                  selectedRound === index && styles.roundTabTimeActive,
+                ]}>
+                  {calculateRoundDuration(round.startTime, round.endTime)}
+                </Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -378,7 +429,12 @@ export default function SessionDetailsScreen() {
           {/* Round Details */}
           <View style={styles.roundDetails}>
             {/* Photo */}
-            {currentRound.photoUrl && !imageErrors[currentRound.photoId] ? (
+            {loadingPhotos[selectedRound] ? (
+              <View style={[styles.photoContainer, styles.photoPlaceholder]}>
+                <ActivityIndicator size="large" color="#3b82f6" />
+                <Text style={styles.photoPlaceholderText}>Loading photo...</Text>
+              </View>
+            ) : currentRound.photoUrl && !imageErrors[currentRound.photoId] ? (
               <View style={styles.photoContainer}>
                 <Image
                   source={{ uri: currentRound.photoUrl }}
@@ -408,13 +464,14 @@ export default function SessionDetailsScreen() {
                   ref={mapRef}
                   style={styles.map}
                   provider={PROVIDER_GOOGLE}
+                  key={`map-round-${selectedRound}`} // Force re-render when round changes
                   initialRegion={{
                     latitude: (currentRound.guessData.lat + currentRound.photoLocation.lat) / 2,
                     longitude: (currentRound.guessData.lon + currentRound.photoLocation.lon) / 2,
-                    latitudeDelta: 0.1,
-                    longitudeDelta: 0.1,
+                    latitudeDelta: Math.abs(currentRound.guessData.lat - currentRound.photoLocation.lat) * 2 || 0.1,
+                    longitudeDelta: Math.abs(currentRound.guessData.lon - currentRound.photoLocation.lon) * 2 || 0.1,
                   }}
-                  onLayout={fitMapToMarkers}
+                  onMapReady={fitMapToMarkers}
                 >
                   {/* Guess Marker */}
                   <Marker
@@ -423,9 +480,10 @@ export default function SessionDetailsScreen() {
                       longitude: currentRound.guessData.lon,
                     }}
                     title="Your Guess"
+                    anchor={{ x: 0.5, y: 0.5 }}
                   >
                     <View style={styles.guessMarker}>
-                      <Ionicons name="location" size={24} color="#3b82f6" />
+                      <Ionicons name="location" size={16} color="#3b82f6" />
                     </View>
                   </Marker>
 
@@ -436,9 +494,10 @@ export default function SessionDetailsScreen() {
                       longitude: currentRound.photoLocation.lon,
                     }}
                     title="Actual Location"
+                    anchor={{ x: 0.5, y: 0.5 }}
                   >
                     <View style={styles.actualMarker}>
-                      <Ionicons name="flag" size={24} color="#10b981" />
+                      <Ionicons name="flag" size={16} color="#10b981" />
                     </View>
                   </Marker>
 
@@ -482,6 +541,7 @@ export default function SessionDetailsScreen() {
 
             {/* Round Stats */}
             <View style={styles.roundStats}>
+              <Text style={styles.roundStatsTitle}>Round Statistics</Text>
               <View style={styles.roundStatItem}>
                 <Text style={styles.roundStatLabel}>Score</Text>
                 <Text style={styles.roundStatValue}>{currentRound.score}</Text>
@@ -490,6 +550,12 @@ export default function SessionDetailsScreen() {
                 <Text style={styles.roundStatLabel}>Normalized Score</Text>
                 <Text style={styles.roundStatValue}>{currentRound.scoreNorm}/100</Text>
               </View>
+              <View style={styles.roundStatItem}>
+                <Text style={styles.roundStatLabel}>Time Taken</Text>
+                <Text style={styles.roundStatValue}>
+                  {calculateRoundDuration(currentRound.startTime, currentRound.endTime)}
+                </Text>
+              </View>
               {currentRound.hintsPurchased.length > 0 && (
                 <View style={styles.roundStatItem}>
                   <Text style={styles.roundStatLabel}>Hints Used</Text>
@@ -497,9 +563,80 @@ export default function SessionDetailsScreen() {
                 </View>
               )}
             </View>
+
+            {/* Photo Info if available */}
+            {currentRound.photoMeta && (
+              <View style={styles.photoInfoSection}>
+                <Text style={styles.photoInfoTitle}>Photo Information</Text>
+                
+                {currentRound.photoMeta.title && (
+                  <View style={styles.photoInfoItem}>
+                    <Text style={styles.photoInfoLabel}>Title</Text>
+                    <Text style={styles.photoInfoValue}>{currentRound.photoMeta.title}</Text>
+                  </View>
+                )}
+                
+                <View style={styles.photoInfoRow}>
+                  <View style={styles.photoInfoItemHalf}>
+                    <Text style={styles.photoInfoLabel}>Difficulty</Text>
+                    <Text style={[styles.photoInfoValue, styles.photoInfoBadge, 
+                      currentRound.photoMeta.difficulty?.EASY !== undefined && styles.difficultyEasy,
+                      currentRound.photoMeta.difficulty?.NORMAL !== undefined && styles.difficultyNormal,
+                      currentRound.photoMeta.difficulty?.HARD !== undefined && styles.difficultyHard,
+                      currentRound.photoMeta.difficulty?.EXTREME !== undefined && styles.difficultyExtreme,
+                    ]}>
+                      {Object.keys(currentRound.photoMeta.difficulty || {})[0] || 'Unknown'}
+                    </Text>
+                  </View>
+                  
+                  <View style={styles.photoInfoItemHalf}>
+                    <Text style={styles.photoInfoLabel}>Scene Type</Text>
+                    <Text style={[styles.photoInfoValue, styles.photoInfoBadge]}>
+                      {Object.keys(currentRound.photoMeta.sceneKind || {})[0] || 'Unknown'}
+                    </Text>
+                  </View>
+                </View>
+                
+                <View style={styles.photoInfoRow}>
+                  <View style={styles.photoInfoItemHalf}>
+                    <Text style={styles.photoInfoLabel}>Times Used</Text>
+                    <Text style={styles.photoInfoValue}>
+                      {Number(currentRound.photoMeta.timesUsed || 0).toLocaleString()}
+                    </Text>
+                  </View>
+                  
+                  <View style={styles.photoInfoItemHalf}>
+                    <Text style={styles.photoInfoLabel}>Quality Score</Text>
+                    <Text style={styles.photoInfoValue}>
+                      {(currentRound.photoMeta.qualityScore || 0).toFixed(1)}/10
+                    </Text>
+                  </View>
+                </View>
+                
+                {currentRound.photoMeta.region && (
+                  <View style={styles.photoInfoItem}>
+                    <Text style={styles.photoInfoLabel}>Location</Text>
+                    <Text style={styles.photoInfoValue}>{currentRound.photoMeta.region}</Text>
+                  </View>
+                )}
+                
+                {currentRound.photoMeta.tags && currentRound.photoMeta.tags.length > 0 && (
+                  <View style={styles.photoInfoItem}>
+                    <Text style={styles.photoInfoLabel}>Tags</Text>
+                    <View style={styles.tagsContainer}>
+                      {currentRound.photoMeta.tags.map((tag: string, idx: number) => (
+                        <View key={idx} style={styles.tag}>
+                          <Text style={styles.tagText}>{tag}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
           </View>
         </ScrollView>
-      </SafeAreaView>
+      </View>
     </LinearGradient>
   );
 }
@@ -510,17 +647,23 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
+    paddingTop: 10,
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    zIndex: 10,
+    backgroundColor: 'rgba(15, 23, 42, 0.9)',
+    borderRadius: 20,
+    padding: 8,
+  },
+  backButton: {
+    padding: 4,
   },
   headerTitle: {
     color: '#ffffff',
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
   },
   loadingContainer: {
@@ -534,14 +677,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   scrollContent: {
+    paddingTop: 70, // Space for floating header
     paddingBottom: 20,
   },
   summaryCard: {
     backgroundColor: 'rgba(30, 41, 59, 0.4)',
-    marginHorizontal: 20,
-    marginBottom: 20,
+    marginHorizontal: 16,
+    marginBottom: 16,
     borderRadius: 16,
-    padding: 20,
+    padding: 16,
     borderWidth: 1,
     borderColor: 'rgba(71, 85, 105, 0.5)',
   },
@@ -560,28 +704,30 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     color: '#94a3b8',
-    fontSize: 14,
-    marginBottom: 4,
+    fontSize: 13,
+    marginBottom: 2,
   },
   statValue: {
     color: '#ffffff',
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
   },
   roundSelector: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   roundSelectorContent: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
   },
   roundTab: {
     backgroundColor: 'rgba(30, 41, 59, 0.4)',
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingVertical: 10,
     borderRadius: 12,
     marginRight: 12,
     borderWidth: 1,
     borderColor: 'rgba(71, 85, 105, 0.5)',
+    minHeight: 80,
+    justifyContent: 'center',
   },
   roundTabActive: {
     backgroundColor: 'rgba(59, 130, 246, 0.2)',
@@ -603,40 +749,48 @@ const styles = StyleSheet.create({
   roundTabScoreActive: {
     color: '#60a5fa',
   },
+  roundTabTime: {
+    color: '#475569',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  roundTabTimeActive: {
+    color: '#93c5fd',
+  },
   roundDetails: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
   },
   photoContainer: {
-    marginBottom: 20,
+    marginBottom: 16,
     borderRadius: 16,
     overflow: 'hidden',
   },
   photo: {
     width: '100%',
-    height: 200,
+    height: 250,
     backgroundColor: '#1e293b',
   },
   mapContainer: {
-    marginBottom: 20,
+    marginBottom: 16,
     borderRadius: 16,
     overflow: 'hidden',
     position: 'relative',
   },
   map: {
     width: '100%',
-    height: 300,
+    height: 350,
   },
   guessMarker: {
     backgroundColor: 'rgba(59, 130, 246, 0.2)',
-    borderRadius: 20,
-    padding: 8,
+    borderRadius: 16,
+    padding: 6,
     borderWidth: 2,
     borderColor: '#3b82f6',
   },
   actualMarker: {
     backgroundColor: 'rgba(16, 185, 129, 0.2)',
-    borderRadius: 20,
-    padding: 8,
+    borderRadius: 16,
+    padding: 6,
     borderWidth: 2,
     borderColor: '#10b981',
   },
@@ -663,6 +817,12 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: 'rgba(71, 85, 105, 0.5)',
+  },
+  roundStatsTitle: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
   },
   roundStatItem: {
     flexDirection: 'row',
@@ -700,5 +860,82 @@ const styles = StyleSheet.create({
     color: '#64748b',
     fontSize: 14,
     marginTop: 8,
+  },
+  photoInfoSection: {
+    backgroundColor: 'rgba(30, 41, 59, 0.4)',
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(71, 85, 105, 0.5)',
+  },
+  photoInfoTitle: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  photoInfoItem: {
+    marginBottom: 12,
+  },
+  photoInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  photoInfoItemHalf: {
+    flex: 0.48,
+  },
+  photoInfoLabel: {
+    color: '#94a3b8',
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  photoInfoValue: {
+    color: '#ffffff',
+    fontSize: 14,
+  },
+  photoInfoBadge: {
+    backgroundColor: 'rgba(71, 85, 105, 0.3)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  difficultyEasy: {
+    backgroundColor: 'rgba(34, 197, 94, 0.2)',
+    color: '#22c55e',
+  },
+  difficultyNormal: {
+    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+    color: '#3b82f6',
+  },
+  difficultyHard: {
+    backgroundColor: 'rgba(245, 158, 11, 0.2)',
+    color: '#f59e0b',
+  },
+  difficultyExtreme: {
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+    color: '#ef4444',
+  },
+  tagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 4,
+  },
+  tag: {
+    backgroundColor: 'rgba(99, 102, 241, 0.2)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginRight: 6,
+    marginBottom: 6,
+  },
+  tagText: {
+    color: '#a5b4fc',
+    fontSize: 12,
   },
 });
