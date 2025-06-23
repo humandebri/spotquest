@@ -95,6 +95,8 @@ export default function LeaderboardScreen() {
           console.log('🏆 Fetching global leaderboard...');
           const playerLeaderboard = await gameService.getLeaderboardWithStats(50);
           console.log('🏆 Global leaderboard response:', playerLeaderboard);
+          console.log('🏆 Global leaderboard length:', playerLeaderboard.length);
+          console.log('🏆 Global leaderboard first entry:', playerLeaderboard[0]);
           leaderboardData = playerLeaderboard.map((entry, index) => ({
             rank: index + 1,
             principal: entry.principal.toString(),
@@ -117,7 +119,11 @@ export default function LeaderboardScreen() {
           
         case 'uploaders':
           // Get top uploaders
+          console.log('🏆 Fetching uploaders leaderboard...');
           const uploaders = await gameService.getTopUploaders(50);
+          console.log('🏆 Uploaders response:', uploaders);
+          console.log('🏆 Uploaders length:', uploaders.length);
+          console.log('🏆 Uploaders first entry:', uploaders[0]);
           leaderboardData = uploaders.map((entry, index) => ({
             rank: index + 1,
             principal: entry.principal.toString(),
@@ -143,15 +149,15 @@ export default function LeaderboardScreen() {
           
         case 'monthly':
           // TODO: Implement monthly leaderboard when backend supports it
-          // For now, use top photos by usage
-          const topPhotos = await gameService.getTopPhotosByUsage(50);
-          leaderboardData = topPhotos.map((entry, index) => ({
+          // For now, use the same as global leaderboard
+          const monthlyLeaderboard = await gameService.getLeaderboardWithStats(50);
+          leaderboardData = monthlyLeaderboard.map((entry, index) => ({
             rank: index + 1,
-            photoId: Number(entry.photoId),
-            owner: entry.owner.toString(),
-            timesUsed: Number(entry.timesUsed),
-            title: entry.title,
-            score: Number(entry.timesUsed), // Use times used as score
+            principal: entry.principal.toString(),
+            score: Number(entry.score),
+            gamesPlayed: Number(entry.gamesPlayed),
+            photosUploaded: Number(entry.photosUploaded),
+            totalRewards: Number(entry.totalRewards),
           }));
           break;
       }
@@ -182,35 +188,7 @@ export default function LeaderboardScreen() {
     if (item.rank <= 3) return null; // Top 3 shown in podium
     
     // Render different content based on leaderboard type
-    if (selectedType === 'monthly' && 'photoId' in item) {
-      // Photo leaderboard entry
-      return (
-        <TouchableOpacity style={styles.listItem} activeOpacity={0.7}>
-          <View style={styles.rankContainer}>
-            <Text style={styles.rankText}>#{item.rank}</Text>
-          </View>
-
-          <View style={styles.userInfo}>
-            <Text style={styles.username}>{item.title || `Photo #${item.photoId}`}</Text>
-            <View style={styles.statsRow}>
-              <View style={styles.statItem}>
-                <Ionicons name="play-circle-outline" size={14} color="#94a3b8" />
-                <Text style={styles.statText}>{item.timesUsed} plays</Text>
-              </View>
-              <View style={styles.statItem}>
-                <Ionicons name="person-outline" size={14} color="#94a3b8" />
-                <Text style={styles.statText}>{String(item.owner || 'Unknown').slice(0, 6)}...</Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.scoreContainer}>
-            <Text style={styles.scoreText}>{item.timesUsed}</Text>
-            <Text style={styles.scoreLabel}>plays</Text>
-          </View>
-        </TouchableOpacity>
-      );
-    } else if (selectedType === 'uploaders' && 'totalPhotos' in item) {
+    if (selectedType === 'uploaders' && 'totalPhotos' in item) {
       // Uploader leaderboard entry
       return (
         <TouchableOpacity style={styles.listItem} activeOpacity={0.7}>
@@ -420,7 +398,7 @@ export default function LeaderboardScreen() {
             }
             ListHeaderComponent={() => (
               <View style={styles.podiumContainer}>
-                {data.length >= 3 && (
+                {data.length > 0 && (
                   <View style={styles.podium}>
                     {/* 2nd Place */}
                     {data[1] && (
@@ -428,9 +406,7 @@ export default function LeaderboardScreen() {
                         <View style={[styles.podiumBox, { height: 100 }]}>
                           <Text style={styles.medal}>🥈</Text>
                           <Text style={styles.podiumName} numberOfLines={1}>
-                            {selectedType === 'monthly' && 'photoId' in data[1] 
-                              ? (data[1].title || `Photo #${data[1].photoId}`)
-                              : (data[1].username || `${String(data[1].principal || data[1].owner || 'Unknown').slice(0, 6)}...`)}
+                            {data[1].username || `${String(data[1].principal || data[1].owner || 'Unknown').slice(0, 6)}...`}
                           </Text>
                           <Text style={styles.podiumScore}>
                             {selectedType === 'uploaders' && 'totalTimesUsed' in data[1]
@@ -438,9 +414,7 @@ export default function LeaderboardScreen() {
                               : (data[1].score || 0).toLocaleString()}
                           </Text>
                           <Text style={styles.podiumRewards}>
-                            {selectedType === 'monthly' && 'timesUsed' in data[1]
-                              ? `${data[1].timesUsed} plays`
-                              : selectedType === 'uploaders' && 'totalPhotos' in data[1]
+                            {selectedType === 'uploaders' && 'totalPhotos' in data[1]
                               ? `${data[1].totalPhotos} photos`
                               : `${data[1].totalRewards || 0} SPOT`}
                           </Text>
@@ -453,9 +427,7 @@ export default function LeaderboardScreen() {
                         <View style={[styles.podiumBox, { height: 120 }]}>
                           <Text style={styles.medal}>🥇</Text>
                           <Text style={styles.podiumName} numberOfLines={1}>
-                            {selectedType === 'monthly' && 'photoId' in data[0] 
-                              ? (data[0].title || `Photo #${data[0].photoId}`)
-                              : (data[0].username || `${String(data[0].principal || data[0].owner || 'Unknown').slice(0, 6)}...`)}
+                            {data[0].username || `${String(data[0].principal || data[0].owner || 'Unknown').slice(0, 6)}...`}
                           </Text>
                           <Text style={styles.podiumScore}>
                             {selectedType === 'uploaders' && 'totalTimesUsed' in data[0]
@@ -463,9 +435,7 @@ export default function LeaderboardScreen() {
                               : (data[0].score || 0).toLocaleString()}
                           </Text>
                           <Text style={styles.podiumRewards}>
-                            {selectedType === 'monthly' && 'timesUsed' in data[0]
-                              ? `${data[0].timesUsed} plays`
-                              : selectedType === 'uploaders' && 'totalPhotos' in data[0]
+                            {selectedType === 'uploaders' && 'totalPhotos' in data[0]
                               ? `${data[0].totalPhotos} photos`
                               : `${data[0].totalRewards || 0} SPOT`}
                           </Text>
@@ -478,9 +448,7 @@ export default function LeaderboardScreen() {
                         <View style={[styles.podiumBox, { height: 80 }]}>
                           <Text style={styles.medal}>🥉</Text>
                           <Text style={styles.podiumName} numberOfLines={1}>
-                            {selectedType === 'monthly' && 'photoId' in data[2] 
-                              ? (data[2].title || `Photo #${data[2].photoId}`)
-                              : (data[2].username || `${String(data[2].principal || data[2].owner || 'Unknown').slice(0, 6)}...`)}
+                            {data[2].username || `${String(data[2].principal || data[2].owner || 'Unknown').slice(0, 6)}...`}
                           </Text>
                           <Text style={styles.podiumScore}>
                             {selectedType === 'uploaders' && 'totalTimesUsed' in data[2]
@@ -488,9 +456,7 @@ export default function LeaderboardScreen() {
                               : (data[2].score || 0).toLocaleString()}
                           </Text>
                           <Text style={styles.podiumRewards}>
-                            {selectedType === 'monthly' && 'timesUsed' in data[2]
-                              ? `${data[2].timesUsed} plays`
-                              : selectedType === 'uploaders' && 'totalPhotos' in data[2]
+                            {selectedType === 'uploaders' && 'totalPhotos' in data[2]
                               ? `${data[2].totalPhotos} photos`
                               : `${data[2].totalRewards || 0} SPOT`}
                           </Text>

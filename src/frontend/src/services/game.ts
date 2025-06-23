@@ -227,6 +227,16 @@ class GameService {
         roundCount: IDL.Nat,
         currentRound: IDL.Opt(IDL.Nat),
       });
+      
+      const SessionSummary = IDL.Record({
+        id: IDL.Text,
+        status: SessionStatus,
+        createdAt: IDL.Int,
+        roundCount: IDL.Nat,
+        currentRound: IDL.Opt(IDL.Nat),
+        totalScore: IDL.Nat,
+        duration: IDL.Opt(IDL.Nat),
+      });
 
       const SessionResult = IDL.Record({
         sessionId: IDL.Text,
@@ -330,6 +340,10 @@ class GameService {
         
         // Session management functions
         getUserSessions: IDL.Func([IDL.Principal], [Result_Sessions], ['query']),
+        getRecentSessionsWithScores: IDL.Func([IDL.Principal, IDL.Nat], [IDL.Variant({
+          ok: IDL.Vec(SessionSummary),
+          err: IDL.Text,
+        })], ['query']),
         getSession: IDL.Func([IDL.Text], [IDL.Variant({
           ok: IDL.Record({
             id: IDL.Text,
@@ -693,6 +707,22 @@ class GameService {
     } catch (error: any) {
       console.error('Failed to get user sessions:', error);
       return { err: 'Failed to get user sessions' };
+    }
+  }
+  
+  async getRecentSessionsWithScores(principal: any, limit: number = 10): Promise<{ ok?: any[]; err?: string }> {
+    if (!this.initialized || !this.actor) {
+      return { err: 'Service not initialized. Please login first.' };
+    }
+    
+    try {
+      console.log('🏠 Fetching recent sessions with scores for:', principal.toString());
+      const result = await this.actor.getRecentSessionsWithScores(principal, limit);
+      console.log('🏠 Recent sessions result:', result);
+      return result;
+    } catch (error: any) {
+      console.error('Failed to get recent sessions with scores:', error);
+      return { err: 'Failed to get recent sessions with scores' };
     }
   }
 

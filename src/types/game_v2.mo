@@ -20,6 +20,17 @@ module {
         currentRound: ?Nat;
     };
     
+    // Extended session info with score for efficient display
+    public type SessionSummary = {
+        id: SessionId;
+        status: SessionStatus;
+        createdAt: Time.Time;
+        roundCount: Nat;
+        currentRound: ?Nat;
+        totalScore: Nat;
+        duration: ?Nat;  // Duration in nanoseconds
+    };
+    
     public type GameSession = {
         id: SessionId;
         userId: Principal;

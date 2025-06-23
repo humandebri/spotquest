@@ -82,13 +82,11 @@ export default function HomeScreen() {
     
     setIsLoadingSessions(true);
     try {
-      const result = await gameService.getUserSessions(principal);
+      const result = await gameService.getRecentSessionsWithScores(principal, 5);
       if (result.ok) {
-        // Sort sessions by creation time (most recent first) and take top 5
-        const sortedSessions = result.ok
-          .sort((a, b) => Number(b.createdAt) - Number(a.createdAt))
-          .slice(0, 5);
-        setRecentSessions(sortedSessions);
+        // Sessions are already sorted by creation time (most recent first)
+        setRecentSessions(result.ok);
+        console.log('🏠 Recent sessions with scores:', result.ok);
       }
     } catch (error) {
       console.error('Failed to fetch recent sessions:', error);
@@ -361,7 +359,10 @@ export default function HomeScreen() {
                       </View>
                       <View style={styles.sessionStats}>
                         <Text style={styles.sessionRounds}>
-                          {session.currentRound || 0}/{session.roundCount} rounds
+                          {session.status === 'Completed' 
+                            ? `${session.roundCount}/${session.roundCount} rounds`
+                            : `${session.currentRound || 0}/${session.roundCount} rounds`
+                          }
                         </Text>
                       </View>
                     </View>
@@ -369,7 +370,7 @@ export default function HomeScreen() {
                       <View style={styles.sessionScoreContainer}>
                         <Ionicons name="star" size={16} color="#f59e0b" />
                         <Text style={styles.sessionScore}>
-                          Score: N/A
+                          Score: {session.totalScore ? Number(session.totalScore).toLocaleString() : 'N/A'}
                         </Text>
                       </View>
                       <Ionicons name="chevron-forward" size={20} color="#64748b" />

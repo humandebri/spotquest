@@ -490,6 +490,70 @@ actor GameUnified {
         }
     };
     
+    // Get recent sessions with scores for efficient display
+    public query func getRecentSessionsWithScores(player: Principal, limit: Nat) : async Result.Result<[GameV2.SessionSummary], Text> {
+        switch(gameEngineManager.getUserSessions(player)) {
+            case null { #err("No sessions found for user") };
+            case (?sessionIds) {
+                Debug.print("🏠 getRecentSessionsWithScores for " # Principal.toText(player) # " - Found " # Nat.toText(sessionIds.size()) # " session IDs");
+                let sessionSummaries = Buffer.Buffer<GameV2.SessionSummary>(limit);
+                
+                // Convert session IDs to summaries with scores
+                let tempSummaries = Buffer.Buffer<GameV2.SessionSummary>(sessionIds.size());
+                for (sessionId in sessionIds.vals()) {
+                    switch(gameEngineManager.getSession(sessionId)) {
+                        case null { };
+                        case (?session) {
+                            // Determine session status based on endTime
+                            let status : GameV2.SessionStatus = switch(session.endTime) {
+                                case null { #Active };
+                                case (?_) { #Completed };
+                            };
+                            
+                            // Calculate duration if session is completed
+                            let duration : ?Nat = switch(session.endTime) {
+                                case null { null };
+                                case (?endTime) {
+                                    ?Int.abs(endTime - session.startTime)
+                                };
+                            };
+                            
+                            tempSummaries.add({
+                                id = session.id;
+                                status = status;
+                                createdAt = session.startTime;
+                                roundCount = session.rounds.size();
+                                currentRound = if (session.currentRound > 0) { ?session.currentRound } else { null };
+                                totalScore = session.totalScore;
+                                duration = duration;
+                            });
+                        };
+                    };
+                };
+                
+                // Sort by creation time (most recent first)
+                let sorted = Array.sort<GameV2.SessionSummary>(
+                    Buffer.toArray(tempSummaries),
+                    func(a, b) {
+                        if (a.createdAt > b.createdAt) { #less }
+                        else if (a.createdAt < b.createdAt) { #greater }
+                        else { #equal }
+                    }
+                );
+                
+                // Return top N sessions
+                let actualLimit = Nat.min(limit, sorted.size());
+                let result = Array.tabulate<GameV2.SessionSummary>(
+                    actualLimit,
+                    func(i) = sorted[i]
+                );
+                
+                Debug.print("🏠 Returning " # Nat.toText(result.size()) # " recent sessions with scores");
+                #ok(result)
+            };
+        }
+    };
+    
     public shared(msg) func getNextRound(sessionId: Text, regionFilter: ?Text) : async Result.Result<GameV2.RoundState, Text> {
         // Get current session to check used photos
         switch(gameEngineManager.getSession(sessionId)) {
