@@ -69,6 +69,10 @@ export default function HomeScreen() {
       
       const stats = await gameService.getPlayerStats(principal);
       console.log('🏠 Player stats:', stats);
+      console.log('🏠 Player stats rank:', stats?.rank);
+      console.log('🏠 Player stats rank[0]:', stats?.rank?.[0]);
+      console.log('🏠 Player stats eloRating:', stats?.eloRating);
+      console.log('🏠 Player stats eloRating type:', typeof stats?.eloRating);
       setPlayerStats(stats);
     } catch (error) {
       console.error('Failed to fetch player stats:', error);
@@ -252,7 +256,7 @@ export default function HomeScreen() {
                 </View>
                 <View style={styles.statsBadge}>
                   <Text style={styles.statsBadgeText}>
-                    {isLoadingStats ? "..." : (playerStats ? `Best: ${Number(playerStats.bestScore)}` : "Best: 0")}
+                    {isLoadingStats ? "..." : (playerStats && playerStats.eloRating !== undefined ? `ELO: ${Number(playerStats.eloRating)}` : "ELO: 1500")}
                   </Text>
                 </View>
               </View>
@@ -269,9 +273,14 @@ export default function HomeScreen() {
                   label="Photos" 
                 />
                 <StatItem 
-                  icon="medal" 
+                  icon="trophy" 
                   value={isLoadingStats ? "..." : (playerStats && playerStats.rank?.[0] ? `#${playerStats.rank[0]}` : "Unranked")} 
                   label="Rank" 
+                />
+                <StatItem 
+                  icon="medal" 
+                  value={isLoadingStats ? "..." : (playerStats && playerStats.eloRating !== undefined ? `${Number(playerStats.eloRating)}` : "1500")} 
+                  label="Rating" 
                 />
                 <StatItem 
                   icon="trending-up-outline" 
@@ -398,18 +407,23 @@ export default function HomeScreen() {
   );
 }
 
-const StatItem = ({ icon, value, label }: any) => (
+const StatItem = ({ icon, value, subValue, label }: any) => (
   <View style={styles.statItem}>
     <View style={styles.statIconContainer}>
       {icon === 'medal' ? (
         <FontAwesome5 name={icon} size={18} color="#f59e0b" />
+      ) : icon === 'trophy' ? (
+        <FontAwesome5 name={icon} size={18} color="#fbbf24" />
       ) : icon === 'trending-up-outline' ? (
         <Ionicons name={icon} size={20} color="#10b981" />
       ) : (
         <Ionicons name={icon} size={20} color={icon.includes('game') ? '#3b82f6' : '#8b5cf6'} />
       )}
     </View>
-    <Text style={styles.statItemValue}>{value}</Text>
+    <View style={styles.statValueContainer}>
+      <Text style={styles.statItemValue}>{value}</Text>
+      {subValue && <Text style={styles.statItemSubValue}>{subValue}</Text>}
+    </View>
     <Text style={styles.statItemLabel}>{label}</Text>
   </View>
 );
@@ -500,19 +514,19 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   statsBadge: {
-    backgroundColor: 'rgba(34, 197, 94, 0.2)',
+    backgroundColor: 'rgba(59, 130, 246, 0.2)',
     paddingHorizontal: 16,
     paddingVertical: 4,
     borderRadius: 16,
     height: 32,
-    minWidth: 80,
+    minWidth: 100,
     alignItems: 'center',
     justifyContent: 'center',
   },
   statsBadgeText: {
-    color: '#10b981',
-    fontSize: 12,
-    fontWeight: '600',
+    color: '#3b82f6',
+    fontSize: 14,
+    fontWeight: '700',
   },
   statsGrid: {
     flexDirection: 'row',
@@ -530,10 +544,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 8,
   },
+  statValueContainer: {
+    alignItems: 'center',
+  },
   statItemValue: {
     color: '#ffffff',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  statItemSubValue: {
+    color: '#f59e0b',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
   },
   statItemLabel: {
     color: '#64748b',

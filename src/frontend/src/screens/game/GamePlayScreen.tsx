@@ -948,6 +948,11 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
             // Pass region filter to preserve it for next round
             regionFilter: regionFilter,
             regionName: regionName,
+            // Pass Elo rating changes
+            playerRatingChange: Number(backendResult.playerRatingChange),
+            newPlayerRating: Number(backendResult.newPlayerRating),
+            photoRatingChange: Number(backendResult.photoRatingChange),
+            newPhotoRating: Number(backendResult.newPhotoRating),
           };
           
           // Debug: Check resultParams longitude

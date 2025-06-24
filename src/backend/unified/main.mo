@@ -30,6 +30,8 @@ import PhotoModule "modules/PhotoModule";
 import PhotoModuleV2 "modules/PhotoModuleV2";
 import ReputationModule "modules/ReputationModule";
 import IIIntegrationModule "modules/IIIntegrationModule";
+import RatingModule "modules/RatingModule";
+import EloRatingModule "modules/EloRatingModule";
 
 // HTTP types
 import Blob "mo:base/Blob";
@@ -52,6 +54,11 @@ actor GameUnified {
             lon: Float;
         };
         photoId: Nat;
+        // Elo rating changes
+        playerRatingChange: Int;
+        newPlayerRating: Int;
+        photoRatingChange: Int;
+        newPhotoRating: Int;
     };
     
     public type HintInfo = {
@@ -90,6 +97,8 @@ actor GameUnified {
     private var photoManagerV2 = PhotoModuleV2.PhotoManager(); // 新しい写真管理システム
     private var reputationManager = ReputationModule.ReputationManager();
     private var iiIntegrationManager = IIIntegrationModule.IIIntegrationManager();
+    private var ratingManager = RatingModule.RatingManager(photoManagerV2); // PhotoModuleV2を渡す
+    private var eloRatingManager = EloRatingModule.EloRatingManager(photoManagerV2); // Eloレーティング管理
     
     // Random number generator for photo selection (unique seed to avoid duplicates)
     private var photoSelectionPrng = Random.Finite(
@@ -129,6 +138,11 @@ actor GameUnified {
         totalRounds: Nat;
         errorCount: Nat;
         totalRequests: Nat;
+    } = null;
+    
+    // New variable for extended game engine data
+    private stable var gameEngineExtended : ?{
+        sessionPhotosPlayedStable: [(Text, [(Nat, Nat)])];
     } = null;
     
     private stable var guessHistoryStable : ?{
@@ -180,6 +194,14 @@ actor GameUnified {
     // User profile storage for usernames
     private stable var userProfileStable : ?{
         usernames: [(Principal, Text)];
+    } = null;
+    
+    // Rating system stable storage
+    private stable var ratingStable : ?{
+        ratings: [(Text, RatingModule.PhotoRating)];
+        aggregated: [(Nat, RatingModule.AggregatedRatings)];
+        limits: [(Principal, RatingModule.RateLimitData)];
+        distributions: [(Nat, RatingModule.RatingDistribution)];
     } = null;
     
     // Runtime username map
@@ -745,6 +767,25 @@ actor GameUnified {
                                 // Update photo statistics (V2) - track game usage and average score
                                 ignore photoManagerV2.updatePhotoStats(currentRound.photoId, roundState.score);
                                 
+                                // Calculate Elo rating changes
+                                let ratingResult = eloRatingManager.processGameResult(
+                                    msg.caller,
+                                    currentRound.photoId,
+                                    roundState.score
+                                );
+                                
+                                let (playerRatingChange, newPlayerRating, photoRatingChange, newPhotoRating) = switch(ratingResult) {
+                                    case (#ok(changes)) {
+                                        (changes.playerRatingChange, changes.newPlayerRating, 
+                                         changes.photoRatingChange, changes.newPhotoRating)
+                                    };
+                                    case (#err(_)) {
+                                        // Default values if rating calculation fails
+                                        (0, eloRatingManager.getPlayerRating(msg.caller), 
+                                         0, eloRatingManager.getPhotoRating(currentRound.photoId))
+                                    };
+                                };
+                                
                                 // Return result
                                 #ok({
                                     displayScore = roundState.score;
@@ -759,6 +800,10 @@ actor GameUnified {
                                         lon = guessLon;
                                     };
                                     photoId = currentRound.photoId;
+                                    playerRatingChange = playerRatingChange;
+                                    newPlayerRating = newPlayerRating;
+                                    photoRatingChange = photoRatingChange;
+                                    newPhotoRating = newPhotoRating;
                                 })
                             };
                         }
@@ -865,6 +910,9 @@ actor GameUnified {
                         tokenManager.setTotalSupply(totalSupply - burnAmount);
                     };
                 };
+                
+                // Elo ratings are now updated in submitGuess for immediate feedback
+                // No need to update them again here
                 
                 // Calculate completed rounds
                 let completedRounds = Array.filter<GameV2.RoundState>(
@@ -1017,7 +1065,53 @@ actor GameUnified {
     
     /// 写真を検索
     public query func searchPhotosV2(filter: Photo.SearchFilter, cursor: ?Nat, limit: Nat) : async Photo.SearchResult {
-        photoManagerV2.search(filter, cursor, Nat.min(limit, 100)) // 最大100件に制限
+        let searchResult = photoManagerV2.search(filter, cursor, Nat.min(limit, 100)); // 最大100件に制限
+        
+        // Enrich photos with ratings
+        let enrichedPhotos = Array.map<PhotoModuleV2.Photo, Photo.PhotoMetaV2>(
+            searchResult.photos,
+            func(photo) : Photo.PhotoMetaV2 {
+                {
+                    id = photo.id;
+                    owner = photo.owner;
+                    uploadTime = photo.uploadTime;
+                    
+                    latitude = photo.latitude;
+                    longitude = photo.longitude;
+                    azimuth = photo.azimuth;
+                    geoHash = photo.geoHash;
+                    
+                    title = photo.title;
+                    description = photo.description;
+                    difficulty = photo.difficulty;
+                    hint = photo.hint;
+                    
+                    country = photo.country;
+                    region = photo.region;
+                    sceneKind = photo.sceneKind;
+                    tags = photo.tags;
+                    
+                    chunkCount = photo.chunkCount;
+                    totalSize = photo.totalSize;
+                    uploadState = photo.uploadState;
+                    
+                    status = photo.status;
+                    qualityScore = photo.qualityScore;
+                    timesUsed = photo.timesUsed;
+                    lastUsedTime = photo.lastUsedTime;
+                    
+                    // Get aggregated ratings
+                    aggregatedRatings = ratingManager.getPhotoRatings(photo.id);
+                }
+            }
+        );
+        
+        {
+            photos = enrichedPhotos;
+            totalCount = searchResult.totalCount;
+            cursor = searchResult.cursor;
+            hasMore = searchResult.hasMore;
+        }
     };
     
     /// 写真メタデータを取得
@@ -1053,6 +1147,9 @@ actor GameUnified {
                     qualityScore = photo.qualityScore;
                     timesUsed = photo.timesUsed;
                     lastUsedTime = photo.lastUsedTime;
+                    
+                    // Get aggregated ratings
+                    aggregatedRatings = ratingManager.getPhotoRatings(photo.id);
                 }
             };
         }
@@ -1101,10 +1198,54 @@ actor GameUnified {
             status = ?#Active;
         };
         
-        let result = photoManagerV2.search(filter, cursor, Nat.min(limit, 100));
-        Debug.print("📸 getUserPhotosV2 found " # Nat.toText(result.photos.size()) # " photos for user " # Principal.toText(msg.caller));
+        let searchResult = photoManagerV2.search(filter, cursor, Nat.min(limit, 100));
+        Debug.print("📸 getUserPhotosV2 found " # Nat.toText(searchResult.photos.size()) # " photos for user " # Principal.toText(msg.caller));
         
-        result
+        // Enrich photos with ratings
+        let enrichedPhotos = Array.map<PhotoModuleV2.Photo, Photo.PhotoMetaV2>(
+            searchResult.photos,
+            func(photo) : Photo.PhotoMetaV2 {
+                {
+                    id = photo.id;
+                    owner = photo.owner;
+                    uploadTime = photo.uploadTime;
+                    
+                    latitude = photo.latitude;
+                    longitude = photo.longitude;
+                    azimuth = photo.azimuth;
+                    geoHash = photo.geoHash;
+                    
+                    title = photo.title;
+                    description = photo.description;
+                    difficulty = photo.difficulty;
+                    hint = photo.hint;
+                    
+                    country = photo.country;
+                    region = photo.region;
+                    sceneKind = photo.sceneKind;
+                    tags = photo.tags;
+                    
+                    chunkCount = photo.chunkCount;
+                    totalSize = photo.totalSize;
+                    uploadState = photo.uploadState;
+                    
+                    status = photo.status;
+                    qualityScore = photo.qualityScore;
+                    timesUsed = photo.timesUsed;
+                    lastUsedTime = photo.lastUsedTime;
+                    
+                    // Get aggregated ratings
+                    aggregatedRatings = ratingManager.getPhotoRatings(photo.id);
+                }
+            }
+        );
+        
+        {
+            photos = enrichedPhotos;
+            totalCount = searchResult.totalCount;
+            cursor = searchResult.cursor;
+            hasMore = searchResult.hasMore;
+        }
     };
     
     /// 写真を削除（V2）
@@ -1120,6 +1261,81 @@ actor GameUnified {
     /// Get photo statistics details (V2)
     public query func getPhotoStatsDetailsV2(photoId: Nat) : async ?PhotoModuleV2.PhotoStats {
         photoManagerV2.getPhotoStatsById(photoId)
+    };
+    
+    // ======================================
+    // PHOTO RATING FUNCTIONS
+    // ======================================
+    
+    /// Submit rating for a photo
+    public shared(msg) func submitPhotoRating(
+        sessionId: Text,
+        photoId: Nat,
+        roundIndex: Nat,
+        ratings: {
+            difficulty: Nat;
+            interest: Nat;
+            beauty: Nat;
+        }
+    ) : async Result.Result<Text, Text> {
+        let userId = msg.caller;
+        
+        // Verify the user played this photo in the session
+        if (not gameEngineManager.verifyRatingEligibility(sessionId, photoId, roundIndex)) {
+            return #err("Photo not played in this session/round or round not completed");
+        };
+        
+        // Submit the rating
+        ratingManager.submitRating(userId, sessionId, photoId, roundIndex, ratings)
+    };
+    
+    /// Get aggregated ratings for a photo
+    public query func getPhotoRatings(photoId: Nat) : async ?RatingModule.AggregatedRatings {
+        ratingManager.getPhotoRatings(photoId)
+    };
+    
+    /// Get aggregated ratings for multiple photos
+    public query func getMultiplePhotoRatings(photoIds: [Nat]) : async [(Nat, ?RatingModule.AggregatedRatings)] {
+        ratingManager.getMultiplePhotoRatings(photoIds)
+    };
+    
+    /// Check if user can rate a specific photo in a session
+    public query(msg) func canRatePhoto(sessionId: Text, photoId: Nat) : async Bool {
+        ratingManager.canUserRate(msg.caller, sessionId, photoId)
+    };
+    
+    /// Get user's rating status for multiple photos in a session
+    public query(msg) func getUserRatingStatus(sessionId: Text, photoIds: [Nat]) : async [(Nat, Bool)] {
+        ratingManager.getUserRatingStatus(msg.caller, sessionId, photoIds)
+    };
+    
+    /// Get rating distribution for a photo
+    public query func getRatingDistribution(photoId: Nat) : async ?RatingModule.RatingDistribution {
+        ratingManager.getRatingDistribution(photoId)
+    };
+    
+    /// Get user's rating history
+    public query(msg) func getUserRatingHistory(limit: ?Nat) : async [Nat] {
+        ratingManager.getUserRatingHistory(msg.caller, limit)
+    };
+    
+    /// Get rating system statistics
+    public query func getRatingStats() : async {
+        totalRatings: Nat;
+        totalRatedPhotos: Nat;
+        totalRatingUsers: Nat;
+    } {
+        ratingManager.getStats()
+    };
+    
+    /// Get user's rating statistics
+    public query(msg) func getUserRatingStats() : async {
+        totalRatings: Nat;
+        averageDifficulty: Float;
+        averageInterest: Float;
+        averageBeauty: Float;
+    } {
+        ratingManager.getUserRatingStats(msg.caller)
     };
     
     // ======================================
@@ -1315,7 +1531,9 @@ actor GameUnified {
         longestStreak: Nat;
         reputation: Float;
         totalGuesses: Nat;
+        averageDuration: Nat; // 平均プレイ時間（ナノ秒）
         suspiciousActivityFlags: ?Text;
+        eloRating: Int; // Eloレーティング
     } {
         // Get user sessions
         let userSessionBuffer = switch(gameEngineManager.getUserSessions(player)) {
@@ -1331,6 +1549,8 @@ actor GameUnified {
         var bestScore : Nat = 0;
         var completedGames = 0;
         var totalRewardsEarned : Nat = 0;
+        var totalDuration : Nat = 0;
+        var gamesWithDuration = 0;
         
         // Calculate 30-day cutoff time
         let thirtyDaysAgo = Time.now() - (30 * 24 * 60 * 60 * 1000_000_000); // 30 days in nanoseconds
@@ -1354,6 +1574,16 @@ actor GameUnified {
                     if (session.endTime != null) {
                         totalGamesPlayed += 1;
                         totalScore += session.totalScore;
+                        
+                        // Calculate session duration
+                        switch(session.endTime) {
+                            case (?endTime) {
+                                let duration = Int.abs(endTime - session.startTime);
+                                totalDuration += duration;
+                                gamesWithDuration += 1;
+                            };
+                            case null {};
+                        };
                         
                         // Check if session is within 30 days
                         let sessionTime = session.startTime;
@@ -1393,6 +1623,11 @@ actor GameUnified {
             totalScore30Days / totalGamesPlayed30Days
         } else { 0 };
         
+        // Calculate average duration
+        let averageDuration = if (gamesWithDuration > 0) {
+            totalDuration / gamesWithDuration
+        } else { 0 };
+        
         // Calculate player rank inline (can't await in query)
         var playerScores : [(Principal, Nat)] = [];
         for ((p, sessionIds) in gameEngineManager.getPlayerSessionsMap().vals()) {
@@ -1419,15 +1654,8 @@ actor GameUnified {
             else { #equal }
         });
         
-        // Find player's rank
-        var playerRank : ?Nat = null;
-        var rank : Nat = 1;
-        for ((p, score) in sortedScores.vals()) {
-            if (Principal.equal(p, player)) {
-                playerRank := ?rank;
-            };
-            rank += 1;
-        };
+        // Get player's Elo rank
+        let playerRank = eloRatingManager.getPlayerRank(player);
         
         // Get other stats
         // Use V2 search to count user's photos
@@ -1467,7 +1695,54 @@ actor GameUnified {
             reputation = reputation;
             totalGuesses = totalGuesses;
             winRate = winRate;
+            averageDuration = averageDuration;
             suspiciousActivityFlags = suspiciousFlags;
+            eloRating = eloRatingManager.getPlayerRating(player);
+        }
+    };
+    
+    // ======================================
+    // ELO RATING FUNCTIONS
+    // ======================================
+    
+    // Get Elo leaderboard
+    public query func getEloLeaderboard(limit: Nat) : async [(Principal, Int)] {
+        eloRatingManager.getTopPlayersByRating(limit)
+    };
+    
+    // Get player's Elo rating details
+    public query func getPlayerEloRating(player: Principal) : async {
+        rating: Int;
+        gamesPlayed: Nat;
+        wins: Nat;
+        losses: Nat;
+        draws: Nat;
+        highestRating: Int;
+        lowestRating: Int;
+    } {
+        switch (eloRatingManager.getPlayerRatingDetails(player)) {
+            case (?details) {
+                {
+                    rating = details.rating;
+                    gamesPlayed = details.gamesPlayed;
+                    wins = details.wins;
+                    losses = details.losses;
+                    draws = details.draws;
+                    highestRating = details.highestRating;
+                    lowestRating = details.lowestRating;
+                }
+            };
+            case null {
+                {
+                    rating = 1500; // Initial rating
+                    gamesPlayed = 0;
+                    wins = 0;
+                    losses = 0;
+                    draws = 0;
+                    highestRating = 1500;
+                    lowestRating = 1500;
+                }
+            };
         }
     };
     
@@ -1502,6 +1777,21 @@ actor GameUnified {
     // ======================================
     
     // TODO: Future Rating System Implementation
+    // Get photo Elo rating and stats
+    public query func getPhotoEloRating(photoId: Nat) : async Int {
+        eloRatingManager.getPhotoRating(photoId)
+    };
+    
+    public query func getPhotoStatsById(photoId: Nat) : async ?{
+        playCount: Nat;
+        totalScore: Nat;
+        averageScore: Float;
+        bestScore: Nat;
+        worstScore: Nat;
+    } {
+        photoManagerV2.getPhotoStatsById(photoId)
+    };
+    
     // ========================================
     // rating.mdに基づくEloレーティングシステムの実装計画:
     //
@@ -1540,76 +1830,19 @@ actor GameUnified {
     // - 写真の初期レーティングは難易度に基づいて設定
     // ========================================
     public query func getPlayerRank(player: Principal) : async ?Nat {
-        // Get all players with their best scores
-        var playerScores : [(Principal, Nat)] = [];
-        
-        for ((p, sessionIds) in gameEngineManager.getPlayerSessionsMap().vals()) {
-            var bestScore : Nat = 0;
-            for (sessionId in sessionIds.vals()) {
-                switch(gameEngineManager.getSession(sessionId)) {
-                    case null { };
-                    case (?session) {
-                        if (session.endTime != null and session.totalScore > bestScore) {
-                            bestScore := session.totalScore;
-                        };
-                    };
-                };
-            };
-            if (bestScore > 0) {
-                playerScores := Array.append(playerScores, [(p, bestScore)]);
-            };
-        };
-        
-        // Sort by best score (descending)
-        let sortedScores = Array.sort(playerScores, func(a: (Principal, Nat), b: (Principal, Nat)) : {#less; #equal; #greater} {
-            if (a.1 > b.1) { #less }
-            else if (a.1 < b.1) { #greater }
-            else { #equal }
-        });
-        
-        // Find player's rank
-        var rank : Nat = 1;
-        for ((p, score) in sortedScores.vals()) {
-            if (Principal.equal(p, player)) {
-                return ?rank;
-            };
-            rank += 1;
-        };
-        
-        null // Player not found in rankings
+        // Use Elo-based ranking
+        eloRatingManager.getPlayerRank(player)
     };
     
     public query func getLeaderboard(limit: Nat) : async [(Principal, Nat)] {
-        // Get all players with their best scores
-        var playerScores : [(Principal, Nat)] = [];
+        // Get top players by Elo rating
+        let topPlayers = eloRatingManager.getTopPlayersByRating(limit);
         
-        for ((p, sessionIds) in gameEngineManager.getPlayerSessionsMap().vals()) {
-            var bestScore : Nat = 0;
-            for (sessionId in sessionIds.vals()) {
-                switch(gameEngineManager.getSession(sessionId)) {
-                    case null { };
-                    case (?session) {
-                        if (session.endTime != null and session.totalScore > bestScore) {
-                            bestScore := session.totalScore;
-                        };
-                    };
-                };
-            };
-            if (bestScore > 0) {
-                playerScores := Array.append(playerScores, [(p, bestScore)]);
-            };
-        };
-        
-        // Sort by best score (descending)
-        let sortedScores = Array.sort(playerScores, func(a: (Principal, Nat), b: (Principal, Nat)) : {#less; #equal; #greater} {
-            if (a.1 > b.1) { #less }
-            else if (a.1 < b.1) { #greater }
-            else { #equal }
-        });
-        
-        // Return top N players
-        let actualLimit = Nat.min(limit, sortedScores.size());
-        Array.tabulate<(Principal, Nat)>(actualLimit, func(i) = sortedScores[i])
+        // Convert Int ratings to Nat for compatibility
+        Array.map<(Principal, Int), (Principal, Nat)>(
+            topPlayers,
+            func((p, rating)) = (p, Int.abs(rating))
+        )
     };
     
     // Get leaderboard with detailed player statistics
@@ -2584,7 +2817,19 @@ actor GameUnified {
     system func preupgrade() {
         tokenStable := ?tokenManager.toStable();
         treasuryStable := ?treasuryManager.toStable();
-        gameEngineStable := ?gameEngineManager.toStable();
+        let engineData = gameEngineManager.toStable();
+        gameEngineStable := ?{
+            sessionsStable = engineData.sessionsStable;
+            userSessionsStable = engineData.userSessionsStable;
+            sessionTimeoutsStable = engineData.sessionTimeoutsStable;
+            totalSessions = engineData.totalSessions;
+            totalRounds = engineData.totalRounds;
+            errorCount = engineData.errorCount;
+            totalRequests = engineData.totalRequests;
+        };
+        gameEngineExtended := ?{
+            sessionPhotosPlayedStable = engineData.sessionPhotosPlayedStable;
+        };
         guessHistoryStable := ?guessHistoryManager.toStable();
         photoStable := ?photoManager.toStable();
         // PhotoV2データの保存 - データ保護のため復活
@@ -2607,6 +2852,9 @@ actor GameUnified {
         userProfileStable := ?{
             usernames = Iter.toArray(usernames.entries());
         };
+        
+        // Save rating data
+        ratingStable := ?ratingManager.getStableData();
     };
     
     system func postupgrade() {
@@ -2632,8 +2880,27 @@ actor GameUnified {
         switch(gameEngineStable) {
             case null { };
             case (?stableData) {
-                gameEngineManager.fromStable(stableData);
+                // Get photos played data if available
+                let photosPlayedData = switch(gameEngineExtended) {
+                    case null { null };
+                    case (?extended) { ?extended.sessionPhotosPlayedStable };
+                };
+                
+                // Combine the data
+                let fullData = {
+                    sessionsStable = stableData.sessionsStable;
+                    userSessionsStable = stableData.userSessionsStable;
+                    sessionTimeoutsStable = stableData.sessionTimeoutsStable;
+                    sessionPhotosPlayedStable = photosPlayedData;
+                    totalSessions = stableData.totalSessions;
+                    totalRounds = stableData.totalRounds;
+                    errorCount = stableData.errorCount;
+                    totalRequests = stableData.totalRequests;
+                };
+                
+                gameEngineManager.fromStable(fullData);
                 gameEngineStable := null;
+                gameEngineExtended := null;
             };
         };
         
@@ -2702,6 +2969,20 @@ actor GameUnified {
                     usernames.put(principal, username);
                 };
                 userProfileStable := null;
+            };
+        };
+        
+        // Restore rating data
+        switch(ratingStable) {
+            case null { };
+            case (?ratingData) {
+                ratingManager.loadFromStable(
+                    ratingData.ratings,
+                    ratingData.aggregated,
+                    ratingData.limits,
+                    ratingData.distributions
+                );
+                ratingStable := null;
             };
         };
         

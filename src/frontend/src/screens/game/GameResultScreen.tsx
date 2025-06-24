@@ -114,6 +114,12 @@ export default function GameResultScreen() {
   // Rewards calculation (based on 5000 point max)
   const baseReward = 1.0; // 1.00 SPOT for perfect score
   const earnedReward = ((score || 0) / 5000) * baseReward;
+  
+  // Get Elo rating changes from route params
+  const playerRatingChange = (params as any).playerRatingChange || 0;
+  const newPlayerRating = (params as any).newPlayerRating || 1500;
+  const photoRatingChange = (params as any).photoRatingChange || 0;
+  const newPhotoRating = (params as any).newPhotoRating || 1500;
 
   // Performance optimization: disable animations for low scores (distant guesses)
   const isLightweightMode = score <= 500;
@@ -660,6 +666,34 @@ export default function GameResultScreen() {
           </Text>
         </View>
 
+        {/* Elo Rating Changes */}
+        {(playerRatingChange !== 0 || photoRatingChange !== 0) && (
+          <View style={styles.ratingContainer}>
+            <View style={styles.ratingRow}>
+              <Ionicons name="person-circle-outline" size={20} color="#3b82f6" />
+              <Text style={styles.ratingLabel}>Your Rating:</Text>
+              <Text style={[
+                styles.ratingChange,
+                { color: playerRatingChange > 0 ? '#4CAF50' : playerRatingChange < 0 ? '#f44336' : '#999' }
+              ]}>
+                {playerRatingChange > 0 ? '+' : ''}{playerRatingChange}
+              </Text>
+              <Text style={styles.ratingValue}>({newPlayerRating})</Text>
+            </View>
+            <View style={styles.ratingRow}>
+              <Ionicons name="image-outline" size={20} color="#8b5cf6" />
+              <Text style={styles.ratingLabel}>Photo Difficulty:</Text>
+              <Text style={[
+                styles.ratingChange,
+                { color: photoRatingChange > 0 ? '#4CAF50' : photoRatingChange < 0 ? '#f44336' : '#999' }
+              ]}>
+                {photoRatingChange > 0 ? '+' : ''}{photoRatingChange}
+              </Text>
+              <Text style={styles.ratingValue}>({newPhotoRating})</Text>
+            </View>
+          </View>
+        )}
+
         <Text style={styles.distanceMessage}>
           You guessed {distance < 1000 
             ? `${Math.round(distance || 0)} m` 
@@ -828,6 +862,35 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     opacity: 0.8,
+  },
+  ratingContainer: {
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.3)',
+    gap: 8,
+    width: '100%',
+  },
+  ratingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  ratingLabel: {
+    color: '#fff',
+    fontSize: 14,
+    flex: 1,
+  },
+  ratingChange: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  ratingValue: {
+    color: '#94a3b8',
+    fontSize: 14,
+    marginLeft: 4,
   },
   distanceMessage: {
     color: '#fff',

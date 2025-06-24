@@ -299,6 +299,11 @@ class GameService {
           lon: IDL.Float64,
         }),
         photoId: IDL.Nat,
+        // Elo rating changes
+        playerRatingChange: IDL.Int,
+        newPlayerRating: IDL.Int,
+        photoRatingChange: IDL.Int,
+        newPhotoRating: IDL.Int,
       });
 
       const Result_RoundState = IDL.Variant({
@@ -380,7 +385,9 @@ class GameService {
           reputation: IDL.Float64,
           totalGuesses: IDL.Nat,
           winRate: IDL.Float64,
+          averageDuration: IDL.Nat,
           suspiciousActivityFlags: IDL.Opt(IDL.Text),
+          eloRating: IDL.Int,
         })], ['query']),
         
         // Ranking functions
@@ -418,6 +425,57 @@ class GameService {
           err: IDL.Text,
         })], []),
         getUsername: IDL.Func([IDL.Principal], [IDL.Opt(IDL.Text)], ['query']),
+        
+        // Photo rating functions
+        submitPhotoRating: IDL.Func([
+          IDL.Text, // sessionId
+          IDL.Nat,  // photoId
+          IDL.Nat,  // roundIndex
+          IDL.Record({
+            difficulty: IDL.Nat,
+            interest: IDL.Nat,
+            beauty: IDL.Nat,
+          })
+        ], [IDL.Variant({
+          ok: IDL.Text,
+          err: IDL.Text,
+        })], []),
+        canRatePhoto: IDL.Func([IDL.Text, IDL.Nat], [IDL.Bool], ['query']),
+        getPhotoRatings: IDL.Func([IDL.Nat], [IDL.Opt(IDL.Record({
+          photoId: IDL.Nat,
+          difficulty: IDL.Record({
+            total: IDL.Nat,
+            count: IDL.Nat,
+            average: IDL.Float64,
+          }),
+          interest: IDL.Record({
+            total: IDL.Nat,
+            count: IDL.Nat,
+            average: IDL.Float64,
+          }),
+          beauty: IDL.Record({
+            total: IDL.Nat,
+            count: IDL.Nat,
+            average: IDL.Float64,
+          }),
+          lastUpdated: IDL.Int,
+        }))], ['query']),
+        getUserRatingStats: IDL.Func([], [IDL.Record({
+          totalRatings: IDL.Nat,
+          averageDifficulty: IDL.Float64,
+          averageInterest: IDL.Float64,
+          averageBeauty: IDL.Float64,
+        })], ['query']),
+        
+        // Photo stats functions
+        getPhotoEloRating: IDL.Func([IDL.Nat], [IDL.Int], ['query']),
+        getPhotoStatsById: IDL.Func([IDL.Nat], [IDL.Opt(IDL.Record({
+          playCount: IDL.Nat,
+          totalScore: IDL.Nat,
+          averageScore: IDL.Float64,
+          bestScore: IDL.Nat,
+          worstScore: IDL.Nat,
+        }))], ['query']),
         
         // Debug functions
         debugGetTokenInfo: IDL.Func([], [IDL.Record({
@@ -878,6 +936,261 @@ class GameService {
     } catch (error) {
       console.error('Failed to get top uploaders:', error);
       return [];
+    }
+  }
+
+  // Rating system functions
+  async submitPhotoRating(
+    sessionId: string,
+    photoId: number,
+    roundIndex: number,
+    ratings: {
+      difficulty: number;
+      interest: number;
+      beauty: number;
+    }
+  ): Promise<{ ok?: string; err?: string }> {
+    if (!this.initialized || !this.actor) {
+      return { err: 'Service not initialized. Please login first.' };
+    }
+    
+    try {
+      console.log('📊 Submitting rating for photo:', photoId, 'with ratings:', ratings);
+      const result = await this.actor.submitPhotoRating(
+        sessionId,
+        BigInt(photoId),
+        BigInt(roundIndex),
+        {
+          difficulty: BigInt(ratings.difficulty),
+          interest: BigInt(ratings.interest),
+          beauty: BigInt(ratings.beauty),
+        }
+      );
+      console.log('📊 Rating submission result:', result);
+      return result;
+    } catch (error: any) {
+      console.error('Failed to submit photo rating:', error);
+      return { err: error.message || 'Failed to submit photo rating' };
+    }
+  }
+
+  async canRatePhoto(sessionId: string, photoId: number): Promise<boolean> {
+    if (!this.initialized || !this.actor) {
+      return false;
+    }
+    
+    try {
+      const result = await this.actor.canRatePhoto(sessionId, BigInt(photoId));
+      return result;
+    } catch (error) {
+      console.error('Failed to check if can rate photo:', error);
+      return false;
+    }
+  }
+
+  async getUserRatingStatus(sessionId: string, photoIds: number[]): Promise<Map<number, boolean>> {
+    if (!this.initialized || !this.actor) {
+      return new Map();
+    }
+    
+    try {
+      const bigIntPhotoIds = photoIds.map(id => BigInt(id));
+      const result = await this.actor.getUserRatingStatus(sessionId, bigIntPhotoIds);
+      
+      const statusMap = new Map<number, boolean>();
+      result.forEach(([photoId, hasRated]: [bigint, boolean]) => {
+        statusMap.set(Number(photoId), hasRated);
+      });
+      
+      return statusMap;
+    } catch (error) {
+      console.error('Failed to get user rating status:', error);
+      return new Map();
+    }
+  }
+
+  async getPhotoRatings(photoId: number): Promise<{
+    difficulty: { total: bigint; count: bigint; average: number };
+    interest: { total: bigint; count: bigint; average: number };
+    beauty: { total: bigint; count: bigint; average: number };
+    lastUpdated: bigint;
+  } | null> {
+    if (!this.initialized || !this.actor) {
+      return null;
+    }
+    
+    try {
+      const result = await this.actor.getPhotoRatings(BigInt(photoId));
+      if (!result || result.length === 0) {
+        return null;
+      }
+      
+      const ratings = result[0];
+      return {
+        difficulty: {
+          total: ratings.difficulty.total,
+          count: ratings.difficulty.count,
+          average: Number(ratings.difficulty.average),
+        },
+        interest: {
+          total: ratings.interest.total,
+          count: ratings.interest.count,
+          average: Number(ratings.interest.average),
+        },
+        beauty: {
+          total: ratings.beauty.total,
+          count: ratings.beauty.count,
+          average: Number(ratings.beauty.average),
+        },
+        lastUpdated: ratings.lastUpdated,
+      };
+    } catch (error) {
+      console.error('Failed to get photo ratings:', error);
+      return null;
+    }
+  }
+
+  async getPlayerStats(principal?: Principal): Promise<{
+    totalGamesPlayed: number;
+    totalPhotosUploaded: number;
+    totalRewardsEarned: number;
+    bestScore: number;
+    averageScore: number;
+    averageScore30Days: number | null;
+    rank: number | null;
+    winRate: number;
+    currentStreak: number;
+    longestStreak: number;
+    reputation: number;
+    totalGuesses: number;
+    averageDuration: number;
+    suspiciousActivityFlags: string | null;
+  } | null> {
+    if (!this.initialized || !this.actor || !this.identity) {
+      return null;
+    }
+    
+    try {
+      const targetPrincipal = principal || this.identity.getPrincipal();
+      const result = await this.actor.getPlayerStats(targetPrincipal);
+      
+      return {
+        totalGamesPlayed: Number(result.totalGamesPlayed),
+        totalPhotosUploaded: Number(result.totalPhotosUploaded),
+        totalRewardsEarned: Number(result.totalRewardsEarned),
+        bestScore: Number(result.bestScore),
+        averageScore: Number(result.averageScore),
+        averageScore30Days: result.averageScore30Days.length > 0 ? Number(result.averageScore30Days[0]) : null,
+        rank: result.rank.length > 0 ? Number(result.rank[0]) : null,
+        winRate: Number(result.winRate),
+        currentStreak: Number(result.currentStreak),
+        longestStreak: Number(result.longestStreak),
+        reputation: Number(result.reputation),
+        totalGuesses: Number(result.totalGuesses),
+        // averageDuration is new field - handle gracefully if not present
+        averageDuration: result.averageDuration !== undefined ? Number(result.averageDuration) : 0,
+        suspiciousActivityFlags: result.suspiciousActivityFlags.length > 0 ? result.suspiciousActivityFlags[0] : null,
+      };
+    } catch (error) {
+      console.error('Failed to get player stats:', error);
+      return null;
+    }
+  }
+
+  async getUserRatingStats(): Promise<{
+    totalRatings: number;
+    averageDifficulty: number;
+    averageInterest: number;
+    averageBeauty: number;
+  } | null> {
+    if (!this.initialized || !this.actor) {
+      return null;
+    }
+    
+    try {
+      const result = await this.actor.getUserRatingStats();
+      
+      return {
+        totalRatings: Number(result.totalRatings),
+        averageDifficulty: Number(result.averageDifficulty),
+        averageInterest: Number(result.averageInterest),
+        averageBeauty: Number(result.averageBeauty),
+      };
+    } catch (error) {
+      console.error('Failed to get user rating stats:', error);
+      return null;
+    }
+  }
+
+  async getRatingDistribution(photoId: number): Promise<{
+    difficulty: number[];
+    interest: number[];
+    beauty: number[];
+    totalRatings: number;
+  } | null> {
+    if (!this.initialized || !this.actor) {
+      return null;
+    }
+    
+    try {
+      const result = await this.actor.getRatingDistribution(BigInt(photoId));
+      if (!result || result.length === 0) {
+        return null;
+      }
+      
+      const distribution = result[0];
+      return {
+        difficulty: distribution.difficulty.map((n: bigint) => Number(n)),
+        interest: distribution.interest.map((n: bigint) => Number(n)),
+        beauty: distribution.beauty.map((n: bigint) => Number(n)),
+        totalRatings: Number(distribution.totalRatings),
+      };
+    } catch (error) {
+      console.error('Failed to get rating distribution:', error);
+      return null;
+    }
+  }
+
+  async getPhotoEloRating(photoId: number): Promise<number> {
+    if (!this.initialized || !this.actor) {
+      throw new Error('Service not initialized');
+    }
+    
+    try {
+      const rating = await this.actor.getPhotoEloRating(photoId);
+      return Number(rating);
+    } catch (error) {
+      console.error('Failed to get photo Elo rating:', error);
+      return 1500; // Default rating
+    }
+  }
+
+  async getPhotoStatsById(photoId: number): Promise<{
+    playCount: number;
+    totalScore: number;
+    averageScore: number;
+    bestScore: number;
+    worstScore: number;
+  } | null> {
+    if (!this.initialized || !this.actor) {
+      throw new Error('Service not initialized');
+    }
+    
+    try {
+      const stats = await this.actor.getPhotoStatsById(photoId);
+      if (stats?.[0]) {
+        return {
+          playCount: Number(stats[0].playCount),
+          totalScore: Number(stats[0].totalScore),
+          averageScore: stats[0].averageScore,
+          bestScore: Number(stats[0].bestScore),
+          worstScore: Number(stats[0].worstScore),
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error('Failed to get photo stats:', error);
+      return null;
     }
   }
 

@@ -41,11 +41,17 @@ export default function PhotoDetailsScreen() {
     interest: 0,
     beauty: 0,
   });
+  const [existingRatings, setExistingRatings] = useState<any>(null);
+  const [userStats, setUserStats] = useState<any>(null);
+  const [userRatingStats, setUserRatingStats] = useState<any>(null);
+  const [photoStats, setPhotoStats] = useState<any>(null);
+  const [photoEloRating, setPhotoEloRating] = useState<number>(1500);
 
   useEffect(() => {
     if (photoId && identity) {
       fetchPhotoDetails();
       checkVoteStatus();
+      fetchUserStats();
     }
   }, [photoId, identity]);
 
@@ -53,6 +59,7 @@ export default function PhotoDetailsScreen() {
     try {
       // Initialize services
       await photoService.init(identity!);
+      await gameService.init(identity!);
       
       // Get photo metadata
       const metadata = await photoService.getPhotoMetadataV2(photoId);
@@ -64,6 +71,22 @@ export default function PhotoDetailsScreen() {
           const url = await photoService.getPhotoDataUrl(photoId, metadata);
           setPhotoUrl(url);
         }
+        
+        // Get existing ratings if available
+        const photoRatings = await gameService.getPhotoRatings(photoId);
+        if (photoRatings) {
+          setExistingRatings(photoRatings);
+        }
+        
+        // Get photo Elo rating
+        const eloRating = await gameService.getPhotoEloRating(photoId);
+        setPhotoEloRating(eloRating);
+        
+        // Get photo stats
+        const stats = await gameService.getPhotoStatsById(photoId);
+        if (stats) {
+          setPhotoStats(stats);
+        }
       }
     } catch (error) {
       console.error('Failed to fetch photo details:', error);
@@ -74,13 +97,39 @@ export default function PhotoDetailsScreen() {
   };
 
   const checkVoteStatus = async () => {
-    // TODO: Check if user has already voted for this photo in this round
-    // For now, we'll use local storage or session data
-    if (sessionId && roundIndex !== undefined) {
-      const voteKey = `vote_${sessionId}_${roundIndex}`;
-      // This is a placeholder - in real implementation, check from backend
-      const hasVotedForRound = false; // Check from backend or local state
-      setHasVoted(hasVotedForRound);
+    // Check if user has already voted for this photo in this session
+    if (sessionId && roundIndex !== undefined && identity) {
+      try {
+        await gameService.init(identity);
+        const canRate = await gameService.canRatePhoto(sessionId, photoId);
+        setHasVoted(!canRate);
+      } catch (error) {
+        console.error('Failed to check vote status:', error);
+        // Default to allowing vote on error
+        setHasVoted(false);
+      }
+    }
+  };
+
+  const fetchUserStats = async () => {
+    if (!identity) return;
+    
+    try {
+      await gameService.init(identity);
+      
+      // Fetch player stats
+      const playerStats = await gameService.getPlayerStats();
+      if (playerStats) {
+        setUserStats(playerStats);
+      }
+      
+      // Fetch user rating stats
+      const ratingStats = await gameService.getUserRatingStats();
+      if (ratingStats) {
+        setUserRatingStats(ratingStats);
+      }
+    } catch (error) {
+      console.error('Failed to fetch user stats:', error);
     }
   };
 
@@ -102,18 +151,46 @@ export default function PhotoDetailsScreen() {
       return;
     }
 
+    // Check if we have session context
+    if (!sessionId || roundIndex === undefined) {
+      Alert.alert('Error', 'Rating is only available when playing the game.');
+      return;
+    }
+
     setIsVoting(true);
     try {
-      // TODO: Implement actual voting API call
       console.log('Voting for photo:', photoId, 'with ratings:', ratings);
       
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const result = await gameService.submitPhotoRating(
+        sessionId,
+        photoId,
+        roundIndex,
+        ratings
+      );
       
-      // Update vote status
-      setHasVoted(true);
-      
-      Alert.alert('Success', 'Thank you for rating this photo!');
+      if (result.ok) {
+        setHasVoted(true);
+        Alert.alert('Success', 'Thank you for rating this photo!');
+        
+        // Refresh ratings
+        const updatedRatings = await gameService.getPhotoRatings(photoId);
+        if (updatedRatings) {
+          setExistingRatings(updatedRatings);
+        }
+      } else {
+        // Handle specific error messages
+        let errorMessage = result.err || 'Failed to submit your vote';
+        if (result.err?.includes('Cannot rate your own photo')) {
+          errorMessage = 'You cannot rate your own photo';
+        } else if (result.err?.includes('Anonymous users cannot rate')) {
+          errorMessage = 'Please sign in to rate photos';
+        } else if (result.err?.includes('Photo not found')) {
+          errorMessage = 'This photo no longer exists';
+        } else if (result.err?.includes('Rate limit exceeded')) {
+          errorMessage = 'You have rated too many photos recently. Please try again later.';
+        }
+        Alert.alert('Error', errorMessage);
+      }
     } catch (error) {
       console.error('Failed to submit vote:', error);
       Alert.alert('Error', 'Failed to submit your vote');
@@ -152,6 +229,18 @@ export default function PhotoDetailsScreen() {
       beauty: ['', 'Poor', 'Below Average', 'Average', 'Beautiful', 'Stunning'],
     };
     return labels[category][rating] || '';
+  };
+
+  const formatDuration = (nanoseconds: number): string => {
+    const milliseconds = nanoseconds / 1_000_000;
+    const seconds = Math.floor(milliseconds / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    
+    if (minutes > 0) {
+      return `${minutes}m ${remainingSeconds}s`;
+    }
+    return `${seconds}s`;
   };
 
   if (isLoading) {
@@ -238,13 +327,35 @@ export default function PhotoDetailsScreen() {
             <Text style={styles.sectionTitle}>Statistics</Text>
             <View style={styles.statsGrid}>
               <View style={styles.statItem}>
-                <Text style={styles.statLabel}>Times Used</Text>
-                <Text style={styles.statValue}>
-                  {Number(photoMeta.timesUsed || 0).toLocaleString()}
+                <Text style={styles.statLabel}>Elo Rating</Text>
+                <Text style={[styles.statValue, { color: '#3b82f6' }]}>
+                  {photoEloRating}
                 </Text>
               </View>
               <View style={styles.statItem}>
-                <Text style={styles.statLabel}>Quality Score</Text>
+                <Text style={styles.statLabel}>Avg Score</Text>
+                <Text style={styles.statValue}>
+                  {photoStats ? photoStats.averageScore.toFixed(0) : '-'}
+                </Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statLabel}>Times Played</Text>
+                <Text style={styles.statValue}>
+                  {photoStats ? photoStats.playCount.toLocaleString() : '0'}
+                </Text>
+              </View>
+            </View>
+            
+            {/* Additional Stats Row */}
+            <View style={[styles.statsGrid, { marginTop: 12 }]}>
+              <View style={styles.statItem}>
+                <Text style={styles.statLabel}>Best Score</Text>
+                <Text style={styles.statValue}>
+                  {photoStats ? photoStats.bestScore.toLocaleString() : '-'}
+                </Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statLabel}>Quality</Text>
                 <Text style={styles.statValue}>
                   {(photoMeta.qualityScore || 0).toFixed(1)}/10
                 </Text>
@@ -256,7 +367,158 @@ export default function PhotoDetailsScreen() {
                 </Text>
               </View>
             </View>
+            
+            {/* Display aggregated ratings if available */}
+            {existingRatings && (
+              <View style={styles.aggregatedRatings}>
+                <Text style={styles.aggregatedTitle}>Community Ratings</Text>
+                <View style={styles.aggregatedGrid}>
+                  <View style={styles.aggregatedItem}>
+                    <Text style={styles.aggregatedLabel}>Difficulty</Text>
+                    <View style={styles.aggregatedStars}>
+                      {[1, 2, 3, 4, 5].map(i => (
+                        <Ionicons
+                          key={i}
+                          name={i <= Math.round(existingRatings.difficulty.average) ? "star" : "star-outline"}
+                          size={14}
+                          color="#f59e0b"
+                        />
+                      ))}
+                    </View>
+                    <Text style={styles.aggregatedCount}>
+                      ({Number(existingRatings.difficulty.count)} votes)
+                    </Text>
+                  </View>
+                  <View style={styles.aggregatedItem}>
+                    <Text style={styles.aggregatedLabel}>Interest</Text>
+                    <View style={styles.aggregatedStars}>
+                      {[1, 2, 3, 4, 5].map(i => (
+                        <Ionicons
+                          key={i}
+                          name={i <= Math.round(existingRatings.interest.average) ? "star" : "star-outline"}
+                          size={14}
+                          color="#f59e0b"
+                        />
+                      ))}
+                    </View>
+                    <Text style={styles.aggregatedCount}>
+                      ({Number(existingRatings.interest.count)} votes)
+                    </Text>
+                  </View>
+                  <View style={styles.aggregatedItem}>
+                    <Text style={styles.aggregatedLabel}>Beauty</Text>
+                    <View style={styles.aggregatedStars}>
+                      {[1, 2, 3, 4, 5].map(i => (
+                        <Ionicons
+                          key={i}
+                          name={i <= Math.round(existingRatings.beauty.average) ? "star" : "star-outline"}
+                          size={14}
+                          color="#f59e0b"
+                        />
+                      ))}
+                    </View>
+                    <Text style={styles.aggregatedCount}>
+                      ({Number(existingRatings.beauty.count)} votes)
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            )}
           </View>
+
+          {/* User Statistics Section */}
+          {(userStats || userRatingStats) && (
+            <View style={styles.userStatsCard}>
+              <Text style={styles.sectionTitle}>Your Statistics</Text>
+              
+              {/* Game Stats */}
+              {userStats && (
+                <View style={styles.userStatsSection}>
+                  <Text style={styles.userStatsSubtitle}>Game Performance</Text>
+                  <View style={styles.userStatsGrid}>
+                    <View style={styles.userStatItem}>
+                      <Text style={styles.userStatLabel}>Avg Score</Text>
+                      <Text style={styles.userStatValue}>
+                        {userStats.averageScore.toLocaleString()}
+                      </Text>
+                    </View>
+                    <View style={styles.userStatItem}>
+                      <Text style={styles.userStatLabel}>Avg Play Time</Text>
+                      <Text style={styles.userStatValue}>
+                        {formatDuration(userStats.averageDuration)}
+                      </Text>
+                    </View>
+                    <View style={styles.userStatItem}>
+                      <Text style={styles.userStatLabel}>Games Played</Text>
+                      <Text style={styles.userStatValue}>
+                        {userStats.totalGamesPlayed}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              )}
+              
+              {/* Rating Stats */}
+              {userRatingStats && userRatingStats.totalRatings > 0 && (
+                <View style={styles.userStatsSection}>
+                  <Text style={styles.userStatsSubtitle}>Your Average Ratings</Text>
+                  <View style={styles.userRatingStatsGrid}>
+                    <View style={styles.userRatingStatItem}>
+                      <Text style={styles.userStatLabel}>Difficulty</Text>
+                      <View style={styles.userRatingStars}>
+                        {[1, 2, 3, 4, 5].map(i => (
+                          <Ionicons
+                            key={i}
+                            name={i <= Math.round(userRatingStats.averageDifficulty) ? "star" : "star-outline"}
+                            size={12}
+                            color="#f59e0b"
+                          />
+                        ))}
+                      </View>
+                      <Text style={styles.userRatingValue}>
+                        {userRatingStats.averageDifficulty.toFixed(1)}
+                      </Text>
+                    </View>
+                    <View style={styles.userRatingStatItem}>
+                      <Text style={styles.userStatLabel}>Interest</Text>
+                      <View style={styles.userRatingStars}>
+                        {[1, 2, 3, 4, 5].map(i => (
+                          <Ionicons
+                            key={i}
+                            name={i <= Math.round(userRatingStats.averageInterest) ? "star" : "star-outline"}
+                            size={12}
+                            color="#f59e0b"
+                          />
+                        ))}
+                      </View>
+                      <Text style={styles.userRatingValue}>
+                        {userRatingStats.averageInterest.toFixed(1)}
+                      </Text>
+                    </View>
+                    <View style={styles.userRatingStatItem}>
+                      <Text style={styles.userStatLabel}>Beauty</Text>
+                      <View style={styles.userRatingStars}>
+                        {[1, 2, 3, 4, 5].map(i => (
+                          <Ionicons
+                            key={i}
+                            name={i <= Math.round(userRatingStats.averageBeauty) ? "star" : "star-outline"}
+                            size={12}
+                            color="#f59e0b"
+                          />
+                        ))}
+                      </View>
+                      <Text style={styles.userRatingValue}>
+                        {userRatingStats.averageBeauty.toFixed(1)}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={styles.userRatingCount}>
+                    Based on {userRatingStats.totalRatings} ratings
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
 
           {/* Rating Section */}
           <View style={styles.ratingCard}>
@@ -688,5 +950,102 @@ const styles = StyleSheet.create({
     color: '#fbbf24',
     fontSize: 14,
     lineHeight: 20,
+  },
+  aggregatedRatings: {
+    marginTop: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(71, 85, 105, 0.5)',
+  },
+  aggregatedTitle: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  aggregatedGrid: {
+    gap: 12,
+  },
+  aggregatedItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  aggregatedLabel: {
+    color: '#94a3b8',
+    fontSize: 14,
+    flex: 1,
+  },
+  aggregatedStars: {
+    flexDirection: 'row',
+    gap: 2,
+    marginHorizontal: 8,
+  },
+  aggregatedCount: {
+    color: '#64748b',
+    fontSize: 12,
+  },
+  userStatsCard: {
+    backgroundColor: 'rgba(30, 41, 59, 0.4)',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(71, 85, 105, 0.5)',
+  },
+  userStatsSection: {
+    marginBottom: 20,
+  },
+  userStatsSubtitle: {
+    color: '#94a3b8',
+    fontSize: 14,
+    fontWeight: '500',
+    marginBottom: 12,
+  },
+  userStatsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  userStatItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  userStatLabel: {
+    color: '#64748b',
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  userStatValue: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  userRatingStatsGrid: {
+    gap: 12,
+  },
+  userRatingStatItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  userRatingStars: {
+    flexDirection: 'row',
+    gap: 2,
+    flex: 1,
+    justifyContent: 'center',
+  },
+  userRatingValue: {
+    color: '#f59e0b',
+    fontSize: 14,
+    fontWeight: '600',
+    width: 40,
+    textAlign: 'right',
+  },
+  userRatingCount: {
+    color: '#64748b',
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 8,
   },
 });

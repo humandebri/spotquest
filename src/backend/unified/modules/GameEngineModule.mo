@@ -25,6 +25,9 @@ module {
         private var userSessions = TrieMap.TrieMap<Principal, Buffer.Buffer<Text>>(Principal.equal, Principal.hash);
         private var sessionTimeouts = TrieMap.TrieMap<Text, Time.Time>(Text.equal, Text.hash);
         
+        // Photo tracking for rating system
+        private var sessionPhotosPlayed = TrieMap.TrieMap<Text, [(Nat, Nat)]>(Text.equal, Text.hash); // sessionId -> [(roundIndex, photoId)]
+        
         // Metrics
         private var totalSessions : Nat = 0;
         private var totalRounds : Nat = 0;
@@ -189,6 +192,14 @@ module {
                     
                     sessions.put(sessionId, updatedSession);
                     sessionTimeouts.put(sessionId, now + Constants.SESSION_TIMEOUT);
+                    
+                    // Track photo for rating system
+                    let currentPhotosPlayed = switch(sessionPhotosPlayed.get(sessionId)) {
+                        case null { [] };
+                        case (?photos) { photos };
+                    };
+                    let updatedPhotosPlayed = Array.append(currentPhotosPlayed, [(session.currentRound, photoId)]);
+                    sessionPhotosPlayed.put(sessionId, updatedPhotosPlayed);
                     
                     totalRounds += 1;
                     
@@ -454,6 +465,37 @@ module {
             }
         };
         
+        // Verify rating eligibility - for rating system integration
+        public func verifyRatingEligibility(sessionId: Text, photoId: Nat, roundIndex: Nat) : Bool {
+            switch(sessionPhotosPlayed.get(sessionId)) {
+                case null { false };
+                case (?photosPlayed) {
+                    // Check if the photo was played in the specified round
+                    for ((round, photo) in photosPlayed.vals()) {
+                        if (round == roundIndex and photo == photoId) {
+                            // Also verify the round is completed
+                            switch(sessions.get(sessionId)) {
+                                case null { return false };
+                                case (?session) {
+                                    if (roundIndex < session.rounds.size()) {
+                                        let round = session.rounds[roundIndex];
+                                        return round.status == #Completed;
+                                    };
+                                    return false;
+                                };
+                            };
+                        };
+                    };
+                    false
+                };
+            }
+        };
+        
+        // Get photos played in a session - for rating system
+        public func getSessionPhotosPlayed(sessionId: Text) : ?[(Nat, Nat)] {
+            sessionPhotosPlayed.get(sessionId)
+        };
+        
         // ======================================
         // STABLE STORAGE FUNCTIONS
         // ======================================
@@ -462,6 +504,7 @@ module {
             sessionsStable: [(Text, GameV2.GameSession)];
             userSessionsStable: [(Principal, [Text])];
             sessionTimeoutsStable: [(Text, Time.Time)];
+            sessionPhotosPlayedStable: [(Text, [(Nat, Nat)])];
             totalSessions: Nat;
             totalRounds: Nat;
             errorCount: Nat;
@@ -474,6 +517,7 @@ module {
                     func(entry) = (entry.0, Buffer.toArray(entry.1))
                 );
                 sessionTimeoutsStable = Iter.toArray(sessionTimeouts.entries());
+                sessionPhotosPlayedStable = Iter.toArray(sessionPhotosPlayed.entries());
                 totalSessions = totalSessions;
                 totalRounds = totalRounds;
                 errorCount = errorCount;
@@ -485,6 +529,7 @@ module {
             sessionsStable: [(Text, GameV2.GameSession)];
             userSessionsStable: [(Principal, [Text])];
             sessionTimeoutsStable: [(Text, Time.Time)];
+            sessionPhotosPlayedStable: ?[(Text, [(Nat, Nat)])]; // Optional for backward compatibility
             totalSessions: Nat;
             totalRounds: Nat;
             errorCount: Nat;
@@ -500,6 +545,16 @@ module {
                     buffer.add(sessionId);
                 };
                 userSessions.put(user, buffer);
+            };
+            
+            // Restore sessionPhotosPlayed if available
+            switch (stableData.sessionPhotosPlayedStable) {
+                case null { 
+                    sessionPhotosPlayed := TrieMap.TrieMap<Text, [(Nat, Nat)]>(Text.equal, Text.hash);
+                };
+                case (?photosData) {
+                    sessionPhotosPlayed := TrieMap.fromEntries(photosData.vals(), Text.equal, Text.hash);
+                };
             };
             
             totalSessions := stableData.totalSessions;

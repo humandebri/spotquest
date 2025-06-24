@@ -1,0 +1,717 @@
+type TransferError = 
+ variant {
+   BadBurn: record {min_burn_amount: nat;};
+   BadFee: record {expected_fee: nat;};
+   CreatedInFuture: record {ledger_time: nat64;};
+   Duplicate: record {duplicate_of: nat;};
+   GenericError: record {
+                   error_code: nat;
+                   message: text;
+                 };
+   InsufficientFunds: record {balance: nat;};
+   TemporarilyUnavailable;
+   TooOld;
+ };
+type TransferArgs = 
+ record {
+   amount: nat;
+   created_at_time: opt Time;
+   fee: opt nat;
+   from_subaccount: opt blob;
+   memo: opt blob;
+   to: Account;
+ };
+type Time = int;
+type SessionSummary = 
+ record {
+   createdAt: Time;
+   currentRound: opt nat;
+   duration: opt nat;
+   id: SessionId;
+   roundCount: nat;
+   status: SessionStatus;
+   totalScore: nat;
+ };
+type SessionStatus = 
+ variant {
+   Abandoned;
+   Active;
+   Completed;
+ };
+type SessionResult = 
+ record {
+   completedRounds: nat;
+   duration: nat;
+   playerReward: nat;
+   rank: opt nat;
+   sessionId: SessionId;
+   totalRounds: nat;
+   totalScore: nat;
+   totalScoreNorm: nat;
+   uploaderRewards: vec record {
+                          principal;
+                          nat;
+                        };
+   userId: principal;
+ };
+type SessionInfo = 
+ record {
+   createdAt: Time;
+   currentRound: opt nat;
+   id: SessionId;
+   players: vec principal;
+   roundCount: nat;
+   status: SessionStatus;
+ };
+type SessionId = text;
+type SearchResult = 
+ record {
+   cursor: opt nat;
+   hasMore: bool;
+   photos: vec PhotoMetaV2;
+   totalCount: nat;
+ };
+type SearchFilter = 
+ record {
+   country: opt CountryCode;
+   difficulty: opt variant {
+                     EASY;
+                     EXTREME;
+                     HARD;
+                     NORMAL;
+                   };
+   nearLocation:
+    opt record {
+          latitude: float64;
+          longitude: float64;
+          radiusKm: float64;
+        };
+   owner: opt principal;
+   region: opt RegionCode;
+   sceneKind: opt SceneKind;
+   status: opt variant {
+                 Active;
+                 Banned;
+                 Deleted;
+               };
+   tags: opt vec text;
+ };
+type SceneKind = 
+ variant {
+   Building;
+   Facility;
+   Nature;
+   Other;
+   Store;
+ };
+type RoundStatus = 
+ variant {
+   Active;
+   Completed;
+   Retried;
+   TimedOut;
+ };
+type RoundState = 
+ record {
+   endTime: opt Time;
+   guessData: opt GuessData;
+   hintsPurchased: vec HintType;
+   photoId: nat;
+   retryAvailable: bool;
+   score: nat;
+   scoreNorm: nat;
+   startTime: Time;
+   status: RoundStatus;
+ };
+type RoundResult = 
+ record {
+   actualLocation: record {
+                     lat: float64;
+                     lon: float64;
+                   };
+   displayScore: nat;
+   distance: float64;
+   guessLocation: record {
+                    lat: float64;
+                    lon: float64;
+                  };
+   normalizedScore: nat;
+   photoId: nat;
+ };
+type Result_9 = 
+ variant {
+   err: text;
+   ok:
+    record {
+      legacyChunks: nat;
+      legacyPhotos: nat;
+      stableChunks: nat;
+      stablePhotos: nat;
+    };
+ };
+type Result_8 = 
+ variant {
+   err: text;
+   ok: vec SessionSummary;
+ };
+type Result_7 = 
+ variant {
+   err: text;
+   ok: GameSession;
+ };
+type Result_6 = 
+ variant {
+   err: text;
+   ok: vec SessionInfo;
+ };
+type Result_5 = 
+ variant {
+   err: TransferError;
+   ok: nat;
+ };
+type Result_4 = 
+ variant {
+   err: text;
+   ok: record {
+         chunksCount: nat;
+         errors: vec text;
+         photosCount: nat;
+       };
+ };
+type Result_3 = 
+ variant {
+   err: text;
+   ok: HintInfo;
+ };
+type Result_2 = 
+ variant {
+   err: text;
+   ok: RoundResult;
+ };
+type Result_15 = 
+ variant {
+   err: text;
+   ok: record {
+         clearedChunks: nat;
+         clearedPhotos: nat;
+       };
+ };
+type Result_14 = 
+ variant {
+   err: text;
+   ok: nat;
+ };
+type Result_13 = 
+ variant {
+   err: text;
+   ok: SessionId;
+ };
+type Result_12 = 
+ variant {
+   err: text;
+   ok: SessionResult;
+ };
+type Result_11 = 
+ variant {
+   err: text;
+   ok: Heatmap;
+ };
+type Result_10 = 
+ variant {
+   err: text;
+   ok: RoundState;
+ };
+type Result_1 = 
+ variant {
+   err: text;
+   ok: text;
+ };
+type Result = 
+ variant {
+   err: text;
+   ok;
+ };
+type Reputation = 
+ record {
+   lastUpdated: Time;
+   score: float64;
+   uploads: nat;
+   user: principal;
+   validations: nat;
+ };
+type RegionCode = text;
+type RatingDistribution = 
+ record {
+   beauty: vec nat;
+   difficulty: vec nat;
+   interest: vec nat;
+   totalRatings: nat;
+ };
+type PhotoStats = 
+ record {
+   averageScore: float64;
+   bestScore: nat;
+   playCount: nat;
+   totalScore: nat;
+   worstScore: nat;
+ };
+type PhotoMetaV2 = 
+ record {
+   aggregatedRatings:
+    opt
+     record {
+       beauty: record {
+                 average: float64;
+                 count: nat;
+                 total: nat;
+               };
+       difficulty: record {
+                     average: float64;
+                     count: nat;
+                     total: nat;
+                   };
+       interest: record {
+                   average: float64;
+                   count: nat;
+                   total: nat;
+                 };
+       lastUpdated: Time;
+     };
+   azimuth: opt float64;
+   chunkCount: nat;
+   country: CountryCode;
+   description: text;
+   difficulty: variant {
+                 EASY;
+                 EXTREME;
+                 HARD;
+                 NORMAL;
+               };
+   geoHash: GeoHash;
+   hint: text;
+   id: nat;
+   lastUsedTime: opt Time;
+   latitude: float64;
+   longitude: float64;
+   owner: principal;
+   qualityScore: float64;
+   region: RegionCode;
+   sceneKind: SceneKind;
+   status: variant {
+             Active;
+             Banned;
+             Deleted;
+           };
+   tags: vec text;
+   timesUsed: nat;
+   title: text;
+   totalSize: nat;
+   uploadState: ChunkUploadState;
+   uploadTime: Time;
+ };
+type OverallPhotoStats = 
+ record {
+   activePhotos: nat;
+   photosByCountry: vec record {
+                          CountryCode;
+                          nat;
+                        };
+   photosByRegion: vec record {
+                         RegionCode;
+                         nat;
+                       };
+   photosBySceneKind: vec record {
+                            SceneKind;
+                            nat;
+                          };
+   popularTags: vec record {
+                      text;
+                      nat;
+                    };
+   totalPhotos: nat;
+   totalSize: nat;
+ };
+type HttpResponse = 
+ record {
+   body: blob;
+   headers: vec record {
+                  text;
+                  text;
+                };
+   status_code: nat16;
+ };
+type HttpRequest = 
+ record {
+   body: blob;
+   headers: vec record {
+                  text;
+                  text;
+                };
+   method: text;
+   url: text;
+ };
+type HintType = 
+ variant {
+   BasicRadius;
+   DirectionHint;
+   PremiumRadius;
+ };
+type HintInfo = 
+ variant {
+   DirectionHint: text;
+   RadiusHint: nat;
+ };
+type Heatmap = 
+ record {
+   bounds:
+    record {
+      maxLat: float64;
+      maxLon: float64;
+      minLat: float64;
+      minLon: float64;
+    };
+   gridSize: nat;
+   heatmap: vec vec float64;
+   photoId: nat;
+   totalGuesses: nat;
+ };
+type GuessData = 
+ record {
+   azimuth: opt float64;
+   confidenceRadius: float64;
+   lat: float64;
+   lon: float64;
+   submittedAt: Time;
+ };
+type Guess = 
+ record {
+   dist: float64;
+   lat: float64;
+   lon: float64;
+   photoId: nat;
+   player: principal;
+   sessionId: text;
+   timestamp: Time;
+ };
+type GeoHash = text;
+type GameSession = 
+ record {
+   currentRound: nat;
+   endTime: opt Time;
+   id: SessionId;
+   lastActivity: Time;
+   retryCount: nat;
+   rounds: vec RoundState;
+   startTime: Time;
+   totalScore: nat;
+   totalScoreNorm: nat;
+   userId: principal;
+ };
+type CreatePhotoRequest = 
+ record {
+   azimuth: opt float64;
+   country: CountryCode;
+   description: text;
+   difficulty: variant {
+                 EASY;
+                 EXTREME;
+                 HARD;
+                 NORMAL;
+               };
+   expectedChunks: nat;
+   hint: text;
+   latitude: float64;
+   longitude: float64;
+   region: RegionCode;
+   sceneKind: SceneKind;
+   tags: vec text;
+   title: text;
+   totalSize: nat;
+ };
+type CountryCode = text;
+type ChunkUploadState = 
+ variant {
+   Complete;
+   Failed;
+   Incomplete;
+ };
+type AggregatedRatings = 
+ record {
+   beauty: record {
+             average: float64;
+             count: nat;
+             total: nat;
+           };
+   difficulty: record {
+                 average: float64;
+                 count: nat;
+                 total: nat;
+               };
+   interest: record {
+               average: float64;
+               count: nat;
+               total: nat;
+             };
+   lastUpdated: Time;
+   photoId: nat;
+ };
+type Account = 
+ record {
+   owner: principal;
+   subaccount: opt blob;
+ };
+service : {
+  adminBanPhoto: (photoId: nat) -> (Result);
+  adminBanUser: (user: principal) -> (Result);
+  adminMint: (to: principal, amount: nat) -> (Result_14);
+  adminUnbanUser: (user: principal) -> (Result);
+  /// Check if user can rate a specific photo in a session
+  canRatePhoto: (sessionId: text, photoId: nat) -> (bool) query;
+  /// 🗑️ 移行完了後にLegacyデータを削除（管理者専用）
+  clearLegacyPhotoData: () -> (Result_15);
+  /// 写真のメタデータを作成（チャンクアップロード開始）
+  createPhotoV2: (request: CreatePhotoRequest) -> (Result_14);
+  createSession: () -> (Result_13);
+  debugCalculatePlayerReward: (sessionId: text) ->
+   (record {
+      roundCount: nat;
+      roundDetails: vec record {
+                          nat;
+                          nat;
+                        };
+      sessionFound: bool;
+      totalReward: nat;
+      totalScore: nat;
+    }) query;
+  debugGetPlayerSessions: (player: principal) ->
+   (record {
+      sessionIds: vec text;
+      sessions:
+       vec
+        record {
+          currentRound: nat;
+          hasEndTime: bool;
+          id: text;
+          rounds: nat;
+          totalScore: nat;
+        };
+      totalCompleted: nat;
+    }) query;
+  /// デバッグ用：移行状況確認（クエリ）
+  debugPhotoMigrationStatus: () ->
+   (record {
+      legacyChunks: nat;
+      legacyPhotos: nat;
+      stableChunks: nat;
+      stablePhotos: nat;
+    }) query;
+  debugPhotoStorage: () ->
+   (record {
+      firstPhotoIds: vec nat;
+      nextPhotoId: nat;
+      stableChunksCount: nat;
+      stablePhotosCount: nat;
+      storageSize: nat;
+      totalPhotos: nat;
+    }) query;
+  /// 写真を削除（V2）
+  deletePhotoV2: (photoId: nat) -> (Result);
+  /// アップロードを完了
+  finalizePhotoUploadV2: (photoId: nat) -> (Result);
+  finalizeSession: (sessionId: text) -> (Result_12);
+  generateHeatmap: (photoId: nat) -> (Result_11) query;
+  getLeaderboard: (limit: nat) -> (vec record {
+                                         principal;
+                                         nat;
+                                       }) query;
+  getLeaderboardWithStats: (limit: nat) ->
+   (vec
+     record {
+       principal;
+       record {
+         gamesPlayed: nat;
+         photosUploaded: nat;
+         score: nat;
+         totalRewards: nat;
+         username: opt text;
+       };
+     }) query;
+  /// Get aggregated ratings for multiple photos
+  getMultiplePhotoRatings: (photoIds: vec nat) ->
+   (vec record {
+          nat;
+          opt AggregatedRatings;
+        }) query;
+  getNextRound: (sessionId: text, regionFilter: opt text) -> (Result_10);
+  getOwner: () -> (principal) query;
+  /// 写真のチャンクを取得
+  getPhotoChunkV2: (photoId: nat, chunkIndex: nat) -> (opt blob) query;
+  /// 写真の完全なデータを取得（全チャンクを結合済み）
+  getPhotoCompleteDataV2: (photoId: nat) -> (opt blob) query;
+  getPhotoGuesses: (photoId: nat, limit: opt nat) -> (vec Guess) query;
+  /// 写真メタデータを取得
+  getPhotoMetadataV2: (photoId: nat) -> (opt PhotoMetaV2) query;
+  /// 🔍 移行状況を確認（管理者専用）
+  getPhotoMigrationStatus: () -> (Result_9) query;
+  /// Get aggregated ratings for a photo
+  getPhotoRatings: (photoId: nat) -> (opt AggregatedRatings) query;
+  /// Get photo statistics details (V2)
+  getPhotoStatsDetailsV2: (photoId: nat) -> (opt PhotoStats) query;
+  /// 写真統計情報を取得
+  getPhotoStatsV2: () -> (OverallPhotoStats) query;
+  getPlayerHistory: (player: principal, limit: opt nat) -> (vec nat) query;
+  getPlayerRank: (player: principal) -> (opt nat) query;
+  getPlayerStats: (player: principal) ->
+   (record {
+      averageDuration: nat;
+      averageScore: nat;
+      averageScore30Days: opt nat;
+      bestScore: nat;
+      currentStreak: nat;
+      longestStreak: nat;
+      rank: opt nat;
+      reputation: float64;
+      suspiciousActivityFlags: opt text;
+      totalGamesPlayed: nat;
+      totalGuesses: nat;
+      totalPhotosUploaded: nat;
+      totalRewardsEarned: nat;
+      winRate: float64;
+    }) query;
+  /// Get rating distribution for a photo
+  getRatingDistribution: (photoId: nat) -> (opt RatingDistribution) query;
+  /// Get rating system statistics
+  getRatingStats: () ->
+   (record {
+      totalRatedPhotos: nat;
+      totalRatingUsers: nat;
+      totalRatings: nat;
+    }) query;
+  getRecentSessionsWithScores: (player: principal, limit: nat) ->
+   (Result_8) query;
+  getReputation: (user: principal) -> (Reputation) query;
+  getReputationLeaderboard: (limit: nat) ->
+   (vec record {
+          principal;
+          float64;
+        }) query;
+  getSession: (sessionId: text) -> (Result_7) query;
+  getSinkHistory: (limit: opt nat) -> (vec record {
+                                             Time;
+                                             text;
+                                             nat;
+                                           }) query;
+  getSystemStats: () ->
+   (record {
+      gameMetrics:
+       record {
+         errorCount: nat;
+         totalRequests: nat;
+         totalRounds: nat;
+         totalSessions: nat;
+       };
+      photoStats:
+       record {
+         activePhotos: nat;
+         bannedPhotos: nat;
+         deletedPhotos: nat;
+         totalPhotos: nat;
+       };
+      totalGuesses: nat;
+      totalPhotos: nat;
+      totalSessions: nat;
+      totalSupply: nat;
+      totalUsers: nat;
+    }) query;
+  getTopPhotosByUsage: (limit: nat) ->
+   (vec
+     record {
+       nat;
+       record {
+         owner: principal;
+         photoId: nat;
+         timesUsed: nat;
+         title: text;
+       };
+     }) query;
+  getTopUploaders: (limit: nat) ->
+   (vec
+     record {
+       principal;
+       record {
+         totalPhotos: nat;
+         totalTimesUsed: nat;
+         username: opt text;
+       };
+     }) query;
+  getTreasuryStats: () ->
+   (record {
+      balance: nat;
+      totalBurned: nat;
+      totalSunk: nat;
+    }) query;
+  /// ユーザーの写真を取得
+  getUserPhotosV2: (cursor: opt nat, limit: nat) -> (SearchResult) query;
+  /// Get user's rating history
+  getUserRatingHistory: (limit: opt nat) -> (vec nat) query;
+  /// Get user's rating statistics
+  getUserRatingStats: () ->
+   (record {
+      averageBeauty: float64;
+      averageDifficulty: float64;
+      averageInterest: float64;
+      totalRatings: nat;
+    }) query;
+  /// Get user's rating status for multiple photos in a session
+  getUserRatingStatus: (sessionId: text, photoIds: vec nat) ->
+   (vec record {
+          nat;
+          bool;
+        }) query;
+  getUserSessions: (player: principal) -> (Result_6) query;
+  getUsername: ("principal": principal) -> (opt text) query;
+  http_request: (req: HttpRequest) -> (HttpResponse) query;
+  http_request_update: (req: HttpRequest) -> (HttpResponse);
+  icrc1_balance_of: (account: Account) -> (nat) query;
+  icrc1_decimals: () -> (nat8) query;
+  icrc1_fee: () -> (nat) query;
+  icrc1_name: () -> (text) query;
+  icrc1_symbol: () -> (text) query;
+  icrc1_total_supply: () -> (nat) query;
+  icrc1_transfer: (args: TransferArgs) -> (Result_5);
+  init: () -> (Result);
+  /// 🔄 Legacy TrieMapからStableTrieMapにデータを移行（管理者専用）
+  migrateLegacyPhotoData: () -> (Result_4);
+  purchaseHint: (sessionId: text, hintType: HintType) -> (Result_3);
+  /// 写真を検索
+  searchPhotosV2: (filter: SearchFilter, cursor: opt nat, limit: nat) ->
+   (SearchResult) query;
+  setPlayFee: (fee: nat) -> (Result);
+  setUsername: (username: text) -> (Result);
+  submitGuess: (sessionId: text, guessLat: float64, guessLon: float64,
+   guessAzimuth: opt float64, confidenceRadius: float64) -> (Result_2);
+  /// Submit rating for a photo
+  submitPhotoRating: (sessionId: text, photoId: nat, roundIndex: nat,
+   ratings: record {
+              beauty: nat;
+              difficulty: nat;
+              interest: nat;
+            }) -> (Result_1);
+  updatePhotoInfo: (photoId: nat, updateInfo:
+   record {
+     description: text;
+     difficulty: variant {
+                   EASY;
+                   EXTREME;
+                   HARD;
+                   NORMAL;
+                 };
+     hint: text;
+     tags: vec text;
+     title: text;
+   }) -> (Result);
+  /// Update photo statistics (V2)
+  updatePhotoStatsV2: (photoId: nat, score: nat) -> (Result);
+  /// チャンクをアップロード
+  uploadPhotoChunkV2: (photoId: nat, chunkIndex: nat, data: blob) -> (Result);
+}

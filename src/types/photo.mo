@@ -216,6 +216,14 @@ module {
         qualityScore: Float;
         timesUsed: Nat;
         lastUsedTime: ?Time.Time;
+        
+        // 評価情報（オプション - 後方互換性のため）
+        aggregatedRatings: ?{
+            difficulty: { total: Nat; count: Nat; average: Float };
+            interest: { total: Nat; count: Nat; average: Float };
+            beauty: { total: Nat; count: Nat; average: Float };
+            lastUpdated: Time.Time;
+        };
     };
     
     /// 写真統計情報V2
