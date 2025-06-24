@@ -23,6 +23,7 @@ import RegionSelectScreen from '../screens/game/RegionSelectScreen';
 import CameraScreen from '../screens/photo/CameraScreen';
 import PhotoUploadScreen from '../screens/photo/PhotoUploadScreenV2';
 import PhotoLibraryScreen from '../screens/photo/PhotoLibraryScreen';
+import PhotoDetailsScreen from '../screens/photo/PhotoDetailsScreen';
 
 // User
 import LeaderboardScreen from '../screens/user/LeaderboardScreen';
@@ -71,6 +72,11 @@ export type RootStackParamList = {
   SessionSummary: undefined;
   SessionDetails: {
     sessionId: string;
+  };
+  PhotoDetails: {
+    photoId: number;
+    sessionId?: string;
+    roundIndex?: number;
   };
   Camera: undefined;
   PhotoUpload: {
@@ -167,6 +173,13 @@ export default function AppNavigator() {
           <Stack.Screen
             name="SessionDetails"
             component={SessionDetailsScreen}
+            options={{ 
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="PhotoDetails"
+            component={PhotoDetailsScreen}
             options={{ 
               headerShown: false,
             }}

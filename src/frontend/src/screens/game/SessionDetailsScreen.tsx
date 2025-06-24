@@ -565,9 +565,27 @@ export default function SessionDetailsScreen() {
             </View>
 
             {/* Photo Info if available */}
-            {currentRound.photoMeta && (
-              <View style={styles.photoInfoSection}>
-                <Text style={styles.photoInfoTitle}>Photo Information</Text>
+            {currentRound.photoMeta ? (
+              <TouchableOpacity 
+                style={styles.photoInfoSection}
+                onPress={() => {
+                  console.log('🎯 Navigating to PhotoDetails:', {
+                    photoId: currentRound.photoId,
+                    sessionId: sessionId,
+                    roundIndex: selectedRound,
+                  });
+                  navigation.navigate('PhotoDetails', { 
+                    photoId: currentRound.photoId,
+                    sessionId: sessionId,
+                    roundIndex: selectedRound,
+                  });
+                }}
+                activeOpacity={0.8}
+              >
+                <View style={styles.photoInfoHeader}>
+                  <Text style={styles.photoInfoTitle}>Photo Information</Text>
+                  <Ionicons name="chevron-forward" size={24} color="#64748b" />
+                </View>
                 
                 {currentRound.photoMeta.title && (
                   <View style={styles.photoInfoItem}>
@@ -632,6 +650,10 @@ export default function SessionDetailsScreen() {
                     </View>
                   </View>
                 )}
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.photoInfoSection}>
+                <Text style={styles.photoInfoTitle}>Loading photo information...</Text>
               </View>
             )}
           </View>
@@ -862,18 +884,31 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   photoInfoSection: {
-    backgroundColor: 'rgba(30, 41, 59, 0.4)',
+    backgroundColor: 'rgba(30, 41, 59, 0.6)',
     borderRadius: 16,
     padding: 16,
     marginTop: 16,
     borderWidth: 1,
     borderColor: 'rgba(71, 85, 105, 0.5)',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  photoInfoHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
   },
   photoInfoTitle: {
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
-    marginBottom: 12,
   },
   photoInfoItem: {
     marginBottom: 12,
