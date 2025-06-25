@@ -80,7 +80,6 @@ export interface PhotoMetaV2 {
   
   // 内部管理
   status: { Active: null } | { Banned: null } | { Deleted: null };
-  qualityScore: number;
   timesUsed: bigint;
   lastUsedTime: bigint[] | []; // IDL Optional型は配列形式 (IDL.Int -> bigint)
   
@@ -197,7 +196,6 @@ const idlFactory = ({ IDL }: any) => {
       'Banned': IDL.Null,
       'Deleted': IDL.Null,
     }),
-    qualityScore: IDL.Float64,
     timesUsed: IDL.Nat,
     lastUsedTime: IDL.Opt(IDL.Int),
   });

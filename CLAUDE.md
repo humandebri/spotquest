@@ -10,6 +10,38 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - 作業を行った際はキリのいいところで必ずclaude.mdに行った作業の要約を記録して引き継ぎすること
 
+## Guidelines for AI Interaction
+
+- 回答は日本語で行なってください
+
+## Scoring System (重要)
+
+### スコアリングシステムの整理
+現在、ゲーム内で異なるスケールのスコアが混在しており、バグの原因となっています：
+
+1. **ゲームスコア（ユーザー向け）**:
+   - 1ラウンド = 最大5000点
+   - 5ラウンドのゲーム = 最大25000点（5000点 × 5）
+   - フロントエンドで表示される点数
+
+2. **バックエンド内部スコア（現状）**:
+   - 内部的に1ラウンド最大100点で計算
+   - これが変換エラーやEloレーティング計算のバグを引き起こしている
+   - 写真の平均スコアもこの100点スケールで保存されている
+
+3. **Eloレーティングシステム**:
+   - 標準的なEloレーティング（初期値1500）を使用
+   - 現在、プレイヤースコアと写真平均スコアのスケールが異なるため正しく比較できていない
+   - このスケールの不一致により、全てのゲームが「引き分け」と判定されている
+
+### 重要な問題:
+- `submitGuess`では5000点満点のスコアをEloレーティングに渡している
+- しかし写真の平均スコアは100点満点ベースで保存されている
+- 例：プレイヤーが3000点を取った場合、写真の平均が60点だと、3000 > 60となり常に「勝利」と判定される
+
+### 推奨事項:
+**システム全体で1ラウンド5000点満点に統一する**ことで、変換エラーを避け、コードの保守性を向上させる。
+
 ## Architecture
 
 ### Key Components
@@ -160,3 +192,76 @@ Backend modules are organized with clear separation:
 - `RatingModule`: Photo rating system
 - `ReputationModule`: User reputation tracking
 - `TreasuryModule`: Token distribution management
+- `EloRatingModule`: Elo rating system for players and photos
+
+## Recent Changes (2024-01-25)
+
+### Cleanup of Unused Files
+The following unused files were removed to clean up the codebase:
+- Backend: Removed `ii_integration` canister (functionality integrated into unified canister)
+- Backend: Removed backup files in `unified/backups/`
+- Frontend: Removed unused test and debug files (TestApp.tsx, DebugApp.tsx, etc.)
+- Frontend: Removed unused authentication contexts (DirectAuthContext, DirectIIAuthContext)
+- Frontend: Removed unused utility files and scripts
+- Types: Removed legacy type definitions
+
+Note: `EloRatingModule.mo` and `frontend-vite-backup/` were preserved for future use.
+
+## Recent Changes (2025-01-24)
+
+### セキュリティ強化とレーティングシステムの実装
+
+1. **写真レーティングシステムのセキュリティ強化**
+   - `RatingModule.mo`に以下のセキュリティ機能を追加:
+     - 匿名プリンシパル（Anonymous principal）のレーティング制限
+     - 写真所有者による自分の写真へのレーティング制限
+     - 写真の存在確認
+     - レート制限を1時間あたり20回に拡張
+   - フロントエンドでエラーハンドリングを改善
+
+2. **ユーザー統計表示の追加**
+   - `PhotoDetailsScreen.tsx`にユーザー統計を追加:
+     - 平均レーティング（難易度、興味、美しさ）
+     - 平均ゲームスコア
+     - 平均プレイ時間
+   - `getUserRatingStats`関数を実装してユーザーのレーティング統計を取得
+
+3. **Eloレーティングシステムの実装**
+   - `EloRatingModule.mo`を完全実装:
+     - プレイヤーとフォトの双方向レーティング計算
+     - 動的K係数（レーティングレベルに応じて32/24/16）
+     - 勝敗判定（±2%の閾値で引き分け判定）
+     - レーティング範囲: 100-3000
+   - `submitGuess`でゲーム結果に基づいてレーティングを即座に更新
+   - `finalizeSession`でのレーティング計算を削除（重複回避）
+
+4. **フロントエンドの改善**
+   - `HomeScreen.tsx`:
+     - Eloレーティングの表示を追加
+     - ランク表示を写真数とレーティングの間に配置
+     - NaN表示の修正
+   - `PhotoDetailsScreen.tsx`:
+     - 写真のEloレーティング表示
+     - 平均スコアとプレイ回数の表示
+   - `LeaderboardScreen.tsx`:
+     - グローバルランキングをベストスコア順からEloレーティング順に変更
+     - `getEloLeaderboardWithStats`を実装
+     - ランキング表示をEloレーティングベースに更新
+
+5. **バグ修正**
+   - `averageDuration`フィールドの欠落エラーを修正
+   - 重複した`getPlayerStats` IDL定義を修正
+   - ランクとEloレーティングがnull/undefinedになる問題を修正
+
+### 技術的な詳細
+
+**Eloレーティング計算式**:
+- 期待勝率: `E = 1 / (1 + 10^((相手レート - 自分レート) / 400))`
+- レート変動: `新レート = 旧レート + K × (実際の結果 - 期待勝率)`
+- 勝敗判定: プレイヤースコアが写真の平均スコアの±2%以内なら引き分け
+
+**セキュリティ対策**:
+- セッションベースの重複投票防止
+- プリンシパル検証
+- レート制限（1時間20回）
+- 自己レーティング防止

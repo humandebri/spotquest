@@ -393,6 +393,7 @@ class GameService {
         // Ranking functions
         getPlayerRank: IDL.Func([IDL.Principal], [IDL.Opt(IDL.Nat)], ['query']),
         getLeaderboard: IDL.Func([IDL.Nat], [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Nat))], ['query']),
+        getEloLeaderboard: IDL.Func([IDL.Nat], [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Int))], ['query']),
         getLeaderboardWithStats: IDL.Func([IDL.Nat], [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Record({
           score: IDL.Nat,
           gamesPlayed: IDL.Nat,
@@ -736,19 +737,6 @@ class GameService {
   }
 
 
-  async getPlayerStats(principal: any): Promise<any> {
-    if (!this.initialized || !this.actor) {
-      return null;
-    }
-    
-    try {
-      const stats = await this.actor.getPlayerStats(principal);
-      return stats;
-    } catch (error: any) {
-      console.error('Failed to get player stats:', error);
-      return null;
-    }
-  }
 
   async getUserSessions(principal: any): Promise<{ ok?: SessionInfo[]; err?: string }> {
     if (!this.initialized || !this.actor) {
@@ -894,6 +882,61 @@ class GameService {
       }));
     } catch (error) {
       console.error('Failed to get leaderboard with stats:', error);
+      return [];
+    }
+  }
+
+  async getEloLeaderboardWithStats(limit: number): Promise<{
+    principal: any;
+    score: bigint;  // This will be the Elo rating
+    gamesPlayed: bigint;
+    photosUploaded: bigint;
+    totalRewards: bigint;
+    username?: string;
+    eloRating: bigint;
+  }[]> {
+    if (!this.initialized || !this.actor) {
+      return [];
+    }
+    
+    try {
+      // Get Elo leaderboard
+      const eloResult = await this.actor.getEloLeaderboard(BigInt(limit));
+      
+      // Fetch stats for each player
+      const playersWithStats = await Promise.all(
+        eloResult.map(async ([principal, eloRating]: [any, bigint]) => {
+          try {
+            const stats = await this.getPlayerStats(principal);
+            const username = await this.getUsername(principal);
+            
+            return {
+              principal,
+              score: eloRating,  // Use Elo rating as the primary score
+              eloRating: eloRating,
+              gamesPlayed: stats ? BigInt(stats.totalGamesPlayed) : 0n,
+              photosUploaded: stats ? BigInt(stats.totalPhotosUploaded) : 0n,
+              totalRewards: stats ? BigInt(stats.totalRewardsEarned) : 0n,
+              username: username || undefined,
+            };
+          } catch (error) {
+            console.error(`Failed to get stats for ${principal}:`, error);
+            return {
+              principal,
+              score: eloRating,
+              eloRating: eloRating,
+              gamesPlayed: 0n,
+              photosUploaded: 0n,
+              totalRewards: 0n,
+              username: undefined,
+            };
+          }
+        })
+      );
+      
+      return playersWithStats;
+    } catch (error) {
+      console.error('Failed to get Elo leaderboard with stats:', error);
       return [];
     }
   }
@@ -1065,6 +1108,7 @@ class GameService {
     totalGuesses: number;
     averageDuration: number;
     suspiciousActivityFlags: string | null;
+    eloRating: number;
   } | null> {
     if (!this.initialized || !this.actor || !this.identity) {
       return null;
@@ -1073,6 +1117,9 @@ class GameService {
     try {
       const targetPrincipal = principal || this.identity.getPrincipal();
       const result = await this.actor.getPlayerStats(targetPrincipal);
+      
+      console.log('🎮 getPlayerStats raw result:', result);
+      console.log('🎮 rank field:', result.rank, 'length:', result.rank.length);
       
       return {
         totalGamesPlayed: Number(result.totalGamesPlayed),
@@ -1090,6 +1137,7 @@ class GameService {
         // averageDuration is new field - handle gracefully if not present
         averageDuration: result.averageDuration !== undefined ? Number(result.averageDuration) : 0,
         suspiciousActivityFlags: result.suspiciousActivityFlags.length > 0 ? result.suspiciousActivityFlags[0] : null,
+        eloRating: Number(result.eloRating),
       };
     } catch (error) {
       console.error('Failed to get player stats:', error);
@@ -1157,7 +1205,7 @@ class GameService {
     }
     
     try {
-      const rating = await this.actor.getPhotoEloRating(photoId);
+      const rating = await this.actor.getPhotoEloRating(BigInt(photoId));
       return Number(rating);
     } catch (error) {
       console.error('Failed to get photo Elo rating:', error);
@@ -1177,16 +1225,22 @@ class GameService {
     }
     
     try {
-      const stats = await this.actor.getPhotoStatsById(photoId);
-      if (stats?.[0]) {
-        return {
+      console.log('📊 Calling getPhotoStatsById for photoId:', photoId);
+      const stats = await this.actor.getPhotoStatsById(BigInt(photoId));
+      console.log('📊 Raw stats response:', stats);
+      
+      if (stats && stats.length > 0 && stats[0]) {
+        const result = {
           playCount: Number(stats[0].playCount),
           totalScore: Number(stats[0].totalScore),
-          averageScore: stats[0].averageScore,
+          averageScore: Number(stats[0].averageScore),
           bestScore: Number(stats[0].bestScore),
           worstScore: Number(stats[0].worstScore),
         };
+        console.log('📊 Processed stats:', result);
+        return result;
       }
+      console.log('📊 No stats found for photoId:', photoId);
       return null;
     } catch (error) {
       console.error('Failed to get photo stats:', error);

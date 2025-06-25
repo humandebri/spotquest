@@ -1,4 +1,6 @@
 import HashMap "mo:base/HashMap";
+import TrieMap "mo:base/TrieMap";
+import Hash "mo:base/Hash";
 import Principal "mo:base/Principal";
 import Result "mo:base/Result";
 import Time "mo:base/Time";
@@ -204,6 +206,13 @@ actor GameUnified {
         distributions: [(Nat, RatingModule.RatingDistribution)];
     } = null;
     
+    // Elo rating system stable storage
+    private stable var eloRatingStable : ?{
+        playerRatings: [(Principal, EloRatingModule.PlayerRating)];
+        photoRatings: [(Nat, EloRatingModule.PhotoRating)];
+        ratingHistory: [(Text, EloRatingModule.RatingChange)];
+    } = null;
+    
     // Runtime username map
     private var usernames = HashMap.HashMap<Principal, Text>(100, Principal.equal, Principal.hash);
     
@@ -241,6 +250,16 @@ actor GameUnified {
         firstPhotoIds: [Nat];
     } {
         photoManagerV2.debugPhotoStorage()
+    };
+    
+    public query func debugPhotoStats() : async [(Nat, {
+        playCount: Nat;
+        totalScore: Nat;
+        averageScore: Float;
+        bestScore: Nat;
+        worstScore: Nat;
+    })] {
+        photoManagerV2.getPhotoStatsEntries()
     };
 
     // ICRC-1 TOKEN FUNCTIONS
@@ -760,14 +779,21 @@ actor GameUnified {
                                 
                                 ignore guessHistoryManager.recordGuess(guess);
                                 
-                                // Update photo quality score
-                                let qualityScore = guessHistoryManager.getPhotoQualityScore(currentRound.photoId);
-                                ignore photoManager.updatePhotoQualityScore(currentRound.photoId, qualityScore);
+                                // Quality score tracking has been removed from the system
                                 
                                 // Update photo statistics (V2) - track game usage and average score
-                                ignore photoManagerV2.updatePhotoStats(currentRound.photoId, roundState.score);
+                                let statsUpdateResult = photoManagerV2.updatePhotoStats(currentRound.photoId, roundState.score);
+                                switch(statsUpdateResult) {
+                                    case (#ok()) {
+                                        Debug.print("[SUBMIT] Successfully updated photo stats for photoId: " # Nat.toText(currentRound.photoId) # " with score: " # Nat.toText(roundState.score));
+                                    };
+                                    case (#err(msg)) {
+                                        Debug.print("[SUBMIT] ERROR: Failed to update photo stats for photoId: " # Nat.toText(currentRound.photoId) # " - " # msg);
+                                    };
+                                };
                                 
                                 // Calculate Elo rating changes
+                                Debug.print("[SUBMIT] Calculating Elo ratings for player " # Principal.toText(msg.caller) # " on photo " # Nat.toText(currentRound.photoId) # " with score " # Nat.toText(roundState.score));
                                 let ratingResult = eloRatingManager.processGameResult(
                                     msg.caller,
                                     currentRound.photoId,
@@ -776,10 +802,12 @@ actor GameUnified {
                                 
                                 let (playerRatingChange, newPlayerRating, photoRatingChange, newPhotoRating) = switch(ratingResult) {
                                     case (#ok(changes)) {
+                                        Debug.print("[SUBMIT] Elo rating updated successfully. Player change: " # Int.toText(changes.playerRatingChange) # ", New rating: " # Int.toText(changes.newPlayerRating));
                                         (changes.playerRatingChange, changes.newPlayerRating, 
                                          changes.photoRatingChange, changes.newPhotoRating)
                                     };
-                                    case (#err(_)) {
+                                    case (#err(err)) {
+                                        Debug.print("[SUBMIT] Elo rating calculation failed: " # err);
                                         // Default values if rating calculation fails
                                         (0, eloRatingManager.getPlayerRating(msg.caller), 
                                          0, eloRatingManager.getPhotoRating(currentRound.photoId))
@@ -1096,7 +1124,6 @@ actor GameUnified {
                     uploadState = photo.uploadState;
                     
                     status = photo.status;
-                    qualityScore = photo.qualityScore;
                     timesUsed = photo.timesUsed;
                     lastUsedTime = photo.lastUsedTime;
                     
@@ -1144,7 +1171,6 @@ actor GameUnified {
                     uploadState = photo.uploadState;
                     
                     status = photo.status;
-                    qualityScore = photo.qualityScore;
                     timesUsed = photo.timesUsed;
                     lastUsedTime = photo.lastUsedTime;
                     
@@ -1230,7 +1256,6 @@ actor GameUnified {
                     uploadState = photo.uploadState;
                     
                     status = photo.status;
-                    qualityScore = photo.qualityScore;
                     timesUsed = photo.timesUsed;
                     lastUsedTime = photo.lastUsedTime;
                     
@@ -1655,7 +1680,19 @@ actor GameUnified {
         });
         
         // Get player's Elo rank
-        let playerRank = eloRatingManager.getPlayerRank(player);
+        // If player has played games but no Elo entry, treat them as having initial rating
+        let playerRank = if (totalGamesPlayed > 0) {
+            switch (eloRatingManager.getPlayerRank(player)) {
+                case (?rank) { ?rank };
+                case null { 
+                    // Player has games but no Elo entry - they should still be ranked
+                    // Count as rank 1 if they're the only player with games
+                    ?1 
+                };
+            }
+        } else {
+            null // No games played = no rank
+        };
         
         // Get other stats
         // Use V2 search to count user's photos
@@ -1790,6 +1827,80 @@ actor GameUnified {
         worstScore: Nat;
     } {
         photoManagerV2.getPhotoStatsById(photoId)
+    };
+    
+    // ========================================
+    // Debug function to rebuild photo stats from session data
+    // ========================================
+    public shared(msg) func rebuildPhotoStats() : async Result.Result<Text, Text> {
+        if (Principal.toText(msg.caller) != "6lvto-wk4rq-wwea5-neix6-nelpy-tgifs-crt3y-whqnf-5kns5-t3il6-xae") {
+            return #err("Unauthorized: Only admin can rebuild stats");
+        };
+        
+        var totalRebuilt = 0;
+        var photoStatsMap = TrieMap.TrieMap<Nat, {
+            totalScore: Nat;
+            playCount: Nat;
+            bestScore: Nat;
+            worstScore: Nat;
+        }>(Nat.equal, Hash.hash);
+        
+        // Get all sessions through player sessions map
+        let playerSessions = gameEngineManager.getPlayerSessionsMap();
+        for ((player, sessionIds) in playerSessions.vals()) {
+            for (sessionId in sessionIds.vals()) {
+                switch (gameEngineManager.getSession(sessionId)) {
+                    case null { /* Session not found */ };
+                    case (?session) {
+            for (round in session.rounds.vals()) {
+                if (round.score > 0) {
+                    let photoId = round.photoId;
+                    switch (photoStatsMap.get(photoId)) {
+                        case null {
+                            photoStatsMap.put(photoId, {
+                                totalScore = round.score;
+                                playCount = 1;
+                                bestScore = round.score;
+                                worstScore = round.score;
+                            });
+                        };
+                        case (?stats) {
+                            photoStatsMap.put(photoId, {
+                                totalScore = stats.totalScore + round.score;
+                                playCount = stats.playCount + 1;
+                                bestScore = Nat.max(stats.bestScore, round.score);
+                                worstScore = Nat.min(stats.worstScore, round.score);
+                            });
+                        };
+                    };
+                };
+            };
+                    }; // Close session switch
+                };
+            }
+        };
+        
+        // Update PhotoModuleV2 stats
+        for ((photoId, stats) in photoStatsMap.entries()) {
+            let avgScore = Float.fromInt(stats.totalScore) / Float.fromInt(stats.playCount);
+            let photoStats : PhotoModuleV2.PhotoStats = {
+                totalScore = stats.totalScore;
+                averageScore = avgScore;
+                bestScore = stats.bestScore;
+                worstScore = stats.worstScore;
+                playCount = stats.playCount;
+            };
+            switch (photoManagerV2.setPhotoStats(photoId, photoStats)) {
+                case (#ok()) {
+                    totalRebuilt += 1;
+                };
+                case (#err(msg)) {
+                    Debug.print("[rebuildPhotoStats] Failed to set stats for photoId " # Nat.toText(photoId) # ": " # msg);
+                };
+            };
+        };
+        
+        #ok("Rebuilt stats for " # Nat.toText(totalRebuilt) # " photos")
     };
     
     // ========================================
@@ -2855,6 +2966,9 @@ actor GameUnified {
         
         // Save rating data
         ratingStable := ?ratingManager.getStableData();
+        
+        // Save Elo rating data
+        eloRatingStable := ?eloRatingManager.getStableData();
     };
     
     system func postupgrade() {
@@ -2959,7 +3073,9 @@ actor GameUnified {
         };
         
         // StableTrieMapのpostupgrade処理
-        photoManagerV2.restoreFromUpgrade();
+        // NOTE: Commented out because data is already restored via fromStable() and restorePhotoStats()
+        // Calling this would overwrite the stats with empty data
+        // photoManagerV2.restoreFromUpgrade();
         
         // Restore usernames
         switch(userProfileStable) {
@@ -2983,6 +3099,19 @@ actor GameUnified {
                     ratingData.distributions
                 );
                 ratingStable := null;
+            };
+        };
+        
+        // Restore Elo rating data
+        switch(eloRatingStable) {
+            case null { };
+            case (?eloData) {
+                eloRatingManager.loadFromStable(
+                    eloData.playerRatings,
+                    eloData.photoRatings,
+                    eloData.ratingHistory
+                );
+                eloRatingStable := null;
             };
         };
         

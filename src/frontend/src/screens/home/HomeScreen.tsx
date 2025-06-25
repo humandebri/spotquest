@@ -67,12 +67,12 @@ export default function HomeScreen() {
       console.log('🏠 HomeScreen identity principal:', identity?.getPrincipal()?.toString());
       console.log('🏠 HomeScreen identity type:', identity?.constructor?.name);
       
-      const stats = await gameService.getPlayerStats(principal);
+      const stats = await gameService.getPlayerStats(principal || undefined);
       console.log('🏠 Player stats:', stats);
       console.log('🏠 Player stats rank:', stats?.rank);
-      console.log('🏠 Player stats rank[0]:', stats?.rank?.[0]);
-      console.log('🏠 Player stats eloRating:', stats?.eloRating);
-      console.log('🏠 Player stats eloRating type:', typeof stats?.eloRating);
+      console.log('🏠 Player stats rank[0]:', stats?.rank);
+      console.log('🏠 Player stats eloRating:', (stats as any)?.eloRating);
+      console.log('🏠 Player stats eloRating type:', typeof (stats as any)?.eloRating);
       setPlayerStats(stats);
     } catch (error) {
       console.error('Failed to fetch player stats:', error);

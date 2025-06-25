@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Principal } from '@dfinity/principal';
-import { Identity } from '@dfinity/identity';
+import type { Identity } from '@dfinity/agent';
 import { ADMIN_PRINCIPALS } from '../constants/index';
 import { DEBUG_CONFIG, debugLog } from '../utils/debugConfig';
 

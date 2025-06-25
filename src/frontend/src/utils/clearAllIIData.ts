@@ -1,6 +1,12 @@
 // Complete reset of expo-ii-integration data
-import { Storage } from 'expo-ii-integration';
 import { DEBUG_CONFIG, debugLog, debugError } from './debugConfig';
+
+// Storage interface
+interface Storage {
+  getItem?: (key: string) => Promise<string | null>;
+  removeItem?: (key: string) => Promise<void>;
+  find?: (prefix: string) => Promise<string[]>;
+}
 
 export async function clearAllIIData(secureStorage: Storage, regularStorage: Storage) {
   debugLog('II_INTEGRATION', '🧹 Starting complete II data reset...');

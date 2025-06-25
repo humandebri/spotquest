@@ -1,6 +1,19 @@
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
-import { Storage } from 'expo-ii-integration';
+
+// Storage interface
+interface Storage {
+  getItem?: (key: string) => Promise<string | null>;
+  setItem?: (key: string, value: string) => Promise<void>;
+  removeItem?: (key: string) => Promise<void>;
+  find?: (prefix: string) => Promise<string[]>;
+  save?: (key: string, value: string) => Promise<void>;
+  load?: (key: string) => Promise<string | null>;
+  remove?: (key: string) => Promise<void>;
+  get?: (key: string) => Promise<string | null>;
+  set?: (key: string, value: string) => Promise<void>;
+  clear?: () => Promise<void>;
+}
 
 // Web Secure Storage implementation
 export class WebSecureStorage implements Storage {

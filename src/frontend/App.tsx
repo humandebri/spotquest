@@ -2,8 +2,6 @@ import './src/utils/earlyPatches'; // MUST be first import
 import 'react-native-gesture-handler';
 import 'react-native-url-polyfill/auto';
 import './src/utils/polyfills';
-// Force reset II data (temporary fix) - DISABLED
-// import './src/utils/forceResetII';
 // import './src/global.css';
 import React from 'react';
 import { StatusBar } from 'expo-status-bar';
@@ -14,7 +12,6 @@ import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { IIAuthProviderWithReset } from './src/contexts/IIAuthProviderWithReset';
 import { useIIIntegrationContext } from 'expo-ii-integration';
-// import { DirectAuthProvider, useDirectAuth } from './src/contexts/DirectAuthContext';
 import { DevAuthProvider } from './src/contexts/DevAuthContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import { enableJSONParseLogging } from './src/utils/jsonSafeParse';

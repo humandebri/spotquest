@@ -61,7 +61,7 @@ module {
     let INITIAL_RATING : Int = 1500;     // 初期レーティング
     let MAX_RATING : Int = 2500;         // レーティング上限
     let MIN_RATING : Int = 100;          // レーティング下限（0以下にならないように）
-    let DRAW_THRESHOLD : Float = 0.02;   // 引き分け判定の閾値（±2%）
+    let DRAW_THRESHOLD : Float = 0.10;   // 引き分け判定の閾値（±10%）
     
     // ======================================
     // EloRatingManagerクラス
@@ -113,24 +113,38 @@ module {
                 case null { INITIAL_RATING };
             };
             
-            let (currentPhotoRating, photoAvgScore) = switch (photoRatings.get(photoId)) {
-                case (?rating) { (rating.rating, rating.averageScore) };
+            // 常にPhotoModuleV2から最新の統計を取得して整合性を保つ
+            let (currentPhotoRating, photoAvgScore) = switch (photoManager.getPhotoStatsById(photoId)) {
+                case (?stats) {
+                    // 最新の平均スコアを計算
+                    let avgScore = if (stats.playCount > 0) {
+                        Float.fromInt(stats.totalScore) / Float.fromInt(stats.playCount)
+                    } else { 
+                        // 初回プレイ時は、100点満点の中程度のスコア（50点）を仮定
+                        50.0 
+                    };
+                    
+                    // EloRatingModuleに保存されているレーティングがあれば使用、なければ初期値
+                    let rating = switch (photoRatings.get(photoId)) {
+                        case (?r) { r.rating };
+                        case null { INITIAL_RATING };
+                    };
+                    
+                    (rating, avgScore)
+                };
                 case null { 
-                    // 写真のレーティングがない場合は、写真の統計から計算
-                    switch (photoManager.getPhotoStatsById(photoId)) {
-                        case (?stats) {
-                            let avgScore = if (stats.playCount > 0) {
-                                Float.fromInt(stats.totalScore) / Float.fromInt(stats.playCount)
-                            } else { 0.0 };
-                            (INITIAL_RATING, avgScore)
-                        };
-                        case null { (INITIAL_RATING, 0.0) };
-                    }
+                    // PhotoModuleV2にも統計がない場合
+                    (INITIAL_RATING, 50.0) 
                 };
             };
             
+            Debug.print("[ELO] Player " # Principal.toText(playerId) # " - Current rating: " # Int.toText(currentPlayerRating));
+            Debug.print("[ELO] Photo " # Nat.toText(photoId) # " - Current rating: " # Int.toText(currentPhotoRating) # ", Avg score: " # Float.toText(photoAvgScore));
+            Debug.print("[ELO] Player score: " # Nat.toText(playerScore));
+            
             // 2. 勝敗判定
             let result = determineResult(playerScore, photoAvgScore);
+            Debug.print("[ELO] Result: " # Float.toText(result) # " (1.0=win, 0.5=draw, 0.0=loss)");
             
             // 3. レーティング計算
             let updates = updateRatings(
@@ -138,6 +152,9 @@ module {
                 currentPhotoRating,
                 result
             );
+            
+            Debug.print("[ELO] Player rating change: " # Int.toText(updates.playerRatingChange) # " -> New rating: " # Int.toText(updates.newPlayerRating));
+            Debug.print("[ELO] Photo rating change: " # Int.toText(updates.photoRatingChange) # " -> New rating: " # Int.toText(updates.newPhotoRating));
             
             // 4. プレイヤーレーティングを更新
             updatePlayerRating(playerId, updates.newPlayerRating, result);
@@ -219,21 +236,43 @@ module {
         
         /// プレイヤーのランクを取得
         public func getPlayerRank(playerId: Principal) : ?Nat {
-            let allRatings = getTopPlayersByRating(1000); // 上位1000人まで
-            var rank : Nat = 1;
-            for ((p, _) in allRatings.vals()) {
-                if (Principal.equal(p, playerId)) {
-                    return ?rank;
-                };
-                rank += 1;
+            // まず、プレイヤーがレーティングを持っているか確認
+            let hasRating = playerRatings.get(playerId) != null;
+            
+            // 全プレイヤーのレーティングを取得（レーティングがない場合は初期値1500として扱う）
+            let allPlayers = Iter.toArray(
+                Iter.map<(Principal, PlayerRating), (Principal, Int)>(
+                    playerRatings.entries(),
+                    func((p, r)) = (p, r.rating)
+                )
+            );
+            
+            // プレイヤーが1人しかいない場合、そのプレイヤーは必ずランク1
+            if (allPlayers.size() == 1 and hasRating) {
+                return ?1;
             };
             
-            // 1000位以内にいない場合
-            if (playerRatings.get(playerId) != null) {
-                ?rank // 1001位以降として扱う
+            // プレイヤーがレーティングを持っていない場合、初期値として扱う
+            let playerRating = if (hasRating) {
+                switch (playerRatings.get(playerId)) {
+                    case (?r) { r.rating };
+                    case null { INITIAL_RATING };
+                }
             } else {
-                null // レーティングなし
-            }
+                // レーティングがない場合はnullを返す
+                return null;
+            };
+            
+            // 自分より高いレーティングを持つプレイヤーの数を数える
+            var higherRatedCount : Nat = 0;
+            for ((_, rating) in allPlayers.vals()) {
+                if (rating > playerRating) {
+                    higherRatedCount += 1;
+                };
+            };
+            
+            // ランクは「自分より上の人数 + 1」
+            ?(higherRatedCount + 1)
         };
         
         // ======================================
@@ -330,44 +369,45 @@ module {
             };
             
             playerRatings.put(playerId, updated);
+            Debug.print("[ELO] Player rating saved: " # Principal.toText(playerId) # " -> " # Int.toText(newRating));
         };
         
-        /// 写真レーティングを更新
+        /// 写真レーティングを更新（PhotoModuleV2の統計と同期）
         private func updatePhotoRating(photoId: Nat, newRating: Int, newScore: Nat) {
             let now = Time.now();
             
-            let updated = switch (photoRatings.get(photoId)) {
-                case (?existing) {
-                    let newTotalScore = existing.totalScore + newScore;
-                    let newPlayCount = existing.playCount + 1;
+            // 常にPhotoModuleV2から最新の統計を取得
+            let currentStats = photoManager.getPhotoStatsById(photoId);
+            
+            let updated = switch (currentStats) {
+                case (?stats) {
+                    // PhotoModuleV2の統計を使用（このゲームの結果も含む）
+                    // 注意: PhotoModuleV2.updatePhotoStatsはmain.moで既に呼ばれているので、
+                    // ここでは更新後の値を使用する
                     {
                         photoId = photoId;
                         rating = newRating;
-                        averageScore = Float.fromInt(newTotalScore) / Float.fromInt(newPlayCount);
-                        playCount = newPlayCount;
-                        totalScore = newTotalScore;
+                        averageScore = stats.averageScore; // PhotoModuleV2から最新の平均を取得
+                        playCount = stats.playCount;
+                        totalScore = stats.totalScore;
                         lastUpdated = now;
                     }
                 };
                 case null {
-                    // 写真の既存統計を取得
-                    let (totalScore, playCount) = switch (photoManager.getPhotoStatsById(photoId)) {
-                        case (?stats) { (stats.totalScore + newScore, stats.playCount + 1) };
-                        case null { (newScore, 1) };
-                    };
-                    
+                    // PhotoModuleV2に統計がない場合（新規写真）
                     {
                         photoId = photoId;
                         rating = newRating;
-                        averageScore = Float.fromInt(totalScore) / Float.fromInt(playCount);
-                        playCount = playCount;
-                        totalScore = totalScore;
+                        averageScore = Float.fromInt(newScore);
+                        playCount = 1;
+                        totalScore = newScore;
                         lastUpdated = now;
                     }
                 };
             };
             
             photoRatings.put(photoId, updated);
+            Debug.print("[ELO] Photo rating saved: " # Nat.toText(photoId) # " -> Rating: " # Int.toText(newRating) # ", Avg: " # Float.toText(updated.averageScore));
         };
         
         // ======================================

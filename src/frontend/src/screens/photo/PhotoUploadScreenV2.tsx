@@ -247,7 +247,6 @@ export default function PhotoUploadScreenV2() {
               `🧭 方位角: ${savedPhotoMetadata.azimuth && savedPhotoMetadata.azimuth.length > 0 ? savedPhotoMetadata.azimuth[0].toFixed(0) + '°' : 'なし'}\n` +
               `🌍 地域: ${savedPhotoMetadata.country || 'XX'} / ${savedPhotoMetadata.region || 'XX-XX'}\n` +
               `🏞️ シーン: ${sceneType}\n` +
-              `📊 品質スコア: ${(savedPhotoMetadata.qualityScore * 100).toFixed(1)}%\n` +
               `📦 チャンク数: ${savedPhotoMetadata.chunkCount}\n` +
               `💾 サイズ: ${(Number(savedPhotoMetadata.totalSize) / 1024).toFixed(1)} KB` +
               compressionInfo,

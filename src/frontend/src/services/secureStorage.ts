@@ -1,5 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
-import * as Crypto from 'expo-crypto-universal';
+import * as Crypto from 'expo-crypto';
 import { Platform } from 'react-native';
 import { AuthStorage, SecureAuthData } from '../types/auth';
 
@@ -38,8 +38,8 @@ class SecureAuthStorage implements AuthStorage {
         }
       }
 
-      this.encryptionKey = key;
-      return key;
+      this.encryptionKey = key!;
+      return key!;
     } catch (error) {
       console.error('Failed to get encryption key:', error);
       throw new Error('Encryption key generation failed');

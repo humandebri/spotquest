@@ -7,18 +7,21 @@ console.log('🚀 Applying early patches...');
 if (typeof global !== 'undefined' && !global.crypto) {
   console.log('🚀 Setting up global.crypto');
   global.crypto = {
-    getRandomValues: (array: Uint8Array) => {
+    getRandomValues: <T extends ArrayBufferView | null>(array: T): T => {
       console.log('🚀 global.crypto.getRandomValues called');
+      if (!array || !('length' in array)) return array;
+      
       const timestamp = Date.now();
       const rand = Math.random() * 1000000;
       
-      for (let i = 0; i < array.length; i++) {
-        array[i] = Math.floor((timestamp + rand + i * 137 + (i * i * 31)) % 256);
+      const uint8Array = array as any as Uint8Array;
+      for (let i = 0; i < uint8Array.length; i++) {
+        uint8Array[i] = Math.floor((timestamp + rand + i * 137 + (i * i * 31)) % 256);
       }
       
       return array;
     }
-  };
+  } as any;
 }
 
 // Ed25519KeyIdentity patch is no longer needed since we use fixed test keys in dev mode

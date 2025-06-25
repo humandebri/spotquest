@@ -7,7 +7,7 @@ import { useIIAuthStore } from '../store/iiAuthStore';
 import HomeScreen from '../screens/home/HomeScreen';
 
 // Auth
-import LoginScreenII from '../screens/LoginScreenII'; // TODO: このファイルが存在しない場合は修正が必要
+import LoginScreen from '../screens/auth/LoginScreen';
 
 // Game
 import GameModeScreen from '../screens/game/GameModeScreen';
@@ -145,7 +145,7 @@ export default function AppNavigatorII() {
       ) : (
         <Stack.Screen
           name="Login"
-          component={LoginScreenII}
+          component={LoginScreen}
           options={{ headerShown: false }}
         />
       )}

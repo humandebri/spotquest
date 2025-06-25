@@ -1,4 +1,4 @@
-import { Identity } from '@dfinity/identity';
+import type { Identity } from '@dfinity/agent';
 import { Principal } from '@dfinity/principal';
 
 export interface AuthState {

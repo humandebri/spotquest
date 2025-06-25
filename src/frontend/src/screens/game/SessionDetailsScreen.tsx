@@ -72,9 +72,13 @@ export default function SessionDetailsScreen() {
   const [imageErrors, setImageErrors] = useState<{ [key: number]: boolean }>({});
   const [hasFetched, setHasFetched] = useState(false);
   const [loadingPhotos, setLoadingPhotos] = useState<{ [key: number]: boolean }>({});
+  const [isMapLoading, setIsMapLoading] = useState(true);
   const mapRef = useRef<MapView>(null);
+  const isMountedRef = useRef(true);
 
   useEffect(() => {
+    isMountedRef.current = true;
+    
     console.log('🎯 SessionDetailsScreen useEffect triggered:', {
       sessionId,
       hasIdentity: !!identity,
@@ -87,9 +91,23 @@ export default function SessionDetailsScreen() {
     } else {
       console.warn('🎯 Missing sessionId or identity:', { sessionId, hasIdentity: !!identity });
     }
+    
+    return () => {
+      isMountedRef.current = false;
+    };
   }, [sessionId, identity]);
+  
+  // Delay map rendering for performance
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (isMountedRef.current) {
+        setIsMapLoading(false);
+      }
+    }, 200);
+    return () => clearTimeout(timer);
+  }, []);
 
-  // Debug selected round data and update map
+  // Debug selected round data and update map position
   useEffect(() => {
     if (rounds.length > 0 && rounds[selectedRound]) {
       console.log('🎯 Current selected round:', {
@@ -99,12 +117,58 @@ export default function SessionDetailsScreen() {
         hasPhotoLocation: !!rounds[selectedRound].photoLocation,
       });
       
-      // Fit map to markers when round changes
-      setTimeout(() => {
-        fitMapToMarkers();
-      }, 100);
+      // Update map position when round changes
+      const round = rounds[selectedRound];
+      if (mapRef.current && round.guessData && round.photoLocation) {
+        const distance = calculateDistance(
+          round.guessData.lat,
+          round.guessData.lon,
+          round.photoLocation.lat,
+          round.photoLocation.lon
+        );
+        
+        // Skip map update for extreme distances
+        if (distance >= 5000) return;
+        
+        const latDiff = Math.abs(round.guessData.lat - round.photoLocation.lat);
+        const lonDiff = Math.abs(round.guessData.lon - round.photoLocation.lon);
+        
+        // Use different strategies based on distance
+        if (latDiff > 45 || lonDiff > 90 || distance > 1000) {
+          // Use setCamera for extreme distances (no animation)
+          try {
+            mapRef.current.setCamera({
+              center: {
+                latitude: (round.guessData.lat + round.photoLocation.lat) / 2,
+                longitude: (round.guessData.lon + round.photoLocation.lon) / 2,
+              },
+              zoom: distance > 2000 ? 3 : 5,
+              // animated: false, // Not supported in setCamera
+            });
+          } catch (error) {
+            console.warn('Map camera update failed:', error);
+          }
+        } else {
+          // Use fitToCoordinates for closer locations
+          const coords = [
+            {
+              latitude: round.guessData.lat,
+              longitude: round.guessData.lon,
+            },
+            {
+              latitude: round.photoLocation.lat,
+              longitude: round.photoLocation.lon,
+            },
+          ];
+          
+          mapRef.current.fitToCoordinates(coords, {
+            edgePadding: { top: 80, right: 80, bottom: 80, left: 80 },
+            animated: distance < 100, // Only animate for very close locations
+          });
+        }
+      }
     }
-  }, [selectedRound, rounds]);
+  }, [selectedRound]); // rounds を依存配列から削除して無限ループを防止
 
   const fetchSessionDetails = async () => {
     console.log('🎯 fetchSessionDetails called:', { sessionId, hasIdentity: !!identity, hasFetched, isLoading });
@@ -140,12 +204,15 @@ export default function SessionDetailsScreen() {
 
       if (sessionResult?.ok) {
         console.log('🎯 Session data:', sessionResult.ok);
-        setSession(sessionResult.ok);
+        if (isMountedRef.current) {
+          setSession(sessionResult.ok);
+        }
 
         // Process rounds WITHOUT photo data first
         const initialRounds = sessionResult.ok.rounds.map((round: any, index: number) => {
+          console.log('🎯 Round photoId:', round.photoId, 'type:', typeof round.photoId, 'converted:', Number(round.photoId));
           const roundData: RoundData = {
-            photoId: Number(round.photoId),
+            photoId: Number(round.photoId),  // TODO: Keep as number for now, but log the actual value
             status: round.status,
             score: Number(round.score),
             scoreNorm: Number(round.scoreNorm),
@@ -168,19 +235,23 @@ export default function SessionDetailsScreen() {
         });
 
         // Set rounds immediately so UI can render
-        setRounds(initialRounds);
-        setIsLoading(false); // Stop loading spinner
-        console.log('🎯 Initial rounds set, UI should be visible now');
+        if (isMountedRef.current) {
+          setRounds(initialRounds);
+          setIsLoading(false); // Stop loading spinner
+          console.log('🎯 Initial rounds set, UI should be visible now');
+        }
 
         // Fetch photo data asynchronously after UI is rendered
         console.log('🎯 Starting async photo data fetch...');
 
         // Mark all photos as loading
         const loadingStates: { [key: number]: boolean } = {};
-        initialRounds.forEach((_, index) => {
+        initialRounds.forEach((_: any, index: number) => {
           loadingStates[index] = true;
         });
-        setLoadingPhotos(loadingStates);
+        if (isMountedRef.current) {
+          setLoadingPhotos(loadingStates);
+        }
 
         // Create array of indices to fetch, starting with selected round
         const fetchOrder = [0]; // Start with first round (default selected)
@@ -188,65 +259,71 @@ export default function SessionDetailsScreen() {
           fetchOrder.push(i);
         }
 
-        // Fetch photos in order of priority with slight delay
+        // Fetch photos in parallel with priority for selected round
         fetchOrder.forEach(async (index, orderIndex) => {
-          // Add small delay between requests (except for first one)
-          if (orderIndex > 0) {
-            await new Promise(resolve => setTimeout(resolve, orderIndex * 100));
-          }
+          // Add small delay between requests to prevent overwhelming
+          const delay = orderIndex * 50; // 50ms stagger
+          
+          setTimeout(async () => {
+            if (!isMountedRef.current) return;
+            
+            const roundData = initialRounds[index];
+            try {
+              console.log('🎯 Fetching photo for round:', index + 1, 'photoId:', roundData.photoId);
+              const photoMeta = await photoService.getPhotoMetadataV2(roundData.photoId);
 
-          const roundData = initialRounds[index];
-          try {
-            console.log('🎯 Fetching photo for round:', index + 1, 'photoId:', roundData.photoId);
-            const photoMeta = await photoService.getPhotoMetadataV2(roundData.photoId);
-
-            if (photoMeta) {
-              // Update photo location and metadata immediately
-              setRounds(prevRounds => {
-                const newRounds = [...prevRounds];
-                newRounds[index] = {
-                  ...newRounds[index],
-                  photoLocation: {
-                    lat: photoMeta.latitude,
-                    lon: photoMeta.longitude,
-                  },
-                  photoMeta: photoMeta,
-                };
-                return newRounds;
-              });
-
-              // Check if photo is complete and active
-              if (photoMeta.uploadState?.Complete !== undefined && photoMeta.status?.Active !== undefined) {
-                // Get photo chunks for display
-                const photoUrl = await photoService.getPhotoDataUrl(roundData.photoId, photoMeta);
-                if (photoUrl) {
-                  console.log('🎯 Photo URL generated for round:', index + 1);
-                  // Update specific round with photo URL
-                  setRounds(prevRounds => {
-                    const newRounds = [...prevRounds];
-                    newRounds[index] = {
-                      ...newRounds[index],
-                      photoUrl: photoUrl
-                    };
-                    return newRounds;
-                  });
+              if (photoMeta && isMountedRef.current) {
+                // Update location and metadata immediately
+                setRounds(prevRounds => {
+                  const newRounds = [...prevRounds];
+                  newRounds[index] = {
+                    ...newRounds[index],
+                    photoLocation: {
+                      lat: photoMeta.latitude,
+                      lon: photoMeta.longitude,
+                    },
+                    photoMeta: photoMeta,
+                  };
+                  return newRounds;
+                });
+                
+                // Check if photo is complete and active
+                if (photoMeta.uploadState?.Complete !== undefined && photoMeta.status?.Active !== undefined) {
+                  // Get photo chunks for display
+                  const dataUrl = await photoService.getPhotoDataUrl(roundData.photoId, photoMeta);
+                  if (dataUrl && isMountedRef.current) {
+                    console.log('🎯 Photo URL generated for round:', index + 1);
+                    // Update photo URL separately for faster display
+                    setRounds(prevRounds => {
+                      const newRounds = [...prevRounds];
+                      newRounds[index] = {
+                        ...newRounds[index],
+                        photoUrl: dataUrl
+                      };
+                      return newRounds;
+                    });
+                  }
                 }
               }
-            }
 
-            // Clear loading state for this photo
-            setLoadingPhotos(prev => ({
-              ...prev,
-              [index]: false
-            }));
-          } catch (error) {
-            console.error('🎯 Failed to fetch photo data for round:', index + 1, error);
-            // Clear loading state even on error
-            setLoadingPhotos(prev => ({
-              ...prev,
-              [index]: false
-            }));
-          }
+              // Clear loading state for this photo
+              if (isMountedRef.current) {
+                setLoadingPhotos(prev => ({
+                  ...prev,
+                  [index]: false
+                }));
+              }
+            } catch (error) {
+              console.error('🎯 Failed to fetch photo data for round:', index + 1, error);
+              // Clear loading state even on error
+              if (isMountedRef.current) {
+                setLoadingPhotos(prev => ({
+                  ...prev,
+                  [index]: false
+                }));
+              }
+            }
+          }, delay);
         });
 
         return; // Exit early, don't wait for photos
@@ -260,8 +337,10 @@ export default function SessionDetailsScreen() {
       });
       Alert.alert('Error', 'Failed to load session details');
     } finally {
-      setIsLoading(false);
-      console.log('🎯 fetchSessionDetails completed, isLoading set to false');
+      if (isMountedRef.current) {
+        setIsLoading(false);
+        console.log('🎯 fetchSessionDetails completed, isLoading set to false');
+      }
     }
   };
 
@@ -293,23 +372,12 @@ export default function SessionDetailsScreen() {
   };
 
   const fitMapToMarkers = () => {
+    // Skip if map is not ready or no round data
     if (!mapRef.current || !rounds[selectedRound]) return;
 
     const round = rounds[selectedRound];
     if (!round.guessData || !round.photoLocation) return;
 
-    const coords = [
-      {
-        latitude: round.guessData.lat,
-        longitude: round.guessData.lon,
-      },
-      {
-        latitude: round.photoLocation.lat,
-        longitude: round.photoLocation.lon,
-      },
-    ];
-
-    // Calculate distance to determine appropriate padding
     const distance = calculateDistance(
       round.guessData.lat,
       round.guessData.lon,
@@ -317,15 +385,51 @@ export default function SessionDetailsScreen() {
       round.photoLocation.lon
     );
     
-    // Adjust padding based on distance
-    const padding = distance < 5 ? 100 : 
-                   distance < 50 ? 80 : 
-                   distance < 500 ? 60 : 50;
+    // Don't animate for extreme distances
+    if (distance >= 5000) return;
 
-    mapRef.current.fitToCoordinates(coords, {
-      edgePadding: { top: padding, right: padding, bottom: padding, left: padding },
-      animated: true,
-    });
+    // Delay execution for better performance
+    setTimeout(() => {
+      if (!mapRef.current || !isMountedRef.current) return;
+      
+      // Re-check inside timeout callback for TypeScript
+      if (!round.guessData || !round.photoLocation) return;
+      
+      const latDiff = Math.abs(round.guessData.lat - round.photoLocation.lat);
+      const lonDiff = Math.abs(round.guessData.lon - round.photoLocation.lon);
+      
+      // For extreme coordinates, use setCamera instead
+      if (latDiff > 45 || lonDiff > 90 || distance > 1000) {
+        try {
+          mapRef.current.setCamera({
+            center: {
+              latitude: (round.guessData.lat + round.photoLocation.lat) / 2,
+              longitude: (round.guessData.lon + round.photoLocation.lon) / 2,
+            },
+            zoom: distance > 2000 ? 3 : 5,
+          });
+        } catch (error) {
+          console.warn('Map setCamera failed:', error);
+        }
+      } else {
+        // Normal fitToCoordinates for closer locations
+        const coords = [
+          {
+            latitude: round.guessData.lat,
+            longitude: round.guessData.lon,
+          },
+          {
+            latitude: round.photoLocation.lat,
+            longitude: round.photoLocation.lon,
+          },
+        ];
+
+        mapRef.current.fitToCoordinates(coords, {
+          edgePadding: { top: 80, right: 80, bottom: 80, left: 80 },
+          animated: false, // No animation for performance
+        });
+      }
+    }, 100);
   };
 
   if (isLoading || (!session && sessionId)) {
@@ -459,19 +563,94 @@ export default function SessionDetailsScreen() {
 
             {/* Map */}
             {currentRound.guessData && currentRound.photoLocation ? (
+              (() => {
+                const distance = calculateDistance(
+                  currentRound.guessData.lat,
+                  currentRound.guessData.lon,
+                  currentRound.photoLocation.lat,
+                  currentRound.photoLocation.lon
+                );
+                
+                // Lightweight mode for distant locations
+                const isLightweightMode = distance > 1000; // 1000km threshold
+                
+                // Don't show map for extreme distances
+                if (distance > 5000) {
+                  return (
+                    <View style={[styles.mapContainer, styles.mapPlaceholder]}>
+                      <Ionicons name="globe-outline" size={48} color="#64748b" />
+                      <Text style={styles.mapPlaceholderText}>Distance too far to display on map</Text>
+                      <View style={[styles.distanceInfo, { position: 'relative', marginTop: 16 }]}>
+                        <Ionicons name="navigate" size={20} color="#f59e0b" />
+                        <Text style={styles.distanceText}>
+                          {distance.toFixed(2)} km
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                }
+                
+                return isMapLoading ? (
+                  <View style={[styles.mapContainer, styles.mapLoadingContainer]}>
+                    <ActivityIndicator size="large" color="#3b82f6" />
+                    <Text style={styles.mapLoadingText}>Loading map...</Text>
+                  </View>
+                ) : (
               <View style={styles.mapContainer}>
                 <MapView
                   ref={mapRef}
                   style={styles.map}
                   provider={PROVIDER_GOOGLE}
-                  key={`map-round-${selectedRound}`} // Force re-render when round changes
-                  initialRegion={{
-                    latitude: (currentRound.guessData.lat + currentRound.photoLocation.lat) / 2,
-                    longitude: (currentRound.guessData.lon + currentRound.photoLocation.lon) / 2,
-                    latitudeDelta: Math.abs(currentRound.guessData.lat - currentRound.photoLocation.lat) * 2 || 0.1,
-                    longitudeDelta: Math.abs(currentRound.guessData.lon - currentRound.photoLocation.lon) * 2 || 0.1,
-                  }}
+                  // keyを削除して再マウントを防止
+                  initialRegion={(() => {
+                    const latDiff = Math.abs(currentRound.guessData.lat - currentRound.photoLocation.lat);
+                    const lonDiff = Math.abs(currentRound.guessData.lon - currentRound.photoLocation.lon);
+                    
+                    // Extreme coordinates handling
+                    if (latDiff > 45 || lonDiff > 90) {
+                      return {
+                        latitude: 0,
+                        longitude: 0,
+                        latitudeDelta: 45,
+                        longitudeDelta: 90,
+                      };
+                    }
+                    
+                    // Smart zoom levels based on distance
+                    let latDelta, lonDelta;
+                    if (distance < 1) {
+                      latDelta = lonDelta = 0.01;
+                    } else if (distance < 10) {
+                      latDelta = lonDelta = 0.05;
+                    } else if (distance < 100) {
+                      latDelta = lonDelta = 0.5;
+                    } else if (distance < 1000) {
+                      latDelta = lonDelta = 5;
+                    } else if (distance < 5000) {
+                      latDelta = lonDelta = 20;
+                    } else {
+                      latDelta = 30;
+                      lonDelta = 60;
+                    }
+                    
+                    // Ensure both points are visible with padding
+                    const actualLatDelta = Math.max(latDelta, latDiff * 2.5);
+                    const actualLonDelta = Math.max(lonDelta, lonDiff * 2.5);
+                    
+                    return {
+                      latitude: (currentRound.guessData.lat + currentRound.photoLocation.lat) / 2,
+                      longitude: (currentRound.guessData.lon + currentRound.photoLocation.lon) / 2,
+                      latitudeDelta: Math.min(20, actualLatDelta),
+                      longitudeDelta: Math.min(40, actualLonDelta),
+                    };
+                  })()}
                   onMapReady={fitMapToMarkers}
+                  onRegionChangeComplete={undefined} // Disable to prevent memory leak
+                  minZoomLevel={distance > 5000 ? 0 : (isLightweightMode ? 2 : 0)}
+                  scrollEnabled={!isLightweightMode || distance > 1000}
+                  zoomEnabled={!isLightweightMode || distance > 1000}
+                  pitchEnabled={false}
+                  rotateEnabled={false}
                 >
                   {/* Guess Marker */}
                   <Marker
@@ -501,37 +680,59 @@ export default function SessionDetailsScreen() {
                     </View>
                   </Marker>
 
-                  {/* Line between markers */}
-                  <Polyline
-                    coordinates={[
-                      {
-                        latitude: currentRound.guessData.lat,
-                        longitude: currentRound.guessData.lon,
-                      },
-                      {
-                        latitude: currentRound.photoLocation.lat,
-                        longitude: currentRound.photoLocation.lon,
-                      },
-                    ]}
-                    strokeColor="#ef4444"
-                    strokeWidth={2}
-                    lineDashPattern={[5, 5]}
-                  />
+                  {/* Line between markers - optimized for distance */}
+                  {distance < 500 ? (
+                    // Dashed line for short distances
+                    <Polyline
+                      coordinates={[
+                        {
+                          latitude: currentRound.guessData.lat,
+                          longitude: currentRound.guessData.lon,
+                        },
+                        {
+                          latitude: currentRound.photoLocation.lat,
+                          longitude: currentRound.photoLocation.lon,
+                        },
+                      ]}
+                      strokeColor="#ef4444"
+                      strokeWidth={2}
+                      lineDashPattern={[5, 5]}
+                    />
+                  ) : (
+                    // Solid geodesic line for long distances (memory efficient)
+                    <Polyline
+                      coordinates={[
+                        {
+                          latitude: currentRound.guessData.lat,
+                          longitude: currentRound.guessData.lon,
+                        },
+                        {
+                          latitude: currentRound.photoLocation.lat,
+                          longitude: currentRound.photoLocation.lon,
+                        },
+                      ]}
+                      strokeColor="#ef4444"
+                      strokeWidth={2}
+                      geodesic={true}
+                    />
+                  )}
                 </MapView>
 
                 {/* Distance Info */}
                 <View style={styles.distanceInfo}>
                   <Ionicons name="navigate" size={20} color="#f59e0b" />
                   <Text style={styles.distanceText}>
-                    {calculateDistance(
-                      currentRound.guessData.lat,
-                      currentRound.guessData.lon,
-                      currentRound.photoLocation.lat,
-                      currentRound.photoLocation.lon
-                    ).toFixed(2)} km
+                    {distance.toFixed(2)} km
                   </Text>
+                  {isLightweightMode && (
+                    <View style={styles.lightweightBadge}>
+                      <Ionicons name="flash" size={14} color="#FFC107" />
+                    </View>
+                  )}
                 </View>
               </View>
+                ); // End of map loading ternary
+              })()
             ) : (
               <View style={[styles.mapContainer, styles.mapPlaceholder]}>
                 <Ionicons name="map-outline" size={48} color="#64748b" />
@@ -578,6 +779,10 @@ export default function SessionDetailsScreen() {
                     photoId: currentRound.photoId,
                     sessionId: sessionId,
                     roundIndex: selectedRound,
+                    // Pass cached data to avoid refetching
+                    cachedPhotoMeta: currentRound.photoMeta,
+                    cachedPhotoUrl: currentRound.photoUrl,
+                    cachedPhotoLocation: currentRound.photoLocation,
                   });
                 }}
                 activeOpacity={0.8}
@@ -615,20 +820,11 @@ export default function SessionDetailsScreen() {
                   </View>
                 </View>
                 
-                <View style={styles.photoInfoRow}>
-                  <View style={styles.photoInfoItemHalf}>
-                    <Text style={styles.photoInfoLabel}>Times Used</Text>
-                    <Text style={styles.photoInfoValue}>
-                      {Number(currentRound.photoMeta.timesUsed || 0).toLocaleString()}
-                    </Text>
-                  </View>
-                  
-                  <View style={styles.photoInfoItemHalf}>
-                    <Text style={styles.photoInfoLabel}>Quality Score</Text>
-                    <Text style={styles.photoInfoValue}>
-                      {(currentRound.photoMeta.qualityScore || 0).toFixed(1)}/10
-                    </Text>
-                  </View>
+                <View style={styles.photoInfoItem}>
+                  <Text style={styles.photoInfoLabel}>Times Used</Text>
+                  <Text style={styles.photoInfoValue}>
+                    {Number(currentRound.photoMeta.timesUsed || 0).toLocaleString()}
+                  </Text>
                 </View>
                 
                 {currentRound.photoMeta.region && (
@@ -801,6 +997,7 @@ const styles = StyleSheet.create({
   map: {
     width: '100%',
     height: 350,
+    backgroundColor: '#1e293b', // 地図ロード前の背景色
   },
   guessMarker: {
     backgroundColor: 'rgba(59, 130, 246, 0.2)',
@@ -832,6 +1029,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginLeft: 6,
+  },
+  lightweightBadge: {
+    backgroundColor: 'rgba(255, 193, 7, 0.2)',
+    padding: 4,
+    borderRadius: 12,
+    marginLeft: 8,
   },
   roundStats: {
     backgroundColor: 'rgba(30, 41, 59, 0.4)',
@@ -882,6 +1085,17 @@ const styles = StyleSheet.create({
     color: '#64748b',
     fontSize: 14,
     marginTop: 8,
+  },
+  mapLoadingContainer: {
+    backgroundColor: '#1e293b',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 300,
+  },
+  mapLoadingText: {
+    color: '#94a3b8',
+    fontSize: 14,
+    marginTop: 12,
   },
   photoInfoSection: {
     backgroundColor: 'rgba(30, 41, 59, 0.6)',

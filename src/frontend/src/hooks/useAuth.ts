@@ -30,8 +30,8 @@ export function useAuth() {
     });
     
     // Also check for delegation data
-    if (iiIntegration.getDelegation) {
-      iiIntegration.getDelegation().then((delegation: any) => {
+    if ((iiIntegration as any).getDelegation) {
+      (iiIntegration as any).getDelegation().then((delegation: any) => {
         debugLog('AUTH_FLOW', '🔍 Current delegation:', delegation ? 'Present' : 'None');
       }).catch((err: any) => {
         debugLog('AUTH_FLOW', '🔍 Error getting delegation:', err);

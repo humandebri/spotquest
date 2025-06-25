@@ -100,7 +100,7 @@ export default function LoginScreen() {
               debugLog('AUTH_FLOW', '✅ Delegation fixed!');
             }
             
-            const delegation = await regularStorage.getItem('expo-ii-integration.delegation');
+            const delegation = regularStorage.getItem ? await regularStorage.getItem('expo-ii-integration.delegation') : null;
             return delegation !== null;
           },
           () => {
@@ -190,7 +190,7 @@ export default function LoginScreen() {
             {error && (
               <View style={styles.errorContainer}>
                 <Text style={styles.errorText}>
-                  {typeof error === 'string' ? error : error.message || 'Authentication failed'}
+                  {typeof error === 'string' ? error : (error as any)?.message || 'Authentication failed'}
                 </Text>
               </View>
             )}
@@ -258,7 +258,7 @@ export default function LoginScreen() {
                       
                       // Check if delegation was stored
                       const regularStorage = getRegularStorage();
-                      const delegation = await regularStorage.getItem('expo-ii-integration.delegation');
+                      const delegation = regularStorage.getItem ? await regularStorage.getItem('expo-ii-integration.delegation') : null;
                       
                       if (delegation) {
                         console.log('✅ Delegation found! Authentication should be complete.');

@@ -39,7 +39,6 @@ module {
         photoId: PhotoId;
         totalPlays: Nat;
         totalReports: Nat;
-        qualityScore: Float;
         lastUpdated: Time.Time;
     };
     
@@ -213,7 +212,6 @@ module {
         
         // 内部管理
         status: { #Active; #Banned; #Deleted };
-        qualityScore: Float;
         timesUsed: Nat;
         lastUsedTime: ?Time.Time;
         

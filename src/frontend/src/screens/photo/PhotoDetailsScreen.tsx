@@ -28,12 +28,12 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 export default function PhotoDetailsScreen() {
   const route = useRoute<PhotoDetailsRouteProp>();
   const navigation = useNavigation<NavigationProp>();
-  const { photoId, sessionId, roundIndex } = route.params;
+  const { photoId, sessionId, roundIndex, cachedPhotoMeta, cachedPhotoUrl, cachedPhotoLocation } = route.params;
   const { identity, principal } = useAuth();
 
-  const [photoMeta, setPhotoMeta] = useState<any>(null);
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [photoMeta, setPhotoMeta] = useState<any>(cachedPhotoMeta || null);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(cachedPhotoUrl || null);
+  const [isLoading, setIsLoading] = useState(!cachedPhotoMeta); // If we have cached data, we're not loading
   const [hasVoted, setHasVoted] = useState(false);
   const [isVoting, setIsVoting] = useState(false);
   const [ratings, setRatings] = useState({
@@ -61,32 +61,40 @@ export default function PhotoDetailsScreen() {
       await photoService.init(identity!);
       await gameService.init(identity!);
       
-      // Get photo metadata
-      const metadata = await photoService.getPhotoMetadataV2(photoId);
-      if (metadata) {
-        setPhotoMeta(metadata);
-        
-        // Get photo URL
-        if (metadata.uploadState?.Complete !== undefined && metadata.status?.Active !== undefined) {
-          const url = await photoService.getPhotoDataUrl(photoId, metadata);
-          setPhotoUrl(url);
+      // Only fetch photo metadata if not cached
+      if (!cachedPhotoMeta) {
+        const metadata = await photoService.getPhotoMetadataV2(photoId);
+        if (metadata) {
+          setPhotoMeta(metadata);
+          
+          // Get photo URL only if not cached
+          if (!cachedPhotoUrl && metadata.uploadState?.Complete !== undefined && metadata.status?.Active !== undefined) {
+            const url = await photoService.getPhotoDataUrl(photoId, metadata);
+            setPhotoUrl(url);
+          }
         }
-        
-        // Get existing ratings if available
-        const photoRatings = await gameService.getPhotoRatings(photoId);
-        if (photoRatings) {
-          setExistingRatings(photoRatings);
-        }
-        
-        // Get photo Elo rating
-        const eloRating = await gameService.getPhotoEloRating(photoId);
-        setPhotoEloRating(eloRating);
-        
-        // Get photo stats
-        const stats = await gameService.getPhotoStatsById(photoId);
-        if (stats) {
-          setPhotoStats(stats);
-        }
+      }
+      
+      // Always fetch ratings, Elo rating, and stats (not cached from SessionDetailsScreen)
+      // Get existing ratings if available
+      const photoRatings = await gameService.getPhotoRatings(photoId);
+      if (photoRatings) {
+        setExistingRatings(photoRatings);
+      }
+      
+      // Get photo Elo rating
+      const eloRating = await gameService.getPhotoEloRating(photoId);
+      setPhotoEloRating(eloRating);
+      
+      // Get photo stats
+      console.log('📊 [PhotoDetailsScreen] Fetching stats for photoId:', photoId, 'type:', typeof photoId);
+      const stats = await gameService.getPhotoStatsById(photoId);
+      console.log('📊 [PhotoDetailsScreen] Received stats:', stats);
+      console.log('📊 [PhotoDetailsScreen] playCount:', stats?.playCount, 'averageScore:', stats?.averageScore);
+      if (stats) {
+        setPhotoStats(stats);
+      } else {
+        console.log('📊 [PhotoDetailsScreen] No stats returned for photoId:', photoId);
       }
     } catch (error) {
       console.error('Failed to fetch photo details:', error);
@@ -324,7 +332,9 @@ export default function PhotoDetailsScreen() {
 
           {/* Statistics */}
           <View style={styles.statsCard}>
-            <Text style={styles.sectionTitle}>Statistics</Text>
+            <Text style={styles.sectionTitle}>Photo Performance</Text>
+            
+            {/* Game Stats */}
             <View style={styles.statsGrid}>
               <View style={styles.statItem}>
                 <Text style={styles.statLabel}>Elo Rating</Text>
@@ -333,31 +343,33 @@ export default function PhotoDetailsScreen() {
                 </Text>
               </View>
               <View style={styles.statItem}>
-                <Text style={styles.statLabel}>Avg Score</Text>
+                <Text style={styles.statLabel}>Times Played</Text>
                 <Text style={styles.statValue}>
-                  {photoStats ? photoStats.averageScore.toFixed(0) : '-'}
+                  {photoStats && photoStats.playCount > 0 
+                    ? photoStats.playCount.toLocaleString() 
+                    : Number(photoMeta.timesUsed || 0).toLocaleString()}
                 </Text>
               </View>
               <View style={styles.statItem}>
-                <Text style={styles.statLabel}>Times Played</Text>
+                <Text style={styles.statLabel}>Avg Score</Text>
                 <Text style={styles.statValue}>
-                  {photoStats ? photoStats.playCount.toLocaleString() : '0'}
+                  {photoStats && photoStats.playCount > 0 ? Math.round(photoStats.averageScore).toLocaleString() : '-'}
                 </Text>
               </View>
             </View>
             
-            {/* Additional Stats Row */}
+            {/* Photo Details Row */}
             <View style={[styles.statsGrid, { marginTop: 12 }]}>
               <View style={styles.statItem}>
                 <Text style={styles.statLabel}>Best Score</Text>
                 <Text style={styles.statValue}>
-                  {photoStats ? photoStats.bestScore.toLocaleString() : '-'}
+                  {photoStats && photoStats.bestScore > 0 ? photoStats.bestScore.toLocaleString() : '-'}
                 </Text>
               </View>
               <View style={styles.statItem}>
-                <Text style={styles.statLabel}>Quality</Text>
+                <Text style={styles.statLabel}>Times Used</Text>
                 <Text style={styles.statValue}>
-                  {(photoMeta.qualityScore || 0).toFixed(1)}/10
+                  {Number(photoMeta.timesUsed || 0).toLocaleString()}
                 </Text>
               </View>
               <View style={styles.statItem}>
@@ -381,12 +393,15 @@ export default function PhotoDetailsScreen() {
                           key={i}
                           name={i <= Math.round(existingRatings.difficulty.average) ? "star" : "star-outline"}
                           size={14}
-                          color="#f59e0b"
+                          color="#ef4444"
                         />
                       ))}
                     </View>
+                    <Text style={styles.aggregatedValue}>
+                      {existingRatings.difficulty.average.toFixed(1)}
+                    </Text>
                     <Text style={styles.aggregatedCount}>
-                      ({Number(existingRatings.difficulty.count)} votes)
+                      ({Number(existingRatings.difficulty.count)})
                     </Text>
                   </View>
                   <View style={styles.aggregatedItem}>
@@ -397,12 +412,15 @@ export default function PhotoDetailsScreen() {
                           key={i}
                           name={i <= Math.round(existingRatings.interest.average) ? "star" : "star-outline"}
                           size={14}
-                          color="#f59e0b"
+                          color="#3b82f6"
                         />
                       ))}
                     </View>
+                    <Text style={styles.aggregatedValue}>
+                      {existingRatings.interest.average.toFixed(1)}
+                    </Text>
                     <Text style={styles.aggregatedCount}>
-                      ({Number(existingRatings.interest.count)} votes)
+                      ({Number(existingRatings.interest.count)})
                     </Text>
                   </View>
                   <View style={styles.aggregatedItem}>
@@ -413,12 +431,15 @@ export default function PhotoDetailsScreen() {
                           key={i}
                           name={i <= Math.round(existingRatings.beauty.average) ? "star" : "star-outline"}
                           size={14}
-                          color="#f59e0b"
+                          color="#10b981"
                         />
                       ))}
                     </View>
+                    <Text style={styles.aggregatedValue}>
+                      {existingRatings.beauty.average.toFixed(1)}
+                    </Text>
                     <Text style={styles.aggregatedCount}>
-                      ({Number(existingRatings.beauty.count)} votes)
+                      ({Number(existingRatings.beauty.count)})
                     </Text>
                   </View>
                 </View>
@@ -984,6 +1005,12 @@ const styles = StyleSheet.create({
   aggregatedCount: {
     color: '#64748b',
     fontSize: 12,
+  },
+  aggregatedValue: {
+    color: '#f59e0b',
+    fontSize: 14,
+    fontWeight: '600',
+    marginHorizontal: 8,
   },
   userStatsCard: {
     backgroundColor: 'rgba(30, 41, 59, 0.4)',

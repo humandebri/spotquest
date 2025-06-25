@@ -66,7 +66,7 @@ export function DevAuthProvider({ children }: DevAuthProviderProps) {
       
       console.log('🔧 DEV: Using deterministic test key for dev mode');
       
-      const identity = Ed25519KeyIdentity.fromSecretKey(TEST_SECRET_KEY.buffer);
+      const identity = Ed25519KeyIdentity.fromSecretKey(TEST_SECRET_KEY.buffer as ArrayBuffer);
       const generatedPrincipal = identity.getPrincipal();
       
       console.log('🔧 DEV: Test identity principal:', generatedPrincipal.toString());

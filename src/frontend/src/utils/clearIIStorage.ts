@@ -1,4 +1,8 @@
-import { Storage } from 'expo-ii-integration';
+// Storage interface
+interface Storage {
+  find?: (prefix: string) => Promise<string[]>;
+  removeItem?: (key: string) => Promise<void>;
+}
 
 // Clear all expo-ii-integration related storage to fix corruption
 export async function clearIIStorage(secureStorage: Storage, regularStorage: Storage) {

@@ -88,24 +88,24 @@ export default function GameModeScreen() {
     {
       title: 'Classic Mode',
       description: 'Guess the location from a single photo',
-      icon: 'earth',
-      gradient: ['#3b82f6', '#2563eb'],
+      icon: 'earth' as const,
+      gradient: ['#3b82f6', '#2563eb'] as const,
       available: photoCount === null || photoCount >= 5,
       difficulty: 'NORMAL',
     },
     {
       title: 'Speed Mode',
       description: 'Race against time with multiple photos',
-      icon: 'speed',
-      gradient: ['#f59e0b', '#d97706'],
+      icon: 'speed' as const,
+      gradient: ['#f59e0b', '#d97706'] as const,
       available: false,
       difficulty: 'HARD',
     },
     {
       title: 'Multiplayer',
       description: 'Compete with other players in real-time',
-      icon: 'people',
-      gradient: ['#8b5cf6', '#7c3aed'],
+      icon: 'people' as const,
+      gradient: ['#8b5cf6', '#7c3aed'] as const,
       available: false,
       difficulty: 'EXTREME',
     },
@@ -116,7 +116,7 @@ export default function GameModeScreen() {
       name: 'EASY',
       label: 'Easy',
       description: '5 min timer • More hints',
-      icon: 'happy-outline',
+      icon: 'happy-outline' as const,
       color: '#10b981',
       multiplier: '0.8x',
     },
@@ -124,7 +124,7 @@ export default function GameModeScreen() {
       name: 'NORMAL',
       label: 'Normal',
       description: '3 min timer • Standard hints',
-      icon: 'flash',
+      icon: 'flash' as const,
       color: '#3b82f6',
       multiplier: '1.0x',
     },
@@ -132,7 +132,7 @@ export default function GameModeScreen() {
       name: 'HARD',
       label: 'Hard',
       description: '2 min timer • Limited hints',
-      icon: 'flame',
+      icon: 'flame' as const,
       color: '#f59e0b',
       multiplier: '1.5x',
     },
@@ -140,7 +140,7 @@ export default function GameModeScreen() {
       name: 'EXTREME',
       label: 'Extreme',
       description: '1 min timer • No hints',
-      icon: 'skull',
+      icon: 'skull' as const,
       color: '#ef4444',
       multiplier: '2.0x',
     },
@@ -213,11 +213,11 @@ export default function GameModeScreen() {
                 >
                   <View style={styles.modeIconContainer}>
                     {mode.icon === 'earth' ? (
-                      <MaterialCommunityIcons name={mode.icon} size={32} color="#ffffff" />
+                      <MaterialCommunityIcons name="earth" size={32} color="#ffffff" />
                     ) : mode.icon === 'speed' ? (
-                      <MaterialIcons name={mode.icon} size={32} color="#ffffff" />
+                      <MaterialIcons name="speed" size={32} color="#ffffff" />
                     ) : (
-                      <Ionicons name={mode.icon} size={32} color="#ffffff" />
+                      <Ionicons name="people" size={32} color="#ffffff" />
                     )}
                   </View>
                   <View style={styles.modeTextContainer}>
@@ -257,9 +257,11 @@ export default function GameModeScreen() {
                     {level.icon === 'flame' ? (
                       <FontAwesome5 name="fire" size={18} color={level.color} />
                     ) : level.icon === 'skull' ? (
-                      <MaterialCommunityIcons name={level.icon} size={20} color={level.color} />
+                      <MaterialCommunityIcons name="skull" size={20} color={level.color} />
+                    ) : level.icon === 'happy-outline' ? (
+                      <Ionicons name="happy-outline" size={20} color={level.color} />
                     ) : (
-                      <Ionicons name={level.icon} size={20} color={level.color} />
+                      <Ionicons name="flash" size={20} color={level.color} />
                     )}
                   </View>
                   <View style={styles.difficultyTextContainer}>

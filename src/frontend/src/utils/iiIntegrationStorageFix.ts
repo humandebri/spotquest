@@ -1,7 +1,19 @@
 // Fix for expo-ii-integration storage issues
 // This provides a proper wrapper for storage to handle the appKey correctly
 
-import { Storage } from 'expo-ii-integration';
+import { debugLog } from './debugConfig';
+
+// Storage interface compatible with expo-ii-integration
+interface Storage {
+  getItem: (key: string) => Promise<string | null>;
+  setItem: (key: string, value: string) => Promise<void>;
+  removeItem: (key: string) => Promise<void>;
+  find: (prefix: string) => Promise<string[]>;
+  get?: (key: string) => Promise<string | null>;
+  set?: (key: string, value: string) => Promise<void>;
+  remove?: (key: string) => Promise<void>;
+  clear?: () => Promise<void>;
+}
 
 export class FixedSecureStorage implements Storage {
   constructor(private originalStorage: Storage) {}

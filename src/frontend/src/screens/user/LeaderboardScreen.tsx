@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,9 +12,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons, Foundation } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { gameService } from '../../services/game';
 import { useAuth } from '../../hooks/useAuth';
-import { CustomPrincipal as Principal } from '../../utils/principal';
+import { CustomPrincipal } from '../../utils/principal';
 
 interface LeaderboardEntry {
   rank: number;
@@ -62,6 +63,14 @@ export default function LeaderboardScreen() {
     loadLeaderboard();
   }, [selectedType]);
 
+  // Refresh data when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      console.log('🏆 LeaderboardScreen focused, refreshing data...');
+      loadLeaderboard();
+    }, [selectedType])
+  );
+
   const loadLeaderboard = async (isRefresh = false) => {
     if (isRefresh) {
       setIsRefreshing(true);
@@ -102,14 +111,14 @@ export default function LeaderboardScreen() {
       
       switch (selectedType) {
         case 'global':
-          // Get player leaderboard with stats
-          const playerLeaderboard = await gameService.getLeaderboardWithStats(50);
-          console.log('🏆 Global leaderboard loaded:', playerLeaderboard.length, 'players');
+          // Get player leaderboard with Elo ratings
+          const playerLeaderboard = await gameService.getEloLeaderboardWithStats(50);
+          console.log('🏆 Global Elo leaderboard loaded:', playerLeaderboard.length, 'players');
           leaderboardData = playerLeaderboard.map((entry, index) => ({
             rank: index + 1,
             principal: entry.principal.toString(),
             username: entry.username,
-            score: Number(entry.score),
+            score: Number(entry.eloRating), // Use Elo rating as score
             gamesPlayed: Number(entry.gamesPlayed),
             photosUploaded: Number(entry.photosUploaded),
             totalRewards: Number(entry.totalRewards),
@@ -169,9 +178,13 @@ export default function LeaderboardScreen() {
       if (auth && auth.identity) {
         const principal = auth.identity.getPrincipal();
         const stats = await gameService.getPlayerStats(principal);
+        console.log('🏆 Player stats received:', stats);
         if (stats) {
           setUserStats(stats);
-          setUserRank(stats.rank ? Number(stats.rank) : null);
+          // Fix: Check for null/undefined explicitly, not falsy (0 is falsy but valid rank)
+          const rankValue = stats.rank !== null && stats.rank !== undefined ? Number(stats.rank) : null;
+          setUserRank(rankValue);
+          console.log('🏆 User rank set to:', stats.rank, '-> parsed as:', rankValue);
         }
       }
       
@@ -195,7 +208,7 @@ export default function LeaderboardScreen() {
     { key: 'monthly' as LeaderboardType, label: 'Monthly', icon: 'calendar-month', color: '#10b981' },
   ];
 
-  const renderItem = ({ item, index }: { item: any; index: number }) => {
+  const renderItem = ({ item }: { item: any }) => {
     if (item.rank <= 3) return null; // Top 3 shown in podium
     
     // Render different content based on leaderboard type
@@ -266,7 +279,10 @@ export default function LeaderboardScreen() {
           </View>
 
           <View style={styles.scoreContainer}>
-            <Text style={styles.scoreText}>{item.score.toLocaleString()}</Text>
+            <Text style={styles.scoreText}>{item.score}</Text>
+            <Text style={styles.scoreLabel}>
+              {selectedType === 'global' ? 'Elo Rating' : 'points'}
+            </Text>
             <View style={styles.rewardsContainer}>
               <Foundation name="bitcoin-circle" size={14} color="#f59e0b" />
               <Text style={styles.rewardsText}>{item.totalRewards || 0}</Text>
@@ -316,7 +332,16 @@ export default function LeaderboardScreen() {
                         return userIndex >= 0 ? `#${userIndex + 1}` : 'Unranked';
                       })()
                     ) : (
-                      userRank ? `#${userRank}` : 'Unranked'
+                      (() => {
+                        console.log('🏆 Rank Card Debug:', {
+                          userRank,
+                          typeofUserRank: typeof userRank,
+                          isNull: userRank === null,
+                          isUndefined: userRank === undefined,
+                          truthyCheck: !!userRank
+                        });
+                        return userRank ? `#${userRank}` : 'Unranked';
+                      })()
                     )}
                   </Text>
                   <View style={styles.rankCardChange}>
@@ -355,7 +380,8 @@ export default function LeaderboardScreen() {
                   <Text style={styles.rankCardLabel}>
                     {selectedType === 'uploaders' ? 'Photo Stats' :
                      selectedType === 'weekly' ? 'This Week' :
-                     selectedType === 'monthly' ? 'This Month' : 'Best Score'}
+                     selectedType === 'monthly' ? 'This Month' : 
+                     selectedType === 'global' ? 'Elo Rating' : 'Best Score'}
                   </Text>
                   <Text style={styles.rankCardScore}>
                     {selectedType === 'uploaders' ? (
@@ -376,6 +402,8 @@ export default function LeaderboardScreen() {
                         const userData = data.find(item => item.principal === myPrincipal);
                         return userData && userData.score ? userData.score.toLocaleString() : '0';
                       })()
+                    ) : selectedType === 'global' ? (
+                      userStats && userStats.eloRating !== undefined ? Number(userStats.eloRating) : '1500'
                     ) : (
                       Number(userStats.bestScore).toLocaleString()
                     )}
@@ -385,6 +413,8 @@ export default function LeaderboardScreen() {
                       'total plays'
                     ) : selectedType === 'weekly' || selectedType === 'monthly' ? (
                       'points'
+                    ) : selectedType === 'global' ? (
+                      'rating points'
                     ) : (
                       `${(Number(userStats.totalRewardsEarned) / 100).toFixed(2)} SPOT`
                     )}
@@ -444,9 +474,7 @@ export default function LeaderboardScreen() {
                 : 'Limited Activity'}
             </Text>
             <Text style={styles.emptyMessage}>
-              {data.length === 1 
-                ? 'You are the only player currently! Invite friends to compete on the leaderboard.'
-                : selectedType === 'global' || selectedType === 'weekly'
+              {selectedType === 'global' || selectedType === 'weekly'
                 ? 'Complete some games to appear on the leaderboard!'
                 : selectedType === 'uploaders'
                 ? 'Upload photos and have them used in games to appear here!'
@@ -501,11 +529,15 @@ export default function LeaderboardScreen() {
                           <Text style={styles.podiumScore}>
                             {selectedType === 'uploaders' && 'totalTimesUsed' in data[1]
                               ? data[1].totalTimesUsed
+                              : selectedType === 'global' 
+                              ? data[1].score
                               : (data[1].score || 0).toLocaleString()}
                           </Text>
                           <Text style={styles.podiumRewards}>
                             {selectedType === 'uploaders' && 'totalPhotos' in data[1]
                               ? `${data[1].totalPhotos} photos`
+                              : selectedType === 'global'
+                              ? `Elo ${data[1].score}`
                               : `${data[1].totalRewards || 0} SPOT`}
                           </Text>
                         </View>
@@ -522,11 +554,15 @@ export default function LeaderboardScreen() {
                           <Text style={styles.podiumScore}>
                             {selectedType === 'uploaders' && 'totalTimesUsed' in data[0]
                               ? data[0].totalTimesUsed
+                              : selectedType === 'global' 
+                              ? data[0].score
                               : (data[0].score || 0).toLocaleString()}
                           </Text>
                           <Text style={styles.podiumRewards}>
                             {selectedType === 'uploaders' && 'totalPhotos' in data[0]
                               ? `${data[0].totalPhotos} photos`
+                              : selectedType === 'global'
+                              ? `Elo ${data[0].score}`
                               : `${data[0].totalRewards || 0} SPOT`}
                           </Text>
                         </View>
@@ -543,11 +579,15 @@ export default function LeaderboardScreen() {
                           <Text style={styles.podiumScore}>
                             {selectedType === 'uploaders' && 'totalTimesUsed' in data[2]
                               ? data[2].totalTimesUsed
+                              : selectedType === 'global' 
+                              ? data[2].score
                               : (data[2].score || 0).toLocaleString()}
                           </Text>
                           <Text style={styles.podiumRewards}>
                             {selectedType === 'uploaders' && 'totalPhotos' in data[2]
                               ? `${data[2].totalPhotos} photos`
+                              : selectedType === 'global'
+                              ? `Elo ${data[2].score}`
                               : `${data[2].totalRewards || 0} SPOT`}
                           </Text>
                         </View>

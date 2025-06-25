@@ -20,7 +20,6 @@ import { getSecureStorage, getRegularStorage } from '../storage';
 import { createPatchedStorage, cleanupIIIntegrationStorage } from '../utils/storagePatch';
 import { FixedSecureStorage, FixedRegularStorage, checkAndFixAppKey } from '../utils/iiIntegrationStorageFix';
 import { clearAllIIData } from '../utils/clearAllIIData';
-import { createValidatingStorage } from '../utils/expoIIIntegrationPatch';
 import { DEBUG_CONFIG, debugLog } from '../utils/debugConfig';
 
 // ★ ② Safari/WebBrowserが閉じるように必須の1行
@@ -99,8 +98,8 @@ function IIAuthProviderInner({ children }: IIAuthProviderProps) {
   const iiIntegration = useIIIntegration({
     iiIntegrationUrl,
     deepLinkType,
-    secureStorage,
-    regularStorage,
+    secureStorage: secureStorage as any,
+    regularStorage: regularStorage as any,
     cryptoModule,
   });
   

@@ -47,7 +47,7 @@ export default function RegionSelectScreen() {
       setLoading(true);
       
       // Get photo statistics
-      const stats = await photoServiceV2.getPhotoStats(identity);
+      const stats = await photoServiceV2.getPhotoStats(identity || undefined);
       
       if (stats) {
         const regionData: RegionInfo[] = [];

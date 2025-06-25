@@ -1,4 +1,10 @@
-import { Storage } from 'expo-ii-integration';
+// Storage interface
+interface Storage {
+  getItem: (key: string) => Promise<string | null>;
+  setItem: (key: string, value: string) => Promise<void>;
+  removeItem: (key: string) => Promise<void>;
+  find: (prefix: string) => Promise<string[]>;
+}
 
 // Wrapper for storage to handle expo-ii-integration's expectations
 export class StorageWrapper implements Storage {

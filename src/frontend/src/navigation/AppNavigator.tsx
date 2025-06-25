@@ -77,6 +77,10 @@ export type RootStackParamList = {
     photoId: number;
     sessionId?: string;
     roundIndex?: number;
+    // Optional cached data from SessionDetailsScreen
+    cachedPhotoMeta?: any;
+    cachedPhotoUrl?: string;
+    cachedPhotoLocation?: { lat: number; lon: number };
   };
   Camera: undefined;
   PhotoUpload: {

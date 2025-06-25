@@ -180,7 +180,6 @@ const idlFactory = ({ IDL }: any) => {
       'Banned': IDL.Null,
       'Deleted': IDL.Null,
     }),
-    qualityScore: IDL.Float64,
     timesUsed: IDL.Nat,
     lastUsedTime: IDL.Opt(IDL.Int),  // Time.Time in Motoko is Int
   });
@@ -752,7 +751,7 @@ export const reverseGeocode = async (latitude: number, longitude: number): Promi
     
     // フォールバック: 表示名から抽出
     if (addressParts.length === 0 && data.display_name) {
-      const displayParts = data.display_name.split(',').map(part => part.trim());
+      const displayParts = data.display_name.split(',').map((part: string) => part.trim());
       // 最初の3つの要素を取得（通常は市区町村、都道府県、国の順）
       addressParts.push(...displayParts.slice(0, 3));
     }

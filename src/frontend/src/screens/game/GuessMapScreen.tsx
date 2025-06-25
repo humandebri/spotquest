@@ -173,7 +173,9 @@ export default function GuessMapScreen() {
         
         // Reset states before navigation
         setIsSubmitting(false);
-        setGameGuess(null, confidenceRadius || 1000);
+        if (guess) {
+          setGameGuess({ latitude: guess.latitude, longitude: guess.longitude }, confidenceRadius || 1000);
+        }
         
         // Use timeout to ensure state updates complete before navigation
         setTimeout(() => {
@@ -301,9 +303,7 @@ export default function GuessMapScreen() {
         activeOpacity={0.8}
       >
         <View style={styles.headerContent}>
-          <View style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#fff" />
-          </View>
+          <Ionicons name="arrow-back" size={24} color="#fff" />
           <View style={styles.photoContainer}>
             <Image 
               source={{ uri: photoUrl }} 

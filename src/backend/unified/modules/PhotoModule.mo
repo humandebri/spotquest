@@ -31,8 +31,8 @@ module {
         tags: [Text];
         boost: Nat;
         status: { #Active; #Banned; #Deleted };
-        qualityScore: Float;
         timesUsed: Nat;
+        qualityScore: Float;  // ダミーフィールド（互換性維持用）
     };
     
     // Scheduled upload request type
@@ -112,8 +112,8 @@ module {
                 tags = photo.tags;
                 boost = 1; // Default boost
                 status = #Active;
-                qualityScore = 0.5; // Default quality score
                 timesUsed = 0;
+                qualityScore = 0.0;  // ダミー値
             };
             
             // Store photo
@@ -244,20 +244,6 @@ module {
             }
         };
         
-        // Update photo quality score
-        public func updatePhotoQualityScore(photoId: Nat, qualityScore: Float) : Result.Result<(), Text> {
-            switch(photos.get(photoId)) {
-                case null { #err("Photo not found") };
-                case (?photo) {
-                    let updatedPhoto = {
-                        photo with
-                        qualityScore = qualityScore;
-                    };
-                    photos.put(photoId, updatedPhoto);
-                    #ok()
-                };
-            }
-        };
         
         // Get photo by ID
         public func getPhoto(photoId: Nat) : ?Photo {

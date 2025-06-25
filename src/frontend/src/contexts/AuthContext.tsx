@@ -1,8 +1,7 @@
 import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
-import { Identity } from '@dfinity/identity';
+import type { Identity } from '@dfinity/agent';
 import { Principal } from '@dfinity/principal';
 import { AuthContextType, AuthState, IIAuthConfig } from '../types/auth';
-import { internetIdentityService } from '../services/internetIdentity';
 
 // 管理者のPrincipal IDリスト
 const ADMIN_PRINCIPALS = [
@@ -78,87 +77,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
     dispatch({ type: 'SET_LOADING', payload: true });
     dispatch({ type: 'CLEAR_ERROR' });
 
-    try {
-      const result = await internetIdentityService.login(config);
-      
-      if (result.success) {
-        const principal = await internetIdentityService.getPrincipal();
-        const identity = await internetIdentityService.getIdentity();
-        
-        if (principal) {
-          const isAdmin = checkIsAdmin(principal);
-          dispatch({
-            type: 'SET_AUTHENTICATED',
-            payload: { principal, identity, isAdmin }
-          });
-          return true;
-        } else {
-          dispatch({
-            type: 'SET_ERROR',
-            payload: 'Failed to retrieve user principal'
-          });
-          return false;
-        }
-      } else {
-        dispatch({
-          type: 'SET_ERROR',
-          payload: result.error || 'Authentication failed'
-        });
-        return false;
-      }
-    } catch (error) {
-      console.error('Login error:', error);
-      dispatch({
-        type: 'SET_ERROR',
-        payload: error instanceof Error ? error.message : 'Login failed'
-      });
-      return false;
-    }
+    // TODO: Implement Internet Identity login
+    dispatch({
+      type: 'SET_ERROR',
+      payload: 'Internet Identity service not configured'
+    });
+    return false;
   };
 
   // Logout function
   const logout = async (): Promise<void> => {
     dispatch({ type: 'SET_LOADING', payload: true });
-
-    try {
-      await internetIdentityService.logout();
-      dispatch({ type: 'SET_UNAUTHENTICATED' });
-    } catch (error) {
-      console.error('Logout error:', error);
-      dispatch({
-        type: 'SET_ERROR',
-        payload: error instanceof Error ? error.message : 'Logout failed'
-      });
-    }
+    dispatch({ type: 'SET_UNAUTHENTICATED' });
   };
 
   // Check authentication status
   const checkAuth = async (): Promise<void> => {
     dispatch({ type: 'SET_LOADING', payload: true });
-
-    try {
-      const isAuthenticated = await internetIdentityService.isAuthenticated();
-      
-      if (isAuthenticated) {
-        const principal = await internetIdentityService.getPrincipal();
-        const identity = await internetIdentityService.getIdentity();
-        
-        if (principal) {
-          const isAdmin = checkIsAdmin(principal);
-          dispatch({
-            type: 'SET_AUTHENTICATED',
-            payload: { principal, identity, isAdmin }
-          });
-        } else {
-          dispatch({ type: 'SET_UNAUTHENTICATED' });
-        }
-      } else {
-        dispatch({ type: 'SET_UNAUTHENTICATED' });
-      }
-    } catch (error) {
-      console.error('Auth check error:', error);
-      dispatch({ type: 'SET_UNAUTHENTICATED' });
-    }
+    dispatch({ type: 'SET_UNAUTHENTICATED' });
   };
 
   // Clear error function

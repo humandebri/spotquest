@@ -14,6 +14,7 @@ import Blob "mo:base/Blob";
 import Iter "mo:base/Iter";
 import Int "mo:base/Int";
 import Hash "mo:base/Hash";
+import Debug "mo:base/Debug";
 // StableBuffer is not needed
 
 import PhotoTypes "../../../types/photo";
@@ -82,9 +83,9 @@ module {
         
         // 内部管理
         status: { #Active; #Banned; #Deleted };
-        qualityScore: Float;
         timesUsed: Nat;
         lastUsedTime: ?Time.Time;
+        qualityScore: Float;    // ダミーフィールド（互換性維持用、常に0.0）
     };
 
     /// 写真統計情報（別管理）
@@ -280,9 +281,9 @@ module {
                 uploadState = #Incomplete;
                 
                 status = #Active;
-                qualityScore = 0.5;
                 timesUsed = 0;
                 lastUsedTime = null;
+                qualityScore = 0.0;  // ダミー値
             };
             
             // ✨ NEW: Stableストレージに保存（永続化）
@@ -774,10 +775,30 @@ module {
             }
         };
         
+        /// 写真の統計情報を直接設定（管理者用）
+        public func setPhotoStats(photoId: Nat, stats: PhotoStats) : Result.Result<(), Text> {
+            switch (stablePhotos.get(photoId)) {
+                case null { 
+                    #err("Photo not found") 
+                };
+                case (?photo) {
+                    stablePhotoStats.put(photoId, stats);
+                    Debug.print("[PhotoModuleV2] Manually set stats for photoId: " # Nat.toText(photoId) # 
+                        " - playCount: " # Nat.toText(stats.playCount) # 
+                        ", totalScore: " # Nat.toText(stats.totalScore));
+                    #ok()
+                };
+            }
+        };
+
         /// 写真の統計を更新（ゲーム結果を反映）
         public func updatePhotoStats(photoId: Nat, score: Nat) : Result.Result<(), Text> {
+            Debug.print("[PhotoModuleV2] updatePhotoStats called for photoId: " # Nat.toText(photoId) # " with score: " # Nat.toText(score));
             switch (stablePhotos.get(photoId)) {
-                case null { #err("Photo not found") };
+                case null { 
+                    Debug.print("[PhotoModuleV2] ERROR: Photo not found in stablePhotos for photoId: " # Nat.toText(photoId));
+                    #err("Photo not found") 
+                };
                 case (?photo) {
                     // 写真の基本情報を更新（timesUsed, lastUsedTime）
                     let updatedPhoto = {
@@ -817,6 +838,10 @@ module {
                     
                     // ✨ NEW: Stableストレージに統計を保存（永続化）
                     stablePhotoStats.put(photoId, currentStats);
+                    Debug.print("[PhotoModuleV2] Successfully saved stats for photoId: " # Nat.toText(photoId) # 
+                        " - playCount: " # Nat.toText(currentStats.playCount) # 
+                        ", totalScore: " # Nat.toText(currentStats.totalScore) # 
+                        ", averageScore: " # Float.toText(currentStats.averageScore));
                     #ok()
                 };
             }
@@ -824,8 +849,20 @@ module {
         
         /// 個別写真の統計情報を取得
         public func getPhotoStatsById(photoId: Nat) : ?PhotoStats {
+            Debug.print("[PhotoModuleV2] getPhotoStatsById called for photoId: " # Nat.toText(photoId));
             // 🔍 Stableから統計情報を取得
-            stablePhotoStats.get(photoId)
+            let stats = stablePhotoStats.get(photoId);
+            switch(stats) {
+                case null {
+                    Debug.print("[PhotoModuleV2] No stats found for photoId: " # Nat.toText(photoId));
+                };
+                case (?s) {
+                    Debug.print("[PhotoModuleV2] Found stats for photoId: " # Nat.toText(photoId) # 
+                        " - playCount: " # Nat.toText(s.playCount) # 
+                        ", averageScore: " # Float.toText(s.averageScore));
+                };
+            };
+            stats
         };
         
         /// 写真の完全なデータを取得（全チャンクを結合）
@@ -1173,7 +1210,19 @@ module {
         
         /// 写真統計データを復元（別stable変数から）
         public func restorePhotoStats(entries: [(Nat, PhotoStats)]) {
+            Debug.print("[PhotoModuleV2] Restoring " # Nat.toText(entries.size()) # " photo stats entries");
+            stablePhotoStatsEntries := entries;
             stablePhotoStats := TrieMap.fromEntries(entries.vals(), Nat.equal, Hash.hash);
+            
+            // Debug: Print first few stats entries
+            var count = 0;
+            for ((photoId, stats) in entries.vals()) {
+                if (count < 5) {
+                    Debug.print("[PhotoModuleV2] Restored stats for photoId " # Nat.toText(photoId) # 
+                        " - playCount: " # Nat.toText(stats.playCount));
+                    count += 1;
+                };
+            };
         };
         
         /// 🔄 preupgrade: stable変数を更新
@@ -1185,6 +1234,11 @@ module {
         
         /// 🔄 postupgrade: TrieMapを復元
         public func restoreFromUpgrade() {
+            Debug.print("[PhotoModuleV2] restoreFromUpgrade called");
+            Debug.print("[PhotoModuleV2] Restoring " # Nat.toText(stablePhotosEntries.size()) # " photos");
+            Debug.print("[PhotoModuleV2] Restoring " # Nat.toText(stablePhotoChunksEntries.size()) # " chunks");
+            Debug.print("[PhotoModuleV2] Restoring " # Nat.toText(stablePhotoStatsEntries.size()) # " stats");
+            
             stablePhotos := TrieMap.fromEntries<Nat, Photo>(stablePhotosEntries.vals(), Nat.equal, Hash.hash);
             stablePhotoChunks := TrieMap.fromEntries<Text, PhotoChunk>(stablePhotoChunksEntries.vals(), Text.equal, Text.hash);
             stablePhotoStats := TrieMap.fromEntries<Nat, PhotoStats>(stablePhotoStatsEntries.vals(), Nat.equal, Hash.hash);

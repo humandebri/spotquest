@@ -64,7 +64,7 @@ export default function AdminScreen({ navigation }: any) {
   const loadDashboardData = async () => {
     setLoading(true);
     try {
-      const data = await adminService.getDashboardStats(identity);
+      const data = await adminService.getDashboardStats(identity || undefined);
       setStats({
         totalUsers: data.totalUsers,
         activeGames: data.activeGames,
@@ -90,11 +90,11 @@ export default function AdminScreen({ navigation }: any) {
       case 'dashboard':
         return <DashboardTab stats={stats} />;
       case 'games':
-        return <GamesTab identity={identity} />;
+        return <GamesTab />;
       case 'photos':
-        return <PhotosTab identity={identity} />;
+        return <PhotosTab />;
       case 'users':
-        return <UsersTab identity={identity} />;
+        return <UsersTab />;
       case 'settings':
         return <SettingsTab identity={identity} />;
       default:

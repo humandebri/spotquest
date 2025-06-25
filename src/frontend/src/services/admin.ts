@@ -45,7 +45,6 @@ const adminIdlFactory = ({ IDL }: any) => {
   const PhotoReputation = IDL.Record({
     photoId: IDL.Nat,
     owner: IDL.Principal,
-    qualityScore: IDL.Float64,
     totalGuesses: IDL.Nat,
     correctGuesses: IDL.Nat,
     reportCount: IDL.Nat,

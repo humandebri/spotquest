@@ -339,7 +339,7 @@ export default function PhotoLibraryScreen() {
                 {!selectedPhoto.location && (
                   <TouchableOpacity
                     style={styles.locationButton}
-                    onPress={openLocationPicker}
+                    onPress={() => openLocationPicker()}
                   >
                     <Ionicons name="map" size={20} color="#fff" />
                     <Text style={styles.buttonText}>位置を選択</Text>
