@@ -126,6 +126,8 @@ module {
                 startTime = now;
                 endTime = null;
                 lastActivity = now;
+                initialEloRating = null;  // Will be set by main.mo when creating session
+                playerReward = null;      // Will be set when session is finalized
             };
             
             // Store session
@@ -432,6 +434,11 @@ module {
         // Get session
         public func getSession(sessionId: Text) : ?GameV2.GameSession {
             sessions.get(sessionId)
+        };
+        
+        // Update session
+        public func updateSession(sessionId: Text, session: GameV2.GameSession) : () {
+            sessions.put(sessionId, session);
         };
         
         // Get user sessions

@@ -236,6 +236,10 @@ class GameService {
         currentRound: IDL.Opt(IDL.Nat),
         totalScore: IDL.Nat,
         duration: IDL.Opt(IDL.Nat),
+        playerReward: IDL.Opt(IDL.Nat),
+        eloRatingChange: IDL.Opt(IDL.Int),
+        initialEloRating: IDL.Opt(IDL.Int),
+        finalEloRating: IDL.Opt(IDL.Int),
       });
 
       const SessionResult = IDL.Record({

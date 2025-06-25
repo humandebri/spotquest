@@ -29,6 +29,10 @@ module {
         currentRound: ?Nat;
         totalScore: Nat;
         duration: ?Nat;  // Duration in nanoseconds
+        playerReward: ?Nat;  // SPOT tokens earned (null if session not completed)
+        eloRatingChange: ?Int;  // Total Elo rating change for the session
+        initialEloRating: ?Int;  // Player's Elo rating at session start
+        finalEloRating: ?Int;  // Player's Elo rating at session end
     };
     
     public type GameSession = {
@@ -42,6 +46,8 @@ module {
         startTime: Time.Time;
         endTime: ?Time.Time;
         lastActivity: Time.Time;
+        initialEloRating: ?Int;   // Player's Elo rating when session started
+        playerReward: ?Nat;       // Total SPOT reward (set when finalized)
     };
     
     public type RoundState = {

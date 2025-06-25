@@ -20,8 +20,23 @@ import { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../../hooks/useAuth';
 import { gameService } from '../../services/game';
 import { useGameStore } from '../../store/gameStore';
+import { CustomPrincipal } from '../../utils/principal';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
+
+interface SessionSummary {
+  id: string;
+  status: { Active?: null; Completed?: null };
+  createdAt: bigint;
+  roundCount: bigint;
+  currentRound?: bigint;
+  totalScore: bigint;
+  duration?: bigint;
+  playerReward?: bigint;
+  eloRatingChange?: bigint;
+  initialEloRating?: bigint;
+  finalEloRating?: bigint;
+}
 
 export default function HomeScreen() {
   const navigation = useNavigation<NavigationProp>();
@@ -32,7 +47,7 @@ export default function HomeScreen() {
   const [isServiceInitialized, setIsServiceInitialized] = React.useState(false);
   const [playerStats, setPlayerStats] = React.useState<any>(null);
   const [isLoadingStats, setIsLoadingStats] = React.useState(false);
-  const [recentSessions, setRecentSessions] = React.useState<any[]>([]);
+  const [recentSessions, setRecentSessions] = React.useState<SessionSummary[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = React.useState(false);
   
   // Convert bigint balance to display string
@@ -47,7 +62,7 @@ export default function HomeScreen() {
     setIsLoadingBalance(true);
     try {
       // Always fetch from backend
-      const balance = await gameService.getTokenBalance(principal);
+      const balance = await gameService.getTokenBalance(CustomPrincipal.fromText(principal.toString()));
       setStoreBalance(balance);
       console.log('🏠 Fetched token balance from backend:', Number(balance));
     } catch (error) {
@@ -67,7 +82,7 @@ export default function HomeScreen() {
       console.log('🏠 HomeScreen identity principal:', identity?.getPrincipal()?.toString());
       console.log('🏠 HomeScreen identity type:', identity?.constructor?.name);
       
-      const stats = await gameService.getPlayerStats(principal || undefined);
+      const stats = await gameService.getPlayerStats(principal ? CustomPrincipal.fromText(principal.toString()) : undefined);
       console.log('🏠 Player stats:', stats);
       console.log('🏠 Player stats rank:', stats?.rank);
       console.log('🏠 Player stats rank[0]:', stats?.rank);
@@ -86,7 +101,7 @@ export default function HomeScreen() {
     
     setIsLoadingSessions(true);
     try {
-      const result = await gameService.getRecentSessionsWithScores(principal, 5);
+      const result = await gameService.getRecentSessionsWithScores(CustomPrincipal.fromText(principal.toString()), 5);
       if (result.ok) {
         // Sessions are already sorted by creation time (most recent first)
         setRecentSessions(result.ok);
@@ -274,7 +289,7 @@ export default function HomeScreen() {
                 />
                 <StatItem 
                   icon="trophy" 
-                  value={isLoadingStats ? "..." : (playerStats && playerStats.rank?.[0] ? `#${playerStats.rank[0]}` : "Unranked")} 
+                  value={isLoadingStats ? "..." : (playerStats && playerStats.rank ? `#${playerStats.rank}` : "Unranked")} 
                   label="Rank" 
                 />
                 <StatItem 
@@ -284,7 +299,7 @@ export default function HomeScreen() {
                 />
                 <StatItem 
                   icon="trending-up-outline" 
-                  value={isLoadingStats ? "..." : (playerStats ? Number(playerStats.averageScore30Days?.[0] || playerStats.averageScore || 0).toString() : "0")} 
+                  value={isLoadingStats ? "..." : (playerStats ? Number(playerStats.averageScore30Days || playerStats.averageScore || 0).toString() : "0")} 
                   label="Avg Score" 
                 />
               </View>
@@ -387,6 +402,30 @@ export default function HomeScreen() {
                       </View>
                       <Ionicons name="chevron-forward" size={20} color="#64748b" />
                     </View>
+                    {/* Rewards and Rating Changes */}
+                    {(session.playerReward || session.eloRatingChange) && (
+                      <View style={styles.sessionRewardsRow}>
+                        {session.playerReward && (
+                          <View style={styles.sessionRewardItem}>
+                            <MaterialCommunityIcons name="bitcoin" size={14} color="#f59e0b" />
+                            <Text style={styles.sessionRewardText}>
+                              +{(Number(session.playerReward) / 100).toFixed(2)} SPOT
+                            </Text>
+                          </View>
+                        )}
+                        {session.eloRatingChange && (
+                          <View style={styles.sessionRewardItem}>
+                            <FontAwesome5 name="medal" size={14} color={Number(session.eloRatingChange) >= 0 ? "#10b981" : "#ef4444"} />
+                            <Text style={[
+                              styles.sessionRewardText,
+                              { color: Number(session.eloRatingChange) >= 0 ? "#10b981" : "#ef4444" }
+                            ]}>
+                              {Number(session.eloRatingChange) >= 0 ? '+' : ''}{Number(session.eloRatingChange)} ELO
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
                   </TouchableOpacity>
                 ))}
               </View>
@@ -674,6 +713,26 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginLeft: 6,
+  },
+  sessionRewardsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(71, 85, 105, 0.3)',
+  },
+  sessionRewardItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  sessionRewardText: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginLeft: 6,
+    color: '#94a3b8',
   },
   warningBanner: {
     flexDirection: 'row',

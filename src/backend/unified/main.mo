@@ -495,7 +495,28 @@ actor GameUnified {
         if (reputationManager.isBanned(msg.caller)) {
             return #err("User is banned");
         };
-        gameEngineManager.createSession(msg.caller)
+        
+        // Create the session
+        switch(gameEngineManager.createSession(msg.caller)) {
+            case (#err(e)) { #err(e) };
+            case (#ok(sessionId)) {
+                // Get current Elo rating and store it with the session
+                let currentEloRating = eloRatingManager.getPlayerRating(msg.caller);
+                
+                // Update the session with initial Elo rating
+                switch(gameEngineManager.getSession(sessionId)) {
+                    case null { #ok(sessionId) }; // Shouldn't happen but handle gracefully
+                    case (?session) {
+                        let updatedSession = {
+                            session with
+                            initialEloRating = ?currentEloRating;
+                        };
+                        gameEngineManager.updateSession(sessionId, updatedSession);
+                        #ok(sessionId)
+                    };
+                };
+            };
+        };
     };
     
     public query func getUserSessions(player: Principal) : async Result.Result<[GameV2.SessionInfo], Text> {
@@ -566,6 +587,37 @@ actor GameUnified {
                                 };
                             };
                             
+                            // Calculate Elo rating change if completed
+                            let eloRatingChange : ?Int = switch(session.endTime) {
+                                case null { null }; // Session not completed
+                                case (?_) {
+                                    switch(session.initialEloRating) {
+                                        case null { null };
+                                        case (?initial) {
+                                            let current = eloRatingManager.getPlayerRating(player);
+                                            ?(current - initial)
+                                        };
+                                    };
+                                };
+                            };
+                            
+                            // Get final Elo rating if completed
+                            let finalEloRating : ?Int = switch(session.endTime) {
+                                case null { null };
+                                case (?_) { ?eloRatingManager.getPlayerRating(player) };
+                            };
+                            
+                            // Calculate reward if not already stored but session is completed
+                            let playerReward : ?Nat = switch(session.playerReward) {
+                                case (?reward) { ?reward };
+                                case null {
+                                    switch(session.endTime) {
+                                        case null { null };
+                                        case (?_) { ?calculatePlayerReward(session) };
+                                    };
+                                };
+                            };
+                            
                             tempSummaries.add({
                                 id = session.id;
                                 status = status;
@@ -574,6 +626,10 @@ actor GameUnified {
                                 currentRound = if (session.currentRound > 0) { ?session.currentRound } else { null };
                                 totalScore = session.totalScore;
                                 duration = duration;
+                                playerReward = playerReward;
+                                eloRatingChange = eloRatingChange;
+                                initialEloRating = session.initialEloRating;
+                                finalEloRating = finalEloRating;
                             });
                         };
                     };
@@ -915,6 +971,13 @@ actor GameUnified {
                 // Calculate rewards
                 let playerReward = calculatePlayerReward(session);
                 let uploaderRewards = calculateUploaderRewards(session);
+                
+                // Update session with player reward
+                let updatedSession = {
+                    session with
+                    playerReward = ?playerReward;
+                };
+                gameEngineManager.updateSession(sessionId, updatedSession);
                 
                 // Mint rewards
                 if (playerReward > 0) {

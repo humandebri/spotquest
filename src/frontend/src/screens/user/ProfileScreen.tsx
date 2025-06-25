@@ -36,6 +36,7 @@ import { abbreviateLocationName } from '../../utils/regionMapping';
 // Use V2 types
 type PhotoMetadata = PhotoMetaV2;
 import { gameService } from '../../services/game';
+import { CustomPrincipal } from '../../utils/principal';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Profile'>;
 
@@ -183,7 +184,7 @@ export default function ProfileScreen() {
 
     setIsLoadingBalance(true);
     try {
-      const balance = await gameService.getTokenBalance(principal);
+      const balance = await gameService.getTokenBalance(CustomPrincipal.fromText(principal.toString()));
       setTokenBalance(balance);
     } catch (error) {
       console.error('Failed to load token balance:', error);
@@ -220,7 +221,7 @@ export default function ProfileScreen() {
       // Sync username to backend if we have one locally
       const syncUsername = async () => {
         if (principal && username && username !== 'Anonymous User') {
-          const backendUsername = await gameService.getUsername(principal);
+          const backendUsername = await gameService.getUsername(CustomPrincipal.fromText(principal.toString()));
           if (!backendUsername) {
             // Username exists locally but not on backend - sync it
             const result = await gameService.setUsername(username);
@@ -241,7 +242,7 @@ export default function ProfileScreen() {
 
     setIsLoadingStats(true);
     try {
-      const playerStats = await gameService.getPlayerStats(principal);
+      const playerStats = await gameService.getPlayerStats(CustomPrincipal.fromText(principal.toString()));
       if (playerStats) {
         setStats({
           totalGamesPlayed: Number(playerStats.totalGamesPlayed),
@@ -250,7 +251,7 @@ export default function ProfileScreen() {
           bestScore: Number(playerStats.bestScore),
           averageScore: Number(playerStats.averageScore),
           averageScore30Days: playerStats.averageScore30Days?.[0] ? Number(playerStats.averageScore30Days[0]) : undefined,
-          rank: playerStats.rank?.[0] ? Number(playerStats.rank[0]) : undefined,
+          rank: playerStats.rank !== null && playerStats.rank !== undefined ? Number(playerStats.rank) : undefined,
           winRate: playerStats.winRate,
           currentStreak: Number(playerStats.currentStreak),
           longestStreak: Number(playerStats.longestStreak),

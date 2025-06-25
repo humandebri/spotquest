@@ -25,6 +25,9 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'PhotoDetail
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+// Developer principal for testing own photos
+const DEVELOPER_PRINCIPAL = '6lvto-wk4rq-wwea5-neix6-nelpy-tgifs-crt3y-whqnf-5kns5-t3il6-xae';
+
 export default function PhotoDetailsScreen() {
   const route = useRoute<PhotoDetailsRouteProp>();
   const navigation = useNavigation<NavigationProp>();
@@ -46,6 +49,16 @@ export default function PhotoDetailsScreen() {
   const [userRatingStats, setUserRatingStats] = useState<any>(null);
   const [photoStats, setPhotoStats] = useState<any>(null);
   const [photoEloRating, setPhotoEloRating] = useState<number>(1500);
+
+  // Check if current user is the photo owner
+  const isOwnPhoto = photoMeta && principal && 
+    photoMeta.owner?.toString() === principal?.toString();
+  
+  // Check if current user is a developer
+  const isDeveloper = principal?.toString() === DEVELOPER_PRINCIPAL;
+  
+  // Can rate if: not own photo OR is developer
+  const canRatePhoto = !isOwnPhoto || isDeveloper;
 
   useEffect(() => {
     if (photoId && identity) {
@@ -216,13 +229,13 @@ export default function PhotoDetailsScreen() {
         <TouchableOpacity
           key={i}
           onPress={() => handleRatingChange(category, i)}
-          disabled={hasVoted}
+          disabled={hasVoted || !canRatePhoto}
           style={styles.starButton}
         >
           <Ionicons
             name={i <= currentRating ? "star" : "star-outline"}
             size={32}
-            color={hasVoted ? "#64748b" : "#f59e0b"}
+            color={hasVoted || !canRatePhoto ? "#64748b" : "#f59e0b"}
           />
         </TouchableOpacity>
       );
@@ -379,70 +392,108 @@ export default function PhotoDetailsScreen() {
                 </Text>
               </View>
             </View>
+          </View>
+
+          {/* Community Ratings Card */}
+          <View style={styles.communityRatingsCard}>
+            <Text style={styles.sectionTitle}>Community Ratings</Text>
             
-            {/* Display aggregated ratings if available */}
-            {existingRatings && (
-              <View style={styles.aggregatedRatings}>
-                <Text style={styles.aggregatedTitle}>Community Ratings</Text>
-                <View style={styles.aggregatedGrid}>
-                  <View style={styles.aggregatedItem}>
-                    <Text style={styles.aggregatedLabel}>Difficulty</Text>
-                    <View style={styles.aggregatedStars}>
+            {existingRatings ? (
+              <>
+                {/* Average Ratings Summary */}
+                <View style={styles.ratingSummaryGrid}>
+                  <View style={styles.ratingSummaryItem}>
+                    <Text style={styles.ratingSummaryLabel}>Difficulty</Text>
+                    <View style={[styles.ratingSummaryCircle, { backgroundColor: 'rgba(239, 68, 68, 0.2)' }]}>
+                      <Text style={[styles.ratingSummaryValue, { color: '#ef4444' }]}>
+                        {existingRatings.difficulty.average.toFixed(1)}
+                      </Text>
+                    </View>
+                    <View style={styles.ratingSummaryStars}>
                       {[1, 2, 3, 4, 5].map(i => (
                         <Ionicons
                           key={i}
                           name={i <= Math.round(existingRatings.difficulty.average) ? "star" : "star-outline"}
-                          size={14}
+                          size={16}
                           color="#ef4444"
                         />
                       ))}
                     </View>
-                    <Text style={styles.aggregatedValue}>
-                      {existingRatings.difficulty.average.toFixed(1)}
-                    </Text>
-                    <Text style={styles.aggregatedCount}>
-                      ({Number(existingRatings.difficulty.count)})
+                    <Text style={styles.ratingSummaryCount}>
+                      {Number(existingRatings.difficulty.count)} votes
                     </Text>
                   </View>
-                  <View style={styles.aggregatedItem}>
-                    <Text style={styles.aggregatedLabel}>Interest</Text>
-                    <View style={styles.aggregatedStars}>
+
+                  <View style={styles.ratingSummaryItem}>
+                    <Text style={styles.ratingSummaryLabel}>Interest</Text>
+                    <View style={[styles.ratingSummaryCircle, { backgroundColor: 'rgba(59, 130, 246, 0.2)' }]}>
+                      <Text style={[styles.ratingSummaryValue, { color: '#3b82f6' }]}>
+                        {existingRatings.interest.average.toFixed(1)}
+                      </Text>
+                    </View>
+                    <View style={styles.ratingSummaryStars}>
                       {[1, 2, 3, 4, 5].map(i => (
                         <Ionicons
                           key={i}
                           name={i <= Math.round(existingRatings.interest.average) ? "star" : "star-outline"}
-                          size={14}
+                          size={16}
                           color="#3b82f6"
                         />
                       ))}
                     </View>
-                    <Text style={styles.aggregatedValue}>
-                      {existingRatings.interest.average.toFixed(1)}
-                    </Text>
-                    <Text style={styles.aggregatedCount}>
-                      ({Number(existingRatings.interest.count)})
+                    <Text style={styles.ratingSummaryCount}>
+                      {Number(existingRatings.interest.count)} votes
                     </Text>
                   </View>
-                  <View style={styles.aggregatedItem}>
-                    <Text style={styles.aggregatedLabel}>Beauty</Text>
-                    <View style={styles.aggregatedStars}>
+
+                  <View style={styles.ratingSummaryItem}>
+                    <Text style={styles.ratingSummaryLabel}>Scenery</Text>
+                    <View style={[styles.ratingSummaryCircle, { backgroundColor: 'rgba(16, 185, 129, 0.2)' }]}>
+                      <Text style={[styles.ratingSummaryValue, { color: '#10b981' }]}>
+                        {existingRatings.beauty.average.toFixed(1)}
+                      </Text>
+                    </View>
+                    <View style={styles.ratingSummaryStars}>
                       {[1, 2, 3, 4, 5].map(i => (
                         <Ionicons
                           key={i}
                           name={i <= Math.round(existingRatings.beauty.average) ? "star" : "star-outline"}
-                          size={14}
+                          size={16}
                           color="#10b981"
                         />
                       ))}
                     </View>
-                    <Text style={styles.aggregatedValue}>
-                      {existingRatings.beauty.average.toFixed(1)}
-                    </Text>
-                    <Text style={styles.aggregatedCount}>
-                      ({Number(existingRatings.beauty.count)})
+                    <Text style={styles.ratingSummaryCount}>
+                      {Number(existingRatings.beauty.count)} votes
                     </Text>
                   </View>
                 </View>
+
+                {/* Overall Rating */}
+                <View style={styles.overallRatingSection}>
+                  <Text style={styles.overallRatingLabel}>Overall Average</Text>
+                  <View style={styles.overallRatingRow}>
+                    <Text style={styles.overallRatingValue}>
+                      {((existingRatings.difficulty.average + existingRatings.interest.average + existingRatings.beauty.average) / 3).toFixed(1)}
+                    </Text>
+                    <View style={styles.overallRatingStars}>
+                      {[1, 2, 3, 4, 5].map(i => (
+                        <Ionicons
+                          key={i}
+                          name={i <= Math.round((existingRatings.difficulty.average + existingRatings.interest.average + existingRatings.beauty.average) / 3) ? "star" : "star-outline"}
+                          size={20}
+                          color="#f59e0b"
+                        />
+                      ))}
+                    </View>
+                  </View>
+                </View>
+              </>
+            ) : (
+              <View style={styles.noRatingsContainer}>
+                <Ionicons name="star-outline" size={48} color="#64748b" />
+                <Text style={styles.noRatingsText}>No ratings yet</Text>
+                <Text style={styles.noRatingsSubtext}>Be the first to rate this photo!</Text>
               </View>
             )}
           </View>
@@ -544,7 +595,13 @@ export default function PhotoDetailsScreen() {
           {/* Rating Section */}
           <View style={styles.ratingCard}>
             <Text style={styles.sectionTitle}>Rate This Photo</Text>
-            {hasVoted ? (
+            {!canRatePhoto && !isDeveloper ? (
+              <View style={styles.votedContainer}>
+                <Ionicons name="information-circle" size={48} color="#64748b" />
+                <Text style={[styles.votedText, { color: '#64748b' }]}>Cannot rate your own photo</Text>
+                <Text style={styles.votedSubtext}>You can only rate photos taken by other players</Text>
+              </View>
+            ) : hasVoted ? (
               <View style={styles.votedContainer}>
                 <Ionicons name="checkmark-circle" size={48} color="#10b981" />
                 <Text style={styles.votedText}>Thank you for rating!</Text>
@@ -557,7 +614,11 @@ export default function PhotoDetailsScreen() {
               </View>
             ) : (
               <View>
-                <Text style={styles.ratingPrompt}>Please rate this photo in three categories:</Text>
+                <Text style={styles.ratingPrompt}>
+                  {isOwnPhoto && isDeveloper 
+                    ? "Developer mode: You can rate your own photo for testing" 
+                    : "Please rate this photo in three categories:"}
+                </Text>
                 
                 {/* Difficulty Rating */}
                 <View style={styles.ratingCategory}>
@@ -598,10 +659,10 @@ export default function PhotoDetailsScreen() {
                 {/* Submit Button */}
                 <TouchableOpacity
                   style={[styles.submitButton, 
-                    (ratings.difficulty === 0 || ratings.interest === 0 || ratings.beauty === 0) && styles.submitButtonDisabled
+                    (!canRatePhoto || ratings.difficulty === 0 || ratings.interest === 0 || ratings.beauty === 0) && styles.submitButtonDisabled
                   ]}
                   onPress={handleSubmitVote}
-                  disabled={isVoting || ratings.difficulty === 0 || ratings.interest === 0 || ratings.beauty === 0}
+                  disabled={!canRatePhoto || isVoting || ratings.difficulty === 0 || ratings.interest === 0 || ratings.beauty === 0}
                 >
                   {isVoting ? (
                     <ActivityIndicator size="small" color="#ffffff" />
@@ -1074,5 +1135,93 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'center',
     marginTop: 8,
+  },
+  // Community Ratings Card styles
+  communityRatingsCard: {
+    backgroundColor: 'rgba(30, 41, 59, 0.4)',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(71, 85, 105, 0.5)',
+  },
+  ratingSummaryGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 20,
+  },
+  ratingSummaryItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  ratingSummaryLabel: {
+    color: '#94a3b8',
+    fontSize: 14,
+    marginBottom: 8,
+    fontWeight: '500',
+  },
+  ratingSummaryCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  ratingSummaryValue: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  ratingSummaryStars: {
+    flexDirection: 'row',
+    gap: 2,
+    marginBottom: 4,
+  },
+  ratingSummaryCount: {
+    color: '#64748b',
+    fontSize: 12,
+  },
+  overallRatingSection: {
+    backgroundColor: 'rgba(71, 85, 105, 0.2)',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 8,
+  },
+  overallRatingLabel: {
+    color: '#94a3b8',
+    fontSize: 14,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  overallRatingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  overallRatingValue: {
+    color: '#f59e0b',
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  overallRatingStars: {
+    flexDirection: 'row',
+    gap: 2,
+  },
+  noRatingsContainer: {
+    alignItems: 'center',
+    paddingVertical: 32,
+  },
+  noRatingsText: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 12,
+  },
+  noRatingsSubtext: {
+    color: '#64748b',
+    fontSize: 14,
+    marginTop: 4,
   },
 });
