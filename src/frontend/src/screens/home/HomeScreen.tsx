@@ -88,6 +88,9 @@ export default function HomeScreen() {
       console.log('🏠 Player stats rank[0]:', stats?.rank);
       console.log('🏠 Player stats eloRating:', (stats as any)?.eloRating);
       console.log('🏠 Player stats eloRating type:', typeof (stats as any)?.eloRating);
+      console.log('🏠 Player stats totalGamesPlayed:', stats?.totalGamesPlayed);
+      console.log('🏠 Player stats averageScore:', stats?.averageScore);
+      console.log('🏠 Player stats averageScore30Days:', stats?.averageScore30Days);
       setPlayerStats(stats);
     } catch (error) {
       console.error('Failed to fetch player stats:', error);
@@ -407,7 +410,7 @@ export default function HomeScreen() {
                       <View style={styles.sessionRewardsRow}>
                         {session.playerReward && (
                           <View style={styles.sessionRewardItem}>
-                            <MaterialCommunityIcons name="bitcoin" size={14} color="#f59e0b" />
+                            <MaterialCommunityIcons name="coin" size={14} color="#f59e0b" />
                             <Text style={styles.sessionRewardText}>
                               +{(Number(session.playerReward) / 100).toFixed(2)} SPOT
                             </Text>

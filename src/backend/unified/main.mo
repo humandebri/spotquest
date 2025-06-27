@@ -28,12 +28,12 @@ import TokenModule "modules/TokenModule";
 import TreasuryModule "modules/TreasuryModule";
 import GameEngineModule "modules/GameEngineModule";
 import GuessHistoryModule "modules/GuessHistoryModule";
-import PhotoModule "modules/PhotoModule";
 import PhotoModuleV2 "modules/PhotoModuleV2";
 import ReputationModule "modules/ReputationModule";
 import IIIntegrationModule "modules/IIIntegrationModule";
 import RatingModule "modules/RatingModule";
 import EloRatingModule "modules/EloRatingModule";
+import PlayerStatsModule "modules/PlayerStatsModule";
 
 // HTTP types
 import Blob "mo:base/Blob";
@@ -95,12 +95,12 @@ actor GameUnified {
     private var treasuryManager = TreasuryModule.TreasuryManager();
     private var gameEngineManager = GameEngineModule.GameEngineManager();
     private var guessHistoryManager = GuessHistoryModule.GuessHistoryManager();
-    private var photoManager = PhotoModule.PhotoManager();
     private var photoManagerV2 = PhotoModuleV2.PhotoManager(); // 新しい写真管理システム
     private var reputationManager = ReputationModule.ReputationManager();
     private var iiIntegrationManager = IIIntegrationModule.IIIntegrationManager();
     private var ratingManager = RatingModule.RatingManager(photoManagerV2); // PhotoModuleV2を渡す
     private var eloRatingManager = EloRatingModule.EloRatingManager(photoManagerV2); // Eloレーティング管理
+    private var playerStatsManager = PlayerStatsModule.PlayerStatsManager(); // プレイヤー統計管理
     
     // Random number generator for photo selection (unique seed to avoid duplicates)
     private var photoSelectionPrng = Random.Finite(
@@ -154,15 +154,6 @@ actor GameUnified {
         photoQualityScoresStable: [(Nat, Float)];
     } = null;
     
-    private stable var photoStable : ?{
-        photos: [(Nat, PhotoModule.Photo)];
-        nextPhotoId: Nat;
-        scheduledPhotos: [(Principal, [Photo.ScheduledPhoto])];
-        ownerPhotos: [(Principal, [Nat])];
-        photoUsageCount: [(Nat, Nat)];
-        totalPhotos: Nat;
-        bannedPhotos: [(Nat, Time.Time)];
-    } = null;
     
     private stable var reputationStable : ?{
         reputations: [(Principal, ReputationModule.Reputation)];
@@ -173,6 +164,17 @@ actor GameUnified {
     } = null;
     
     private stable var iiIntegrationStable : ?[(Text, IIIntegrationModule.SessionData)] = null;
+    
+    // Legacy photo stable variable - kept for migration compatibility
+    private stable var photoStable : ?{
+        bannedPhotos : [(Nat, Time.Time)];
+        nextPhotoId : Nat;
+        ownerPhotos : [(Principal, [Nat])];
+        photoUsageCount : [(Nat, Nat)];
+        photos : [(Nat, PhotoModuleV2.Photo)];
+        scheduledPhotos : [(Principal, [PhotoModuleV2.ScheduledPhoto])];
+        totalPhotos : Nat;
+    } = null;
     
     // Photo V2のstable変数 - データ保護のため復活
     private stable var photoV2Stable : ?{
@@ -212,6 +214,9 @@ actor GameUnified {
         photoRatings: [(Nat, EloRatingModule.PhotoRating)];
         ratingHistory: [(Text, EloRatingModule.RatingChange)];
     } = null;
+    
+    // Player stats stable storage
+    private stable var playerStatsStable : ?[(Principal, PlayerStatsModule.PlayerStats)] = null;
     
     // Runtime username map
     private var usernames = HashMap.HashMap<Principal, Text>(100, Principal.equal, Principal.hash);
@@ -286,6 +291,10 @@ actor GameUnified {
     
     public query func icrc1_balance_of(account: ICRC1.Account) : async Nat {
         tokenManager.icrc1_balance_of(account)
+    };
+    
+    public query func icrc1_metadata() : async [ICRC1.Metadata] {
+        tokenManager.icrc1_metadata()
     };
     
     public shared(msg) func icrc1_transfer(args: ICRC1.TransferArgs) : async Result.Result<Nat, ICRC1.TransferError> {
@@ -512,6 +521,7 @@ actor GameUnified {
                             initialEloRating = ?currentEloRating;
                         };
                         gameEngineManager.updateSession(sessionId, updatedSession);
+                        Debug.print("✅ Created session " # sessionId # " with initialEloRating: " # Int.toText(currentEloRating));
                         #ok(sessionId)
                     };
                 };
@@ -573,6 +583,27 @@ actor GameUnified {
                     switch(gameEngineManager.getSession(sessionId)) {
                         case null { };
                         case (?session) {
+                            // Debug log for session data
+                            Debug.print("🔍 Session " # sessionId # " data:");
+                            Debug.print("  - playerReward: " # 
+                                (switch(session.playerReward) {
+                                    case null { "null" };
+                                    case (?r) { Nat.toText(r) };
+                                })
+                            );
+                            Debug.print("  - initialEloRating: " # 
+                                (switch(session.initialEloRating) {
+                                    case null { "null" };
+                                    case (?r) { Int.toText(r) };
+                                })
+                            );
+                            Debug.print("  - endTime: " # 
+                                (switch(session.endTime) {
+                                    case null { "null (active)" };
+                                    case (?t) { "completed" };
+                                })
+                            );
+                            
                             // Determine session status based on endTime
                             let status : GameV2.SessionStatus = switch(session.endTime) {
                                 case null { #Active };
@@ -592,7 +623,15 @@ actor GameUnified {
                                 case null { null }; // Session not completed
                                 case (?_) {
                                     switch(session.initialEloRating) {
-                                        case null { null };
+                                        case null { 
+                                            // Fallback for old sessions: assume default starting rating
+                                            let current = eloRatingManager.getPlayerRating(player);
+                                            if (current != 1500) {
+                                                ?(current - 1500) // Assume they started at 1500
+                                            } else {
+                                                null
+                                            }
+                                        };
                                         case (?initial) {
                                             let current = eloRatingManager.getPlayerRating(player);
                                             ?(current - initial)
@@ -604,21 +643,39 @@ actor GameUnified {
                             // Get final Elo rating if completed
                             let finalEloRating : ?Int = switch(session.endTime) {
                                 case null { null };
-                                case (?_) { ?eloRatingManager.getPlayerRating(player) };
+                                case (?_) { 
+                                    let rating = eloRatingManager.getPlayerRating(player);
+                                    Debug.print("  - Final Elo rating: " # Int.toText(rating));
+                                    ?rating
+                                };
                             };
+                            
+                            Debug.print("  - Elo rating change: " # 
+                                (switch(eloRatingChange) {
+                                    case null { "null" };
+                                    case (?change) { Int.toText(change) };
+                                })
+                            );
                             
                             // Calculate reward if not already stored but session is completed
                             let playerReward : ?Nat = switch(session.playerReward) {
-                                case (?reward) { ?reward };
+                                case (?reward) { 
+                                    Debug.print("  - Using stored playerReward: " # Nat.toText(reward));
+                                    ?reward 
+                                };
                                 case null {
                                     switch(session.endTime) {
                                         case null { null };
-                                        case (?_) { ?calculatePlayerReward(session) };
+                                        case (?_) { 
+                                            let calculated = calculatePlayerReward(session);
+                                            Debug.print("  - Calculated playerReward: " # Nat.toText(calculated));
+                                            ?calculated
+                                        };
                                     };
                                 };
                             };
                             
-                            tempSummaries.add({
+                            let summary = {
                                 id = session.id;
                                 status = status;
                                 createdAt = session.startTime;
@@ -630,7 +687,23 @@ actor GameUnified {
                                 eloRatingChange = eloRatingChange;
                                 initialEloRating = session.initialEloRating;
                                 finalEloRating = finalEloRating;
-                            });
+                            };
+                            
+                            Debug.print("  📋 Summary created with:");
+                            Debug.print("    - playerReward: " # 
+                                (switch(playerReward) {
+                                    case null { "null" };
+                                    case (?r) { Nat.toText(r) };
+                                })
+                            );
+                            Debug.print("    - eloRatingChange: " # 
+                                (switch(eloRatingChange) {
+                                    case null { "null" };
+                                    case (?c) { Int.toText(c) };
+                                })
+                            );
+                            
+                            tempSummaries.add(summary);
                         };
                     };
                 };
@@ -979,6 +1052,22 @@ actor GameUnified {
                 };
                 gameEngineManager.updateSession(sessionId, updatedSession);
                 
+                // Debug: Verify the update was successful
+                Debug.print("💰 finalizeSession - Player: " # Principal.toText(msg.caller));
+                Debug.print("💰 finalizeSession - Session total score: " # Nat.toText(session.totalScore));
+                Debug.print("💰 finalizeSession - Calculated playerReward: " # Nat.toText(playerReward));
+                switch(gameEngineManager.getSession(sessionId)) {
+                    case null { Debug.print("❌ ERROR: Session not found after update!") };
+                    case (?s) { 
+                        Debug.print("✅ Session playerReward after update: " # 
+                            (switch(s.playerReward) {
+                                case null { "null" };
+                                case (?r) { Nat.toText(r) };
+                            })
+                        );
+                    };
+                };
+                
                 // Mint rewards
                 if (playerReward > 0) {
                     ignore tokenManager.mint(msg.caller, playerReward);
@@ -993,6 +1082,23 @@ actor GameUnified {
                 let reputationChange = Float.fromInt(avgScore) / 1000.0; // Scale down
                 ignore reputationManager.updateReputation(msg.caller, reputationChange, false, false);
                 
+                // Update player stats with finalized session data
+                let sessionDuration = Int.abs(Time.now() - session.startTime);
+                let completedRounds = Array.filter<GameV2.RoundState>(
+                    session.rounds,
+                    func(r) = r.status == #Completed
+                ).size();
+                let allRoundsCompleted = completedRounds == session.rounds.size() and completedRounds > 0;
+                
+                playerStatsManager.updateStatsOnSessionFinalize(
+                    msg.caller,
+                    session.totalScore,
+                    sessionDuration,
+                    playerReward,
+                    allRoundsCompleted,
+                    session.startTime
+                );
+                
                 // Check auto-burn
                 let totalSupply = tokenManager.getTotalSupply();
                 if (treasuryManager.shouldAutoBurn(totalSupply)) {
@@ -1004,12 +1110,6 @@ actor GameUnified {
                 
                 // Elo ratings are now updated in submitGuess for immediate feedback
                 // No need to update them again here
-                
-                // Calculate completed rounds
-                let completedRounds = Array.filter<GameV2.RoundState>(
-                    session.rounds,
-                    func(r) = r.status == #Completed
-                ).size();
                 
                 #ok({
                     sessionId = session.id;
@@ -1149,6 +1249,10 @@ actor GameUnified {
             case (#ok()) {
                 // Update reputation for completing upload
                 ignore reputationManager.updateReputation(msg.caller, Constants.UPLOAD_REWARD / 2, true, false);
+                
+                // Update player stats for photo upload
+                playerStatsManager.incrementPhotoUploads(msg.caller);
+                
                 #ok()
             };
         }
@@ -1506,7 +1610,7 @@ actor GameUnified {
         if (msg.caller != owner) {
             return #err("Unauthorized");
         };
-        photoManager.banPhoto(photoId)
+        photoManagerV2.banPhoto(photoId)
     };
     
     public shared(msg) func setPlayFee(fee: Nat) : async Result.Result<(), Text> {
@@ -1623,128 +1727,33 @@ actor GameUnified {
         suspiciousActivityFlags: ?Text;
         eloRating: Int; // Eloレーティング
     } {
-        // Get user sessions
-        let userSessionBuffer = switch(gameEngineManager.getUserSessions(player)) {
-            case null { [] };
-            case (?buffer) { buffer };
-        };
+        // Get stored player stats
+        let storedStats = playerStatsManager.getPlayerStats(player);
         
         // Debug logging
-        Debug.print("📊 getPlayerStats for " # Principal.toText(player) # " - Found " # Nat.toText(userSessionBuffer.size()) # " sessions");
+        Debug.print("📊 getPlayerStats for " # Principal.toText(player) # " - Using stored stats");
+        Debug.print("   totalGamesPlayed: " # Nat.toText(storedStats.totalGamesPlayed));
+        Debug.print("   totalScore: " # Nat.toText(storedStats.totalScore));
+        Debug.print("   totalRewardsEarned: " # Nat.toText(storedStats.totalRewardsEarned));
         
-        var totalGamesPlayed = 0;
-        var totalScore : Nat = 0;
-        var bestScore : Nat = 0;
-        var completedGames = 0;
-        var totalRewardsEarned : Nat = 0;
-        var totalDuration : Nat = 0;
-        var gamesWithDuration = 0;
-        
-        // Calculate 30-day cutoff time
-        let thirtyDaysAgo = Time.now() - (30 * 24 * 60 * 60 * 1000_000_000); // 30 days in nanoseconds
-        var totalScore30Days : Nat = 0;
-        var totalGamesPlayed30Days : Nat = 0;
-        
-        // Calculate stats from completed sessions
-        for (sessionId in userSessionBuffer.vals()) {
-            Debug.print("📊 Checking session: " # sessionId);
-            switch(gameEngineManager.getSession(sessionId)) {
-                case null { 
-                    Debug.print("📊 Session not found: " # sessionId);
-                };
-                case (?session) {
-                    Debug.print("📊 Session " # sessionId # " - endTime: " # 
-                        (switch(session.endTime) {
-                            case null { "null (active)" };
-                            case (?endTime) { "completed at " # Int.toText(endTime) };
-                        }) # ", rounds: " # Nat.toText(session.rounds.size()));
-                    
-                    if (session.endTime != null) {
-                        totalGamesPlayed += 1;
-                        totalScore += session.totalScore;
-                        
-                        // Calculate session duration
-                        switch(session.endTime) {
-                            case (?endTime) {
-                                let duration = Int.abs(endTime - session.startTime);
-                                totalDuration += duration;
-                                gamesWithDuration += 1;
-                            };
-                            case null {};
-                        };
-                        
-                        // Check if session is within 30 days
-                        let sessionTime = session.startTime;
-                        if (sessionTime >= thirtyDaysAgo) {
-                            totalGamesPlayed30Days += 1;
-                            totalScore30Days += session.totalScore;
-                        };
-                        
-                        // Check if all rounds completed
-                        let completedRounds = Array.filter<GameV2.RoundState>(
-                            session.rounds,
-                            func(r) = r.status == #Completed
-                        ).size();
-                        
-                        if (completedRounds == session.rounds.size() and completedRounds > 0) {
-                            completedGames += 1;
-                        };
-                        
-                        // Track best score
-                        if (session.totalScore > bestScore) {
-                            bestScore := session.totalScore;
-                        };
-                        
-                        // Calculate rewards (simplified)
-                        totalRewardsEarned += calculatePlayerReward(session);
-                    };
-                };
-            };
-        };
-        
-        // Calculate averages
-        let averageScore = if (totalGamesPlayed > 0) {
-            totalScore / totalGamesPlayed
+        // Calculate averages from stored stats
+        let averageScore = if (storedStats.totalGamesPlayed > 0) {
+            storedStats.totalScore / storedStats.totalGamesPlayed
         } else { 0 };
         
-        let averageScore30Days = if (totalGamesPlayed30Days > 0) {
-            totalScore30Days / totalGamesPlayed30Days
+        let averageScore30Days = if (storedStats.gamesPlayed30Days > 0) {
+            storedStats.totalScore30Days / storedStats.gamesPlayed30Days
         } else { 0 };
         
         // Calculate average duration
-        let averageDuration = if (gamesWithDuration > 0) {
-            totalDuration / gamesWithDuration
+        let averageDuration = if (storedStats.totalGamesPlayed > 0) {
+            storedStats.totalDuration / storedStats.totalGamesPlayed
         } else { 0 };
         
-        // Calculate player rank inline (can't await in query)
-        var playerScores : [(Principal, Nat)] = [];
-        for ((p, sessionIds) in gameEngineManager.getPlayerSessionsMap().vals()) {
-            var pBestScore : Nat = 0;
-            for (sessionId in sessionIds.vals()) {
-                switch(gameEngineManager.getSession(sessionId)) {
-                    case null { };
-                    case (?session) {
-                        if (session.endTime != null and session.totalScore > pBestScore) {
-                            pBestScore := session.totalScore;
-                        };
-                    };
-                };
-            };
-            if (pBestScore > 0) {
-                playerScores := Array.append(playerScores, [(p, pBestScore)]);
-            };
-        };
-        
-        // Sort by best score (descending)
-        let sortedScores = Array.sort(playerScores, func(a: (Principal, Nat), b: (Principal, Nat)) : {#less; #equal; #greater} {
-            if (a.1 > b.1) { #less }
-            else if (a.1 < b.1) { #greater }
-            else { #equal }
-        });
         
         // Get player's Elo rank
         // If player has played games but no Elo entry, treat them as having initial rating
-        let playerRank = if (totalGamesPlayed > 0) {
+        let playerRank = if (storedStats.totalGamesPlayed > 0) {
             switch (eloRatingManager.getPlayerRank(player)) {
                 case (?rank) { ?rank };
                 case null { 
@@ -1775,23 +1784,23 @@ actor GameUnified {
         let totalGuesses = guessHistoryManager.getPlayerHistory(player, null).size();
         
         // Calculate win rate
-        let winRate = if (totalGamesPlayed > 0) {
-            Float.fromInt(completedGames) / Float.fromInt(totalGamesPlayed)
+        let winRate = if (storedStats.totalGamesPlayed > 0) {
+            Float.fromInt(storedStats.completedGames) / Float.fromInt(storedStats.totalGamesPlayed)
         } else { 0.0 };
         
         // Check for suspicious activity
         let suspiciousFlags = detectSuspiciousActivity(player, "");
         
         {
-            totalGamesPlayed = totalGamesPlayed;
+            totalGamesPlayed = storedStats.totalGamesPlayed;
             totalPhotosUploaded = totalPhotosUploaded;
-            totalRewardsEarned = totalRewardsEarned;
-            bestScore = bestScore;
+            totalRewardsEarned = storedStats.totalRewardsEarned;
+            bestScore = storedStats.bestScore;
             averageScore = averageScore;
-            averageScore30Days = if (totalGamesPlayed30Days > 0) { ?averageScore30Days } else { null };
+            averageScore30Days = if (storedStats.gamesPlayed30Days > 0) { ?averageScore30Days } else { null };
             rank = playerRank;
-            currentStreak = 0; // TODO: Implement streak tracking
-            longestStreak = 0; // TODO: Implement streak tracking
+            currentStreak = storedStats.currentStreak;
+            longestStreak = storedStats.longestStreak;
             reputation = reputation;
             totalGuesses = totalGuesses;
             winRate = winRate;
@@ -2027,57 +2036,34 @@ actor GameUnified {
         totalRewards: Nat;
         username: ?Text;
     })] {
-        // Get all players with their stats
-        var playerStats : [(Principal, { score: Nat; gamesPlayed: Nat; photosUploaded: Nat; totalRewards: Nat; username: ?Text })] = [];
+        // Get all player stats from PlayerStatsModule
+        let allStats = playerStatsManager.getAllStats();
         
-        for ((p, sessionIds) in gameEngineManager.getPlayerSessionsMap().vals()) {
-            var bestScore : Nat = 0;
-            var gamesPlayed : Nat = 0;
-            var totalRewards : Nat = 0;
-            
-            for (sessionId in sessionIds.vals()) {
-                switch(gameEngineManager.getSession(sessionId)) {
-                    case null { };
-                    case (?session) {
-                        if (session.endTime != null) {
-                            gamesPlayed += 1;
-                            if (session.totalScore > bestScore) {
-                                bestScore := session.totalScore;
-                            };
-                            // Calculate rewards for this session
-                            totalRewards += calculatePlayerReward(session);
-                        };
-                    };
+        // Convert to the expected format
+        var playerStats = Buffer.Buffer<(Principal, { score: Nat; gamesPlayed: Nat; photosUploaded: Nat; totalRewards: Nat; username: ?Text })>(allStats.size());
+        
+        for ((principal, stats) in allStats.vals()) {
+            // Only include players who have played at least one game
+            if (stats.totalGamesPlayed > 0) {
+                // Get username
+                let username = switch(usernames.get(principal)) {
+                    case null { null };
+                    case (?name) { ?name };
                 };
-            };
-            
-            if (bestScore > 0) {
-                // Get photos uploaded count
-                let userPhotoFilter : Photo.SearchFilter = {
-                    country = null;
-                    region = null;
-                    sceneKind = null;
-                    tags = null;
-                    nearLocation = null;
-                    owner = ?p;
-                    difficulty = null;
-                    status = ?#Active;
-                };
-                let userPhotosResult = photoManagerV2.search(userPhotoFilter, null, 1000);
-                let photosUploaded = userPhotosResult.totalCount;
                 
-                playerStats := Array.append(playerStats, [(p, {
-                    score = bestScore;
-                    gamesPlayed = gamesPlayed;
-                    photosUploaded = photosUploaded;
-                    totalRewards = totalRewards;
-                    username = usernames.get(p);
-                })]);
+                playerStats.add((principal, {
+                    score = stats.bestScore;
+                    gamesPlayed = stats.totalGamesPlayed;
+                    photosUploaded = stats.totalPhotosUploaded;
+                    totalRewards = stats.totalRewardsEarned;
+                    username = username;
+                }));
             };
         };
         
         // Sort by best score (descending)
-        let sortedStats = Array.sort(playerStats, 
+        let sortedStats = Array.sort(
+            Buffer.toArray(playerStats), 
             func(a: (Principal, { score: Nat; gamesPlayed: Nat; photosUploaded: Nat; totalRewards: Nat; username: ?Text }), 
                  b: (Principal, { score: Nat; gamesPlayed: Nat; photosUploaded: Nat; totalRewards: Nat; username: ?Text })) : {#less; #equal; #greater} {
             if (a.1.score > b.1.score) { #less }
@@ -2090,6 +2076,62 @@ actor GameUnified {
         Array.tabulate<(Principal, { score: Nat; gamesPlayed: Nat; photosUploaded: Nat; totalRewards: Nat; username: ?Text })>(
             actualLimit, 
             func(i) = sortedStats[i]
+        )
+    };
+
+    // Get leaderboard sorted by total rewards earned
+    public query func getLeaderboardByRewards(limit: Nat) : async [(Principal, {
+        principal: Principal;
+        totalRewardsEarned: Nat;
+        totalGamesPlayed: Nat;
+        bestScore: Nat;
+        username: ?Text;
+    })] {
+        // Get top players by rewards from PlayerStatsModule
+        let topPlayersByRewards = playerStatsManager.getTopPlayersByRewards(limit);
+        
+        // Enrich with additional data
+        Array.map<(Principal, Nat), (Principal, {
+            principal: Principal;
+            totalRewardsEarned: Nat;
+            totalGamesPlayed: Nat;
+            bestScore: Nat;
+            username: ?Text;
+        })>(
+            topPlayersByRewards,
+            func((principal, totalRewardsEarned)) {
+                let stats = playerStatsManager.getPlayerStats(principal);
+                let username = usernames.get(principal);
+                
+                (principal, {
+                    principal = principal;
+                    totalRewardsEarned = totalRewardsEarned;
+                    totalGamesPlayed = stats.totalGamesPlayed;
+                    bestScore = stats.bestScore;
+                    username = username;
+                })
+            }
+        )
+    };
+
+    // Debug function to check player stats data
+    public query func debugGetAllPlayerStats() : async [(Principal, {
+        totalGamesPlayed: Nat;
+        totalRewardsEarned: Nat;
+        bestScore: Nat;
+    })] {
+        let allStats = playerStatsManager.getAllStats();
+        Array.map<(Principal, PlayerStatsModule.PlayerStats), (Principal, {
+            totalGamesPlayed: Nat;
+            totalRewardsEarned: Nat;
+            bestScore: Nat;
+        })>(
+            allStats,
+            func((principal, stats)) = (principal, {
+                totalGamesPlayed = stats.totalGamesPlayed;
+                totalRewardsEarned = stats.totalRewardsEarned;
+                bestScore = stats.bestScore;
+            })
         )
     };
     
@@ -2235,16 +2277,21 @@ actor GameUnified {
             totalRequests: Nat;
         };
     } {
-        let photoStats = photoManager.getPhotoStats();
+        let photoStatsForSystem = photoManagerV2.getPhotoStatsForSystem();
         let gameMetrics = gameEngineManager.getMetrics();
         
         {
             totalUsers = reputationManager.getLeaderboard(10000).size();
-            totalPhotos = photoStats.totalPhotos;
+            totalPhotos = photoStatsForSystem.totalPhotos;
             totalGuesses = guessHistoryManager.getTotalGuesses();
             totalSessions = gameMetrics.totalSessions;
             totalSupply = tokenManager.icrc1_total_supply();
-            photoStats = photoStats;
+            photoStats = {
+                totalPhotos = photoStatsForSystem.totalPhotos;
+                activePhotos = photoStatsForSystem.activePhotos;
+                bannedPhotos = photoStatsForSystem.bannedPhotos;
+                deletedPhotos = photoStatsForSystem.deletedPhotos;
+            };
             gameMetrics = gameMetrics;
         }
     };
@@ -2252,6 +2299,57 @@ actor GameUnified {
     // ======================================
     // DEBUG FUNCTIONS (temporary)
     // ======================================
+    
+    // Rebuild player stats from existing sessions
+    public func rebuildPlayerStats() : async Text {
+        var processed = 0;
+        var errors = 0;
+        
+        // Get all player sessions
+        let playerSessionsMap = gameEngineManager.getPlayerSessionsMap();
+        
+        for ((player, sessionIds) in playerSessionsMap.vals()) {
+            for (sessionId in sessionIds.vals()) {
+                switch (gameEngineManager.getSession(sessionId)) {
+                    case null { };
+                    case (?session) {
+                        // Only process completed sessions
+                        if (session.endTime != null) {
+                            let sessionDuration = Int.abs(
+                                switch(session.endTime) {
+                                    case null { 0 };
+                                    case (?endTime) { endTime - session.startTime };
+                                }
+                            );
+                            
+                            let completedRounds = Array.filter<GameV2.RoundState>(
+                                session.rounds,
+                                func(r) = r.status == #Completed
+                            ).size();
+                            
+                            let allRoundsCompleted = completedRounds == session.rounds.size() and completedRounds > 0;
+                            let reward = switch(session.playerReward) {
+                                case null { 0 };
+                                case (?r) { r };
+                            };
+                            
+                            playerStatsManager.updateStatsOnSessionFinalize(
+                                player,
+                                session.totalScore,
+                                sessionDuration,
+                                reward,
+                                allRoundsCompleted,
+                                session.startTime
+                            );
+                            processed += 1;
+                        };
+                    };
+                };
+            };
+        };
+        
+        "Processed " # Nat.toText(processed) # " sessions, errors: " # Nat.toText(errors)
+    };
     
     // Debug reward calculation
     public query func debugCalculatePlayerReward(sessionId: Text) : async {
@@ -2322,6 +2420,9 @@ actor GameUnified {
         // Each round: (score / 5000) * 1.0 SPOT = (score / 5000) * 100 units
         let rounds = session.rounds.size();
         
+        Debug.print("💰 calculatePlayerReward - Session ID: " # session.id);
+        Debug.print("💰 calculatePlayerReward - Rounds count: " # Nat.toText(rounds));
+        
         if (rounds == 0) {
             return 0;
         };
@@ -2332,9 +2433,11 @@ actor GameUnified {
             // Each round can earn max 1.0 SPOT (100 units) based on score
             // Formula: (score / 5000) * 100 units
             let roundReward = (round.score * 100) / 5000; // Integer division
+            Debug.print("💰 calculatePlayerReward - Round score: " # Nat.toText(round.score) # ", Round reward: " # Nat.toText(roundReward));
             totalReward += roundReward;
         };
         
+        Debug.print("💰 calculatePlayerReward - Total reward: " # Nat.toText(totalReward));
         totalReward
     };
     
@@ -3005,7 +3108,7 @@ actor GameUnified {
             sessionPhotosPlayedStable = engineData.sessionPhotosPlayedStable;
         };
         guessHistoryStable := ?guessHistoryManager.toStable();
-        photoStable := ?photoManager.toStable();
+        // photoStable := ?photoManager.toStable(); // Legacy photo system no longer used
         // PhotoV2データの保存 - データ保護のため復活
         let v2Data = photoManagerV2.toStable();
         photoV2Stable := ?{
@@ -3032,6 +3135,9 @@ actor GameUnified {
         
         // Save Elo rating data
         eloRatingStable := ?eloRatingManager.getStableData();
+        
+        // Save player stats data
+        playerStatsStable := ?playerStatsManager.getAllStats();
     };
     
     system func postupgrade() {
@@ -3090,14 +3196,6 @@ actor GameUnified {
             };
         };
         
-        // Restore photo manager
-        switch(photoStable) {
-            case null { };
-            case (?stableData) {
-                photoManager.fromStable(stableData);
-                photoStable := null;
-            };
-        };
         
         // Restore reputation manager
         switch(reputationStable) {
@@ -3175,6 +3273,15 @@ actor GameUnified {
                     eloData.ratingHistory
                 );
                 eloRatingStable := null;
+            };
+        };
+        
+        // Restore player stats data
+        switch(playerStatsStable) {
+            case null { };
+            case (?statsData) {
+                playerStatsManager.restoreStats(statsData);
+                playerStatsStable := null;
             };
         };
         

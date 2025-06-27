@@ -206,7 +206,7 @@ export default function AppNavigator() {
           <Stack.Screen
             name="Leaderboard"
             component={LeaderboardScreen}
-            options={{ title: 'Leaderboard' }}
+            options={{ headerShown: false }}
           />
           <Stack.Screen
             name="Profile"

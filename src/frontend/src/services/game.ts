@@ -285,6 +285,18 @@ class GameService {
         Err: TransferError,
       });
 
+      const MetadataValue = IDL.Variant({
+        Nat: IDL.Nat,
+        Int: IDL.Int,
+        Text: IDL.Text,
+        Blob: IDL.Vec(IDL.Nat8),
+      });
+
+      const Metadata = IDL.Record({
+        key: IDL.Text,
+        value: MetadataValue,
+      });
+
       const Result_Text = IDL.Variant({
         ok: IDL.Text,
         err: IDL.Text,
@@ -374,6 +386,7 @@ class GameService {
         icrc1_transfer: IDL.Func([TransferArgs], [TransferResult], []),
         icrc1_fee: IDL.Func([], [IDL.Nat], ['query']),
         icrc1_total_supply: IDL.Func([], [IDL.Nat], ['query']),
+        icrc1_metadata: IDL.Func([], [IDL.Vec(Metadata)], ['query']),
         
         // Player stats
         getPlayerStats: IDL.Func([IDL.Principal], [IDL.Record({
@@ -914,6 +927,11 @@ class GameService {
             const stats = await this.getPlayerStats(principal);
             const username = await this.getUsername(principal);
             
+            // Debug logging for rewards
+            if (stats && stats.totalRewardsEarned > 0) {
+              console.log(`🎮 Player ${principal.toString().slice(0, 10)}... has rewards: ${stats.totalRewardsEarned}`);
+            }
+            
             return {
               principal,
               score: eloRating,  // Use Elo rating as the primary score
@@ -1114,7 +1132,9 @@ class GameService {
     suspiciousActivityFlags: string | null;
     eloRating: number;
   } | null> {
+    console.log('🎮 getPlayerStats called, initialized:', this.initialized, 'actor:', !!this.actor, 'identity:', !!this.identity);
     if (!this.initialized || !this.actor || !this.identity) {
+      console.error('🎮 getPlayerStats: Service not initialized properly');
       return null;
     }
     
@@ -1124,6 +1144,11 @@ class GameService {
       
       console.log('🎮 getPlayerStats raw result:', result);
       console.log('🎮 rank field:', result.rank, 'length:', result.rank.length);
+      console.log('🎮 totalGamesPlayed:', result.totalGamesPlayed, 'Number:', Number(result.totalGamesPlayed));
+      console.log('🎮 averageScore:', result.averageScore, 'Number:', Number(result.averageScore));
+      console.log('🎮 totalScore:', result.totalScore);
+      console.log('🎮 totalRewardsEarned:', result.totalRewardsEarned, 'Number:', Number(result.totalRewardsEarned));
+      console.log('🎮 All fields:', Object.keys(result));
       
       return {
         totalGamesPlayed: Number(result.totalGamesPlayed),
@@ -1145,6 +1170,11 @@ class GameService {
       };
     } catch (error) {
       console.error('Failed to get player stats:', error);
+      console.error('Error details:', {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        error: error
+      });
       return null;
     }
   }

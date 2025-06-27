@@ -6,10 +6,11 @@ module {
     // ======================================
     // TOKEN CONSTANTS
     // ======================================
-    public let TOKEN_NAME : Text = "Guess the Spot Token";
+    public let TOKEN_NAME : Text = "SpotQuest Token";
     public let TOKEN_SYMBOL : Text = "SPOT";
     public let TOKEN_DECIMALS : Nat8 = 2;
     public let TOKEN_TRANSFER_FEE : Nat = 1; // 0.01 SPOT
+    public let TOKEN_MAX_MEMO_LENGTH : Nat = 32; // Standard memo length
     
     // ======================================
     // GAME ENGINE CONSTANTS

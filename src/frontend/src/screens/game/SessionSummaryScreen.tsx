@@ -190,8 +190,8 @@ export default function SessionSummaryScreen() {
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `I scored ${totalScore} points in 5 rounds of Guess the Spot! 🌍\nCan you beat my score?`,
-        title: 'Guess the Spot Session Score',
+        message: `I scored ${totalScore} points in 5 rounds of SpotQuest! 🌍\nCan you beat my score?`,
+        title: 'SpotQuest Session Score',
       });
     } catch (error) {
       console.error('Error sharing:', error);

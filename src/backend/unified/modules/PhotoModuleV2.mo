@@ -623,6 +623,27 @@ module {
             }
         };
         
+        /// 写真をBAN (管理者機能)
+        public func banPhoto(photoId: Nat) : Result.Result<(), Text> {
+            switch (stablePhotos.get(photoId)) {
+                case null { #err("Photo not found") };
+                case (?photo) {
+                    // BANステータスに更新
+                    let bannedPhoto = {
+                        photo with
+                        status = #Banned;
+                    };
+                    
+                    stablePhotos.put(photoId, bannedPhoto);
+                    
+                    // インデックスから削除
+                    removeFromIndices(photo);
+                    
+                    #ok()
+                };
+            }
+        };
+        
         /// ランダムな写真を取得（ゲーム用）
         public func getRandomPhoto() : ?Photo {
             var activePhotos = Buffer.Buffer<Photo>(100);
@@ -1271,6 +1292,50 @@ module {
                 stablePhotosCount = stablePhotos.size();
                 stableChunksCount = stablePhotoChunks.size();
                 firstPhotoIds = Buffer.toArray(photoIds);
+            }
+        };
+        
+        /// 写真統計情報を取得 (getSystemStats用)
+        public func getPhotoStatsForSystem() : {
+            totalPhotos: Nat;
+            activePhotos: Nat;
+            bannedPhotos: Nat;
+            deletedPhotos: Nat;
+            totalStorageSize: Nat;
+            averagePhotosPerUser: Float;
+        } {
+            var activeCount = 0;
+            var bannedCount = 0;
+            var deletedCount = 0;
+            let userPhotoCounts = TrieMap.TrieMap<Principal, Nat>(Principal.equal, Principal.hash);
+            
+            // 各ステータスの写真をカウント
+            for ((id, photo) in stablePhotos.entries()) {
+                switch (photo.status) {
+                    case (#Active) { activeCount += 1 };
+                    case (#Banned) { bannedCount += 1 };
+                    case (#Deleted) { deletedCount += 1 };
+                };
+                
+                // ユーザーごとの写真数をカウント
+                switch (userPhotoCounts.get(photo.owner)) {
+                    case null { userPhotoCounts.put(photo.owner, 1) };
+                    case (?count) { userPhotoCounts.put(photo.owner, count + 1) };
+                };
+            };
+            
+            let uniqueUsers = userPhotoCounts.size();
+            let avgPhotosPerUser = if (uniqueUsers > 0) {
+                Float.fromInt(totalPhotos) / Float.fromInt(uniqueUsers)
+            } else { 0.0 };
+            
+            {
+                totalPhotos = totalPhotos;
+                activePhotos = activeCount;
+                bannedPhotos = bannedCount;
+                deletedPhotos = deletedCount;
+                totalStorageSize = totalStorageSize;
+                averagePhotosPerUser = avgPhotosPerUser;
             }
         };
         

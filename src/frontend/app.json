@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Guess the Spot",
-    "slug": "guess-the-spot",
+    "name": "SpotQuest",
+    "slug": "spotquest",
     "owner": "hude",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./src/assets/app_icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
@@ -15,7 +15,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.guessthespot.app",
+      "bundleIdentifier": "com.spotquest.app",
       "infoPlist": {
         "NSCameraUsageDescription": "This app needs access to camera to take photos for the game.",
         "NSPhotoLibraryUsageDescription": "This app needs access to photo library to select photos for the game.",
@@ -32,7 +32,7 @@
         "backgroundColor": "#1a1a2e"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.guessthespot.app",
+      "package": "com.spotquest.app",
       "statusBarHidden": true,
       "navigationBarHidden": true,
       "permissions": [
@@ -47,12 +47,12 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "scheme": "guessthespot",
+    "scheme": "spotquest",
     "linking": {
       "prefixes": [
-        "guessthespot://",
-        "https://guess-the-spot.app",
-        "https://auth.expo.io/@hude/guess-the-spot"
+        "spotquest://",
+        "https://spotquest.app",
+        "https://auth.expo.io/@hude/spotquest"
       ],
       "config": {
         "screens": {
@@ -64,13 +64,13 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow Guess the Spot to use your location."
+          "locationAlwaysAndWhenInUsePermission": "Allow SpotQuest to use your location."
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Guess the Spot to use camera."
+          "cameraPermission": "Allow SpotQuest to use camera."
         }
       ],
       [

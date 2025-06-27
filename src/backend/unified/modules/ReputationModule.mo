@@ -13,7 +13,7 @@ import Iter "mo:base/Iter";
 
 import Constants "Constants";
 import PhotoTypes "../../../types/photo";
-import PhotoModule "PhotoModule";
+import PhotoModule "PhotoModuleV2";
 
 module {
     // Types

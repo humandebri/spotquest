@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Guess-the-Spot** is a photo-based location guessing game running on the Internet Computer Protocol (ICP). It's a React Native + Expo mobile application where users guess photo locations to earn SPOT tokens.
+**SpotQuest** is a photo-based location guessing game running on the Internet Computer Protocol (ICP). It's a React Native + Expo mobile application where users guess photo locations to earn SPOT tokens.
 
 ## Development Guidelines
 
@@ -265,3 +265,157 @@ Note: `EloRatingModule.mo` and `frontend-vite-backup/` were preserved for future
 - プリンシパル検証
 - レート制限（1時間20回）
 - 自己レーティング防止
+
+## Recent Changes (2025-01-25)
+
+### SessionDetailsScreenの最適化とPhotoDetailsScreenの機能追加
+
+1. **SessionDetailsScreen メモリリーク修正**
+   - 無限レンダリングループの修正（useEffectの依存配列から`rounds`を削除）
+   - 距離に基づくマップ表示の最適化:
+     - 5000km以上の距離では簡易表示モード
+     - マップのタイルキャッシュ問題を解決（`key`プロップを削除）
+     - 極端な距離（20GB以上のメモリ使用）での最適化
+   - 写真の並列読み込みを復活（50msのstaggered delay）
+
+2. **GameResultScreen の最適化パターンを適用**
+   - 距離ベースのズームレベル調整
+   - 低スコア時の軽量モード実装
+   - マップアニメーションの条件付き実行
+
+3. **PhotoDetailsScreen に Community Ratings Card を追加**
+   - 3つのカテゴリー（Difficulty、Interest、Scenery）の平均評価を表示
+   - 各カテゴリーに色分けされた円形バッジ:
+     - Difficulty: 赤 (#ef4444)
+     - Interest: 青 (#3b82f6)  
+     - Scenery: 緑 (#10b981)
+   - 星評価の視覚的表示と投票数
+   - 総合平均評価の表示
+   - レーティングがない場合の表示（"No ratings yet"）
+
+4. **自分の写真への評価制限**
+   - 通常ユーザーは自分の写真を評価不可
+   - 開発者プリンシパル例外を実装:
+     - `6lvto-wk4rq-wwea5-neix6-nelpy-tgifs-crt3y-whqnf-5kns5-t3il6-xae`
+   - UIメッセージの使い分け:
+     - 自分の写真: "Cannot rate your own photo"
+     - 開発者モード: "Developer mode: You can rate your own photo for testing"
+
+5. **バックエンドのレーティング永続化**
+   - RatingModuleで完全な永続化を実装:
+     - `stableRatings`: 個別評価の保存
+     - `stableAggregatedRatings`: 集計評価の保存
+     - `stableDistributions`: 評価分布の保存
+   - 自動集計機能（評価送信時に平均値を更新）
+
+### 技術的な改善点
+
+**メモリ最適化**:
+- MapViewの条件付きレンダリング
+- 写真データの効率的なキャッシング
+- 大距離表示時の軽量モード
+
+**用語の統一**:
+- **Elo Rating**: プレイヤー/写真の競技レーティング
+- **Rating/評価**: 写真への5段階評価（difficulty, interest, scenery）
+
+## Recent Updates (2025-06-27)
+
+### 1. Recent Activity表示の修正
+**問題**: HomeScreenのRecent ActivityセクションでSPOTトークン報酬とELO変動が0と表示される
+**原因**: 古いセッションに`initialEloRating`フィールドがなく、`playerReward`が正しく永続化されていなかった
+**修正内容**:
+- `getRecentSessionsWithScores`に古いセッション用のフォールバック処理を追加
+- `finalizeSession`でのデバッグログ追加による永続化確認
+- `initialEloRating`がnullの場合、現在のレーティングと初期値(1500)の差分を計算
+
+### 2. Player Stats表示の修正
+**問題**: HomeScreenでGames数とAvg Scoreが0と表示される
+**原因**: PlayerStatsModuleが最近追加されたため、過去のセッションデータが統計に反映されていなかった
+**修正内容**:
+- `updateStatsOnSessionFinalize`の呼び出しを確認
+- `rebuildPlayerStats`関数を追加し、既存セッションから統計を再構築可能に
+- デバッグログの追加により問題の特定を容易に
+
+### 3. 修正ファイル一覧
+- `src/backend/unified/main.mo`
+  - `getRecentSessionsWithScores`: フォールバック処理追加
+  - `finalizeSession`: デバッグログ追加
+  - `rebuildPlayerStats`: 新規追加（統計再構築用）
+  - `debugGetAllPlayerStats`: 新規追加（デバッグ用）
+- `src/backend/unified/modules/PlayerStatsModule.mo`
+  - デバッグログの追加
+- `src/backend/unified/modules/PhotoModuleV2.mo`
+  - `getPhotoStats` → `getPhotoStatsForSystem`に名前変更（重複定義エラー修正）
+- `src/frontend/src/services/game.ts`
+  - デバッグログの追加（フロントエンド修正は不要）
+
+### 4. トラブルシューティング
+Player Statsが0と表示される場合：
+```bash
+# 既存セッションから統計を再構築
+dfx canister --network ic call unified rebuildPlayerStats
+```
+
+### 5. 今後の注意点
+- 新しいプレイヤーは初回ゲーム完了時に統計が自動的に作成される
+- `finalizeSession`が正しく呼ばれることで統計が更新される
+- canisterアップグレード時はPlayerStatsのstable変数が保持される
+
+## Recent Updates (2025-06-27) - アプリ名とアイコンの変更
+
+### アプリ名を「SpotQuest」に変更
+**変更内容**:
+1. **app.json**
+   - name: "Guess the Spot" → "SpotQuest"
+   - slug: "guess-the-spot" → "spotquest"
+   - bundleIdentifier/package: "com.guessthespot.app" → "com.spotquest.app"
+   - scheme: "guessthespot" → "spotquest"
+   - 権限メッセージ内のアプリ名も更新
+
+2. **アイコンの更新**
+   - `src/frontend/src/assets/app_icon.png`を新しいアプリアイコンとして設定
+   - icon.pngとadaptive-icon.pngにコピー
+
+3. **UIとドキュメントの更新**
+   - LoginScreen.tsx: タイトル表示を"SpotQuest"に変更
+   - README.md: プロジェクト名を更新
+   - CLAUDE.md: プロジェクト概要を更新
+   - package.json（ルート）: パッケージ名を更新
+
+**注意事項**:
+- 新規ビルド時は`expo prebuild --clear`を実行してキャッシュをクリア
+- EASビルドする場合は新しいバンドルIDで証明書の再設定が必要
+
+### SPOTトークンにicrc1_metadataを実装
+**変更内容**:
+1. **Constants.mo**
+   - TOKEN_NAME: "SpotQuest Token"に更新
+   - TOKEN_MAX_MEMO_LENGTH: 32を追加
+
+2. **TokenModule.mo**
+   - トークンロゴのbase64エンコード画像を追加（256x256サイズ）
+   - `icrc1_metadata()`メソッドを実装
+   - 以下のメタデータを返す:
+     - icrc1:logo - PNGロゴのbase64 data URI
+     - icrc1:decimals - 2
+     - icrc1:name - "SpotQuest Token"
+     - icrc1:symbol - "SPOT" 
+     - icrc1:fee - 1 (0.01 SPOT)
+     - icrc1:max_memo_length - 32
+
+3. **main.mo**
+   - `icrc1_metadata`のpublic query関数を追加
+
+4. **game.ts (フロントエンド)**
+   - IDL定義にMetadataとMetadataValueタイプを追加
+   - サービス定義に`icrc1_metadata`関数を追加
+
+**テスト方法**:
+```bash
+# ローカルネットワーク
+./test_icrc1_metadata.sh local
+
+# メインネット
+./test_icrc1_metadata.sh
+```

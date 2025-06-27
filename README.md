@@ -1,4 +1,4 @@
-# Guess the Spot - 位置推理ゲーム on ICP
+# SpotQuest - 位置推理ゲーム on ICP
 
 写真と撮影方位から撮影地点を推理し、SPOTトークンで報酬を獲得するブロックチェーンゲーム。
 

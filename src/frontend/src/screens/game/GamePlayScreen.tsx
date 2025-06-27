@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import Slider from '@react-native-community/slider';
 import { useNavigation, RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -1384,14 +1384,6 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
               </View>
             </View>
             
-            <View style={styles.statusItem} pointerEvents="auto">
-              <View style={styles.tokenBalance}>
-                <Ionicons name="logo-bitcoin" size={16} color="#FFD700" />
-                <Text style={styles.tokenText}>
-                  {(Number(tokenBalance) / 100).toFixed(2)} SPOT
-                </Text>
-              </View>
-            </View>
           </View>
 
           {/* 方位表示 */}
@@ -1566,7 +1558,7 @@ const HintModal = ({ visible, hints, onPurchase, onClose, costMultiplier }: Hint
           <Text style={styles.modalTitle}>ヒントショップ</Text>
           
           <View style={styles.modalTokenBalance}>
-            <Ionicons name="logo-bitcoin" size={20} color="#FFD700" />
+            <MaterialCommunityIcons name="coin" size={20} color="#FFD700" />
             <Text style={styles.modalTokenText}>
               残高: {(Number(tokenBalance) / 100).toFixed(2)} SPOT
             </Text>

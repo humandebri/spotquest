@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons, MaterialCommunityIcons, Foundation } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { gameService } from '../../services/game';
 import { useAuth } from '../../hooks/useAuth';
@@ -46,7 +46,7 @@ interface UploaderLeaderboardEntry {
 
 type LeaderboardType = 'global' | 'uploaders' | 'weekly' | 'monthly';
 
-export default function LeaderboardScreen() {
+export default function LeaderboardScreen({ navigation }: any) {
   const auth = useAuth();
   const [selectedType, setSelectedType] = useState<LeaderboardType>('global');
   const [data, setData] = useState<any[]>([]);
@@ -114,6 +114,28 @@ export default function LeaderboardScreen() {
           // Get player leaderboard with Elo ratings
           const playerLeaderboard = await gameService.getEloLeaderboardWithStats(50);
           console.log('🏆 Global Elo leaderboard loaded:', playerLeaderboard.length, 'players');
+          
+          // Debug: Check session finalization status for top players
+          if (auth && auth.identity && playerLeaderboard.length > 0) {
+            try {
+              const topPlayerPrincipal = playerLeaderboard[0].principal;
+              const sessionsResult = await gameService.getUserSessions(topPlayerPrincipal);
+              if (sessionsResult.ok && sessionsResult.ok.length > 0) {
+                console.log(`🏆 Top player ${topPlayerPrincipal.toString().slice(0, 10)}... has ${sessionsResult.ok.length} sessions`);
+                console.log(`🏆 Session statuses:`, sessionsResult.ok.map(s => s.status));
+              }
+            } catch (e) {
+              console.log('🏆 Could not check session status:', e);
+            }
+          }
+          // Debug: Check reward values
+          if (playerLeaderboard.length > 0) {
+            console.log('🏆 Sample player rewards:', playerLeaderboard[0].totalRewards, 'raw value');
+            // Check first 5 players' rewards
+            playerLeaderboard.slice(0, 5).forEach((player, index) => {
+              console.log(`🏆 Player ${index + 1} - Principal: ${player.principal.toString().slice(0, 10)}... Rewards: ${player.totalRewards}`);
+            });
+          }
           leaderboardData = playerLeaderboard.map((entry, index) => ({
             rank: index + 1,
             principal: entry.principal.toString(),
@@ -209,7 +231,6 @@ export default function LeaderboardScreen() {
   ];
 
   const renderItem = ({ item }: { item: any }) => {
-    if (item.rank <= 3) return null; // Top 3 shown in podium
     
     // Render different content based on leaderboard type
     if (selectedType === 'uploaders' && 'totalPhotos' in item) {
@@ -284,8 +305,8 @@ export default function LeaderboardScreen() {
               {selectedType === 'global' ? 'Elo Rating' : 'points'}
             </Text>
             <View style={styles.rewardsContainer}>
-              <Foundation name="bitcoin-circle" size={14} color="#f59e0b" />
-              <Text style={styles.rewardsText}>{item.totalRewards || 0}</Text>
+              <MaterialCommunityIcons name="coin" size={14} color="#f59e0b" />
+              <Text style={styles.rewardsText}>{((item.totalRewards || 0) / 100).toFixed(2)}</Text>
             </View>
           </View>
         </TouchableOpacity>
@@ -295,11 +316,20 @@ export default function LeaderboardScreen() {
 
   return (
     <LinearGradient colors={['#0f172a', '#1e293b']} style={styles.container}>
-      <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
-        {/* Header */}
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
+        {/* Header with Back Button */}
         <View style={styles.header}>
-          <Text style={styles.title}>Leaderboard</Text>
-          <Text style={styles.subtitle}>Top players competing for glory</Text>
+          <TouchableOpacity 
+            style={styles.backButton} 
+            onPress={() => navigation.goBack()}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="arrow-back" size={24} color="#ffffff" />
+          </TouchableOpacity>
+          <View style={styles.headerTextContainer}>
+            <Text style={styles.title}>Leaderboard</Text>
+            <Text style={styles.subtitle}>Top players competing for glory</Text>
+          </View>
         </View>
 
         {/* Your Rank Card */}
@@ -514,89 +544,6 @@ export default function LeaderboardScreen() {
                 tintColor="#3b82f6"
               />
             }
-            ListHeaderComponent={() => (
-              <View style={styles.podiumContainer}>
-                {data.length > 0 && (
-                  <View style={styles.podium}>
-                    {/* 2nd Place */}
-                    {data[1] && (
-                      <View style={styles.podiumPlace}>
-                        <View style={[styles.podiumBox, { height: 100 }]}>
-                          <Text style={styles.medal}>🥈</Text>
-                          <Text style={styles.podiumName} numberOfLines={1}>
-                            {data[1].username || `${String(data[1].principal || data[1].owner || 'Unknown').slice(0, 6)}...`}
-                          </Text>
-                          <Text style={styles.podiumScore}>
-                            {selectedType === 'uploaders' && 'totalTimesUsed' in data[1]
-                              ? data[1].totalTimesUsed
-                              : selectedType === 'global' 
-                              ? data[1].score
-                              : (data[1].score || 0).toLocaleString()}
-                          </Text>
-                          <Text style={styles.podiumRewards}>
-                            {selectedType === 'uploaders' && 'totalPhotos' in data[1]
-                              ? `${data[1].totalPhotos} photos`
-                              : selectedType === 'global'
-                              ? `Elo ${data[1].score}`
-                              : `${data[1].totalRewards || 0} SPOT`}
-                          </Text>
-                        </View>
-                      </View>
-                    )}
-                    {/* 1st Place */}
-                    {data[0] && (
-                      <View style={styles.podiumPlace}>
-                        <View style={[styles.podiumBox, { height: 120 }]}>
-                          <Text style={styles.medal}>🥇</Text>
-                          <Text style={styles.podiumName} numberOfLines={1}>
-                            {data[0].username || `${String(data[0].principal || data[0].owner || 'Unknown').slice(0, 6)}...`}
-                          </Text>
-                          <Text style={styles.podiumScore}>
-                            {selectedType === 'uploaders' && 'totalTimesUsed' in data[0]
-                              ? data[0].totalTimesUsed
-                              : selectedType === 'global' 
-                              ? data[0].score
-                              : (data[0].score || 0).toLocaleString()}
-                          </Text>
-                          <Text style={styles.podiumRewards}>
-                            {selectedType === 'uploaders' && 'totalPhotos' in data[0]
-                              ? `${data[0].totalPhotos} photos`
-                              : selectedType === 'global'
-                              ? `Elo ${data[0].score}`
-                              : `${data[0].totalRewards || 0} SPOT`}
-                          </Text>
-                        </View>
-                      </View>
-                    )}
-                    {/* 3rd Place */}
-                    {data[2] && (
-                      <View style={styles.podiumPlace}>
-                        <View style={[styles.podiumBox, { height: 80 }]}>
-                          <Text style={styles.medal}>🥉</Text>
-                          <Text style={styles.podiumName} numberOfLines={1}>
-                            {data[2].username || `${String(data[2].principal || data[2].owner || 'Unknown').slice(0, 6)}...`}
-                          </Text>
-                          <Text style={styles.podiumScore}>
-                            {selectedType === 'uploaders' && 'totalTimesUsed' in data[2]
-                              ? data[2].totalTimesUsed
-                              : selectedType === 'global' 
-                              ? data[2].score
-                              : (data[2].score || 0).toLocaleString()}
-                          </Text>
-                          <Text style={styles.podiumRewards}>
-                            {selectedType === 'uploaders' && 'totalPhotos' in data[2]
-                              ? `${data[2].totalPhotos} photos`
-                              : selectedType === 'global'
-                              ? `Elo ${data[2].score}`
-                              : `${data[2].totalRewards || 0} SPOT`}
-                          </Text>
-                        </View>
-                      </View>
-                    )}
-                  </View>
-                )}
-              </View>
-            )}
           />
         )}
       </SafeAreaView>
@@ -612,15 +559,29 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 24,
-    paddingTop: 24,
+    paddingTop: 16,
     paddingBottom: 16,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  headerTextContainer: {
+    flex: 1,
   },
   title: {
     color: '#ffffff',
     fontSize: 28,
     fontWeight: 'bold',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   subtitle: {
     color: '#94a3b8',
@@ -716,48 +677,6 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: 24,
     paddingBottom: 20,
-  },
-  podiumContainer: {
-    marginBottom: 24,
-  },
-  podium: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'flex-end',
-    marginBottom: 24,
-  },
-  podiumPlace: {
-    marginHorizontal: 8,
-    alignItems: 'center',
-  },
-  podiumBox: {
-    backgroundColor: 'rgba(30, 41, 59, 0.5)',
-    borderRadius: 16,
-    padding: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(71, 85, 105, 0.5)',
-    width: 100,
-  },
-  medal: {
-    fontSize: 36,
-    marginBottom: 8,
-  },
-  podiumName: {
-    color: '#ffffff',
-    fontWeight: 'bold',
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  podiumScore: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginTop: 4,
-  },
-  podiumRewards: {
-    color: '#94a3b8',
-    fontSize: 12,
   },
   listItem: {
     backgroundColor: 'rgba(30, 41, 59, 0.3)',

@@ -172,7 +172,7 @@ export default function LoginScreen() {
             <View style={styles.logoContainer}>
               <MaterialCommunityIcons name="map-marker-question" size={60} color="#3b82f6" />
             </View>
-            <Text style={styles.title}>Guess the Spot</Text>
+            <Text style={styles.title}>SpotQuest</Text>
             <Text style={styles.subtitle}>
               写真から場所を当てる次世代Web3ゲーム
             </Text>
