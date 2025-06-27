@@ -2595,6 +2595,11 @@ actor GameUnified {
         }
     };
     
+    // Get Pro membership expiry time for the caller
+    public shared query(msg) func getProMembershipExpiry() : async ?Time.Time {
+        gameLimitsManager.getProMembershipExpiry(msg.caller)
+    };
+    
     // ======================================
     // STATS AND METRICS
     // ======================================

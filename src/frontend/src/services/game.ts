@@ -430,6 +430,7 @@ class GameService {
           expiryTime: IDL.Opt(IDL.Int),
           cost: IDL.Nat,
         })], ['query']),
+        getProMembershipExpiry: IDL.Func([], [IDL.Opt(IDL.Int)], ['query']),
         
         // Ranking functions
         getPlayerRank: IDL.Func([IDL.Principal], [IDL.Opt(IDL.Nat)], ['query']),
