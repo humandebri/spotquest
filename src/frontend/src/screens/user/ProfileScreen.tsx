@@ -200,17 +200,23 @@ export default function ProfileScreen() {
   // Initialize game service
   React.useEffect(() => {
     const initService = async () => {
-      if (identity && !isServiceInitialized) {
+      if (identity && !gameService.isInitialized) {
         try {
+          console.log('🏠 Initializing game service...');
           await gameService.init(identity);
+          console.log('🏠 Game service initialized successfully');
           setIsServiceInitialized(true);
         } catch (error) {
           console.error('Failed to initialize game service:', error);
+          setIsServiceInitialized(false);
         }
+      } else if (identity && gameService.isInitialized) {
+        // Service already initialized
+        setIsServiceInitialized(true);
       }
     };
     initService();
-  }, [identity, isServiceInitialized]);
+  }, [identity]);
 
   // Load username when principal is available
   React.useEffect(() => {
@@ -242,10 +248,16 @@ export default function ProfileScreen() {
 
   // Load player stats
   const loadPlayerStats = React.useCallback(async () => {
-    if (!principal || !isServiceInitialized) return;
+    if (!principal || !isServiceInitialized || !gameService.isInitialized) {
+      console.log('🏠 loadPlayerStats skipped - principal:', !!principal, 
+        'isServiceInitialized:', isServiceInitialized, 
+        'gameService.isInitialized:', gameService.isInitialized);
+      return;
+    }
 
     setIsLoadingStats(true);
     try {
+      console.log('🏠 Loading player stats for principal:', principal.toString());
       const playerStats = await gameService.getPlayerStats(CustomPrincipal.fromText(principal.toString()));
       if (playerStats) {
         setStats({

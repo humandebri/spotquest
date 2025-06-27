@@ -51,7 +51,7 @@ class GameService {
   private initialized = false;
   
   get isInitialized(): boolean {
-    return this.initialized;
+    return this.initialized && !!this.actor && !!this.identity;
   }
   
   constructor() {
@@ -71,7 +71,7 @@ class GameService {
 
     // Reuse existing actor if identity hasn't changed (but not for dev mode)
     const isDevMode = identity.constructor.name === 'Ed25519KeyIdentity';
-    if (this.identity === identity && this.actor && !isDevMode) {
+    if (this.identity && this.identity === identity && this.actor && !isDevMode && this.initialized) {
       console.log('🎮 Reusing existing actor');
       return;
     }
