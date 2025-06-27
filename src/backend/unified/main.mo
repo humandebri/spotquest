@@ -1111,6 +1111,17 @@ actor GameUnified {
                 // Elo ratings are now updated in submitGuess for immediate feedback
                 // No need to update them again here
                 
+                // Add to completion index asynchronously (fire and forget)
+                ignore async {
+                    gameEngineManager.addToCompletionIndex({
+                        timestamp = Time.now();
+                        sessionId = sessionId;
+                        player = msg.caller;
+                        reward = playerReward;
+                        score = session.totalScore;
+                    });
+                };
+                
                 #ok({
                     sessionId = session.id;
                     userId = msg.caller;
@@ -1856,6 +1867,40 @@ actor GameUnified {
     };
     
     // ======================================
+    // TIME-BASED LEADERBOARD FUNCTIONS
+    // ======================================
+    
+    // Get weekly leaderboard (last 7 days)
+    public query func getWeeklyLeaderboard(limit: Nat) : async [(Principal, Nat, Text)] {
+        let oneWeekAgo = Time.now() - (7 * 24 * 60 * 60 * 1_000_000_000);
+        let leaderboard = gameEngineManager.getLeaderboardForPeriod(oneWeekAgo, limit);
+        
+        // Add usernames to the results
+        Array.map<(Principal, Nat), (Principal, Nat, Text)>(leaderboard, func((principal, rewards) : (Principal, Nat)) : (Principal, Nat, Text) {
+            let username = switch(usernames.get(principal)) {
+                case null { "" };
+                case (?name) { name };
+            };
+            (principal, rewards, username)
+        })
+    };
+    
+    // Get monthly leaderboard (last 30 days)
+    public query func getMonthlyLeaderboard(limit: Nat) : async [(Principal, Nat, Text)] {
+        let oneMonthAgo = Time.now() - (30 * 24 * 60 * 60 * 1_000_000_000);
+        let leaderboard = gameEngineManager.getLeaderboardForPeriod(oneMonthAgo, limit);
+        
+        // Add usernames to the results
+        Array.map<(Principal, Nat), (Principal, Nat, Text)>(leaderboard, func((principal, rewards) : (Principal, Nat)) : (Principal, Nat, Text) {
+            let username = switch(usernames.get(principal)) {
+                case null { "" };
+                case (?name) { name };
+            };
+            (principal, rewards, username)
+        })
+    };
+    
+    // ======================================
     // USER PROFILE FUNCTIONS
     // ======================================
     
@@ -2329,7 +2374,21 @@ actor GameUnified {
                             
                             let allRoundsCompleted = completedRounds == session.rounds.size() and completedRounds > 0;
                             let reward = switch(session.playerReward) {
-                                case null { 0 };
+                                case null { 
+                                    // Recalculate reward for sessions that don't have it stored
+                                    Debug.print("⚠️ rebuildPlayerStats - Session " # sessionId # " has null playerReward, recalculating...");
+                                    let calculatedReward = calculatePlayerReward(session);
+                                    
+                                    // Update the session with the calculated reward for future use
+                                    let updatedSession = {
+                                        session with
+                                        playerReward = ?calculatedReward;
+                                    };
+                                    gameEngineManager.updateSession(sessionId, updatedSession);
+                                    Debug.print("✅ Updated session " # sessionId # " with playerReward: " # Nat.toText(calculatedReward));
+                                    
+                                    calculatedReward
+                                };
                                 case (?r) { r };
                             };
                             
@@ -2349,6 +2408,65 @@ actor GameUnified {
         };
         
         "Processed " # Nat.toText(processed) # " sessions, errors: " # Nat.toText(errors)
+    };
+    
+    // Debug player stats and rewards
+    public query func debugPlayerStatsAndRewards(player: Principal) : async {
+        stats: {
+            totalGamesPlayed: Nat;
+            totalRewardsEarned: Nat;
+            totalScore: Nat;
+            bestScore: Nat;
+        };
+        sessions: [{
+            sessionId: Text;
+            totalScore: Nat;
+            storedReward: ?Nat;
+            calculatedReward: Nat;
+            roundsCompleted: Nat;
+        }];
+    } {
+        let playerStats = playerStatsManager.getPlayerStats(player);
+        let stats = {
+            totalGamesPlayed = playerStats.totalGamesPlayed;
+            totalRewardsEarned = playerStats.totalRewardsEarned;
+            totalScore = playerStats.totalScore;
+            bestScore = playerStats.bestScore;
+        };
+        
+        var sessions : [{sessionId: Text; totalScore: Nat; storedReward: ?Nat; calculatedReward: Nat; roundsCompleted: Nat}] = [];
+        
+        switch(gameEngineManager.getUserSessions(player)) {
+            case null { };
+            case (?sessionIds) {
+                for (sessionId in sessionIds.vals()) {
+                    switch(gameEngineManager.getSession(sessionId)) {
+                        case null { };
+                        case (?session) {
+                            if (session.endTime != null) {
+                                let completedRounds = Array.filter<GameV2.RoundState>(
+                                    session.rounds,
+                                    func(r) = r.status == #Completed
+                                ).size();
+                                
+                                sessions := Array.append(sessions, [{
+                                    sessionId = sessionId;
+                                    totalScore = session.totalScore;
+                                    storedReward = session.playerReward;
+                                    calculatedReward = calculatePlayerReward(session);
+                                    roundsCompleted = completedRounds;
+                                }]);
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        
+        {
+            stats = stats;
+            sessions = sessions;
+        }
     };
     
     // Debug reward calculation
@@ -3175,6 +3293,7 @@ actor GameUnified {
                     userSessionsStable = stableData.userSessionsStable;
                     sessionTimeoutsStable = stableData.sessionTimeoutsStable;
                     sessionPhotosPlayedStable = photosPlayedData;
+                    sessionCompletionIndexStable = null; // New field for completion index
                     totalSessions = stableData.totalSessions;
                     totalRounds = stableData.totalRounds;
                     errorCount = stableData.errorCount;

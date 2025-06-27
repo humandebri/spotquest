@@ -410,7 +410,7 @@ export default function HomeScreen() {
                       <View style={styles.sessionRewardsRow}>
                         {session.playerReward && (
                           <View style={styles.sessionRewardItem}>
-                            <MaterialCommunityIcons name="coin" size={14} color="#f59e0b" />
+                            <Ionicons name="cash-outline" size={14} color="#f59e0b" />
                             <Text style={styles.sessionRewardText}>
                               +{(Number(session.playerReward) / 100).toFixed(2)} SPOT
                             </Text>

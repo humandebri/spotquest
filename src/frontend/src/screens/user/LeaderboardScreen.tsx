@@ -90,7 +90,7 @@ export default function LeaderboardScreen({ navigation }: any) {
         const myPrincipal = auth.identity.getPrincipal();
         console.log('🏆 My principal:', myPrincipal.toString());
         try {
-          const myStats = await gameService.getPlayerStats(myPrincipal);
+          const myStats = await gameService.getPlayerStats(myPrincipal as any);
           console.log('🏆 My player stats:', myStats);
         } catch (e) {
           console.log('🏆 Could not get my stats:', e);
@@ -131,6 +131,7 @@ export default function LeaderboardScreen({ navigation }: any) {
           // Debug: Check reward values
           if (playerLeaderboard.length > 0) {
             console.log('🏆 Sample player rewards:', playerLeaderboard[0].totalRewards, 'raw value');
+            console.log('🏆 First player full data:', playerLeaderboard[0]);
             // Check first 5 players' rewards
             playerLeaderboard.slice(0, 5).forEach((player, index) => {
               console.log(`🏆 Player ${index + 1} - Principal: ${player.principal.toString().slice(0, 10)}... Rewards: ${player.totalRewards}`);
@@ -163,33 +164,77 @@ export default function LeaderboardScreen({ navigation }: any) {
           break;
           
         case 'weekly':
-          // TODO: Implement weekly leaderboard when backend supports it
-          // For now, use the same as global
-          const weeklyLeaderboard = await gameService.getLeaderboardWithStats(50);
-          leaderboardData = weeklyLeaderboard.map((entry, index) => ({
-            rank: index + 1,
-            principal: entry.principal.toString(),
-            username: entry.username,
-            score: Number(entry.score),
-            gamesPlayed: Number(entry.gamesPlayed),
-            photosUploaded: Number(entry.photosUploaded),
-            totalRewards: Number(entry.totalRewards),
-          }));
+          // Get weekly leaderboard (rewards from last 7 days)
+          const weeklyLeaderboard = await gameService.getWeeklyLeaderboard(50);
+          console.log('🏆 Weekly leaderboard loaded:', weeklyLeaderboard.length, 'players');
+          
+          // Fetch additional stats for each player
+          const weeklyDataWithStats = await Promise.all(
+            weeklyLeaderboard.map(async (entry, index) => {
+              try {
+                const stats = await gameService.getPlayerStats(entry.principal as any);
+                return {
+                  rank: index + 1,
+                  principal: entry.principal.toString(),
+                  username: entry.username || `${entry.principal.toString().slice(0, 8)}...`,
+                  score: Number(entry.rewards), // Use weekly rewards as score
+                  gamesPlayed: stats ? Number(stats.totalGamesPlayed) : 0,
+                  photosUploaded: stats ? Number(stats.totalPhotosUploaded) : 0,
+                  totalRewards: Number(entry.rewards), // This is weekly rewards
+                };
+              } catch (error) {
+                console.error(`Failed to get stats for ${entry.principal}:`, error);
+                return {
+                  rank: index + 1,
+                  principal: entry.principal.toString(),
+                  username: entry.username || `${entry.principal.toString().slice(0, 8)}...`,
+                  score: Number(entry.rewards),
+                  gamesPlayed: 0,
+                  photosUploaded: 0,
+                  totalRewards: Number(entry.rewards),
+                };
+              }
+            })
+          );
+          
+          leaderboardData = weeklyDataWithStats;
           break;
           
         case 'monthly':
-          // TODO: Implement monthly leaderboard when backend supports it
-          // For now, use the same as global leaderboard
-          const monthlyLeaderboard = await gameService.getLeaderboardWithStats(50);
-          leaderboardData = monthlyLeaderboard.map((entry, index) => ({
-            rank: index + 1,
-            principal: entry.principal.toString(),
-            username: entry.username,
-            score: Number(entry.score),
-            gamesPlayed: Number(entry.gamesPlayed),
-            photosUploaded: Number(entry.photosUploaded),
-            totalRewards: Number(entry.totalRewards),
-          }));
+          // Get monthly leaderboard (rewards from last 30 days)
+          const monthlyLeaderboard = await gameService.getMonthlyLeaderboard(50);
+          console.log('🏆 Monthly leaderboard loaded:', monthlyLeaderboard.length, 'players');
+          
+          // Fetch additional stats for each player
+          const monthlyDataWithStats = await Promise.all(
+            monthlyLeaderboard.map(async (entry, index) => {
+              try {
+                const stats = await gameService.getPlayerStats(entry.principal as any);
+                return {
+                  rank: index + 1,
+                  principal: entry.principal.toString(),
+                  username: entry.username || `${entry.principal.toString().slice(0, 8)}...`,
+                  score: Number(entry.rewards), // Use monthly rewards as score
+                  gamesPlayed: stats ? Number(stats.totalGamesPlayed) : 0,
+                  photosUploaded: stats ? Number(stats.totalPhotosUploaded) : 0,
+                  totalRewards: Number(entry.rewards), // This is monthly rewards
+                };
+              } catch (error) {
+                console.error(`Failed to get stats for ${entry.principal}:`, error);
+                return {
+                  rank: index + 1,
+                  principal: entry.principal.toString(),
+                  username: entry.username || `${entry.principal.toString().slice(0, 8)}...`,
+                  score: Number(entry.rewards),
+                  gamesPlayed: 0,
+                  photosUploaded: 0,
+                  totalRewards: Number(entry.rewards),
+                };
+              }
+            })
+          );
+          
+          leaderboardData = monthlyDataWithStats;
           break;
       }
       
@@ -199,7 +244,7 @@ export default function LeaderboardScreen({ navigation }: any) {
       // Get user's stats and rank if authenticated (for all tabs)
       if (auth && auth.identity) {
         const principal = auth.identity.getPrincipal();
-        const stats = await gameService.getPlayerStats(principal);
+        const stats = await gameService.getPlayerStats(principal as any);
         console.log('🏆 Player stats received:', stats);
         if (stats) {
           setUserStats(stats);
@@ -300,14 +345,22 @@ export default function LeaderboardScreen({ navigation }: any) {
           </View>
 
           <View style={styles.scoreContainer}>
-            <Text style={styles.scoreText}>{item.score}</Text>
-            <Text style={styles.scoreLabel}>
-              {selectedType === 'global' ? 'Elo Rating' : 'points'}
+            <Text style={styles.scoreText}>
+              {selectedType === 'weekly' || selectedType === 'monthly' 
+                ? ((item.score || 0) / 100).toFixed(2) 
+                : item.score}
             </Text>
-            <View style={styles.rewardsContainer}>
-              <MaterialCommunityIcons name="coin" size={14} color="#f59e0b" />
-              <Text style={styles.rewardsText}>{((item.totalRewards || 0) / 100).toFixed(2)}</Text>
-            </View>
+            <Text style={styles.scoreLabel}>
+              {selectedType === 'global' ? 'Elo Rating' : 
+               selectedType === 'weekly' ? 'SPOT (7 days)' :
+               selectedType === 'monthly' ? 'SPOT (30 days)' : 'points'}
+            </Text>
+            {selectedType === 'global' && (
+              <View style={styles.rewardsContainer}>
+                <Ionicons name="cash-outline" size={14} color="#f59e0b" />
+                <Text style={styles.rewardsText}>{((item.totalRewards || 0) / 100).toFixed(2)}</Text>
+              </View>
+            )}
           </View>
         </TouchableOpacity>
       );
@@ -427,10 +480,11 @@ export default function LeaderboardScreen({ navigation }: any) {
                       })()
                     ) : selectedType === 'weekly' || selectedType === 'monthly' ? (
                       (() => {
-                        // Show score from current leaderboard
+                        // Show rewards from current leaderboard
                         const myPrincipal = auth.identity?.getPrincipal().toString();
                         const userData = data.find(item => item.principal === myPrincipal);
-                        return userData && userData.score ? userData.score.toLocaleString() : '0';
+                        const rewards = userData && userData.score ? userData.score : 0;
+                        return (rewards / 100).toFixed(2);
                       })()
                     ) : selectedType === 'global' ? (
                       userStats && userStats.eloRating !== undefined ? Number(userStats.eloRating) : '1500'
@@ -441,8 +495,10 @@ export default function LeaderboardScreen({ navigation }: any) {
                   <Text style={styles.rankCardRewards}>
                     {selectedType === 'uploaders' ? (
                       'total plays'
-                    ) : selectedType === 'weekly' || selectedType === 'monthly' ? (
-                      'points'
+                    ) : selectedType === 'weekly' ? (
+                      'SPOT earned (7 days)'
+                    ) : selectedType === 'monthly' ? (
+                      'SPOT earned (30 days)'
                     ) : selectedType === 'global' ? (
                       'rating points'
                     ) : (

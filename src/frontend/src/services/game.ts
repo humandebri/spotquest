@@ -430,6 +430,10 @@ class GameService {
           username: IDL.Opt(IDL.Text),
         })))], ['query']),
         
+        // Time-based leaderboards
+        getWeeklyLeaderboard: IDL.Func([IDL.Nat], [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Nat, IDL.Text))], ['query']),
+        getMonthlyLeaderboard: IDL.Func([IDL.Nat], [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Nat, IDL.Text))], ['query']),
+        
         // Admin functions (for dev mode)
         adminMint: IDL.Func([IDL.Principal, IDL.Nat], [IDL.Variant({
           ok: IDL.Nat,
@@ -928,8 +932,10 @@ class GameService {
             const username = await this.getUsername(principal);
             
             // Debug logging for rewards
-            if (stats && stats.totalRewardsEarned > 0) {
-              console.log(`🎮 Player ${principal.toString().slice(0, 10)}... has rewards: ${stats.totalRewardsEarned}`);
+            console.log(`🎮 Player ${principal.toString().slice(0, 10)}... stats:`, stats);
+            if (stats) {
+              console.log(`🎮 - totalRewardsEarned: ${stats.totalRewardsEarned}`);
+              console.log(`🎮 - totalGamesPlayed: ${stats.totalGamesPlayed}`);
             }
             
             return {
@@ -1000,6 +1006,50 @@ class GameService {
       }));
     } catch (error) {
       console.error('Failed to get top uploaders:', error);
+      return [];
+    }
+  }
+
+  async getWeeklyLeaderboard(limit: number): Promise<{
+    principal: any;
+    rewards: bigint;
+    username: string;
+  }[]> {
+    if (!this.initialized || !this.actor) {
+      return [];
+    }
+    
+    try {
+      const result = await this.actor.getWeeklyLeaderboard(BigInt(limit));
+      return result.map(([principal, rewards, username]: [any, bigint, string]) => ({
+        principal,
+        rewards,
+        username,
+      }));
+    } catch (error) {
+      console.error('Failed to get weekly leaderboard:', error);
+      return [];
+    }
+  }
+
+  async getMonthlyLeaderboard(limit: number): Promise<{
+    principal: any;
+    rewards: bigint;
+    username: string;
+  }[]> {
+    if (!this.initialized || !this.actor) {
+      return [];
+    }
+    
+    try {
+      const result = await this.actor.getMonthlyLeaderboard(BigInt(limit));
+      return result.map(([principal, rewards, username]: [any, bigint, string]) => ({
+        principal,
+        rewards,
+        username,
+      }));
+    } catch (error) {
+      console.error('Failed to get monthly leaderboard:', error);
       return [];
     }
   }
@@ -1145,9 +1195,10 @@ class GameService {
       console.log('🎮 getPlayerStats raw result:', result);
       console.log('🎮 rank field:', result.rank, 'length:', result.rank.length);
       console.log('🎮 totalGamesPlayed:', result.totalGamesPlayed, 'Number:', Number(result.totalGamesPlayed));
+      console.log('🎮 Raw backend result for getPlayerStats:', result);
       console.log('🎮 averageScore:', result.averageScore, 'Number:', Number(result.averageScore));
       console.log('🎮 totalScore:', result.totalScore);
-      console.log('🎮 totalRewardsEarned:', result.totalRewardsEarned, 'Number:', Number(result.totalRewardsEarned));
+      console.log('🎮 totalRewardsEarned:', result.totalRewardsEarned, 'Type:', typeof result.totalRewardsEarned, 'Number:', Number(result.totalRewardsEarned));
       console.log('🎮 All fields:', Object.keys(result));
       
       return {

@@ -19,6 +19,15 @@ import Helpers "Helpers";
 import GameV2 "../../../types/game_v2";
 
 module {
+    // Session completion record for time-based indexing
+    public type SessionCompletionRecord = {
+        timestamp: Time.Time;
+        sessionId: Text;
+        player: Principal;
+        reward: Nat;
+        score: Nat;
+    };
+
     public class GameEngineManager() {
         // Session management
         private var sessions = TrieMap.TrieMap<Text, GameV2.GameSession>(Text.equal, Text.hash);
@@ -27,6 +36,9 @@ module {
         
         // Photo tracking for rating system
         private var sessionPhotosPlayed = TrieMap.TrieMap<Text, [(Nat, Nat)]>(Text.equal, Text.hash); // sessionId -> [(roundIndex, photoId)]
+        
+        // Session completion index for time-based queries
+        private var sessionCompletionIndex = Buffer.Buffer<SessionCompletionRecord>(1000);
         
         // Metrics
         private var totalSessions : Nat = 0;
@@ -503,6 +515,47 @@ module {
             sessionPhotosPlayed.get(sessionId)
         };
         
+        // Add completion record to index
+        public func addToCompletionIndex(record: SessionCompletionRecord) : () {
+            sessionCompletionIndex.add(record);
+        };
+        
+        // Get rewards for a player within a time period
+        public func getRewardsForPeriod(player: Principal, startTime: Time.Time) : Nat {
+            var totalRewards = 0;
+            for (record in sessionCompletionIndex.vals()) {
+                if (record.player == player and record.timestamp >= startTime) {
+                    totalRewards += record.reward;
+                };
+            };
+            totalRewards
+        };
+        
+        // Get leaderboard for a time period
+        public func getLeaderboardForPeriod(startTime: Time.Time, limit: Nat) : [(Principal, Nat)] {
+            // Aggregate rewards by player
+            let playerRewards = TrieMap.TrieMap<Principal, Nat>(Principal.equal, Principal.hash);
+            
+            for (record in sessionCompletionIndex.vals()) {
+                if (record.timestamp >= startTime) {
+                    let current = Option.get(playerRewards.get(record.player), 0);
+                    playerRewards.put(record.player, current + record.reward);
+                };
+            };
+            
+            // Convert to array and sort by rewards (descending)
+            let entries = Iter.toArray(playerRewards.entries());
+            let sorted = Array.sort(entries, func(a: (Principal, Nat), b: (Principal, Nat)) : { #less; #equal; #greater } {
+                if (b.1 > a.1) { #less }
+                else if (b.1 < a.1) { #greater }
+                else { #equal }
+            });
+            
+            // Return top N entries
+            let resultSize = Nat.min(limit, sorted.size());
+            Array.tabulate<(Principal, Nat)>(resultSize, func(i: Nat) : (Principal, Nat) = sorted[i])
+        };
+        
         // ======================================
         // STABLE STORAGE FUNCTIONS
         // ======================================
@@ -512,6 +565,7 @@ module {
             userSessionsStable: [(Principal, [Text])];
             sessionTimeoutsStable: [(Text, Time.Time)];
             sessionPhotosPlayedStable: [(Text, [(Nat, Nat)])];
+            sessionCompletionIndexStable: [SessionCompletionRecord];
             totalSessions: Nat;
             totalRounds: Nat;
             errorCount: Nat;
@@ -525,6 +579,7 @@ module {
                 );
                 sessionTimeoutsStable = Iter.toArray(sessionTimeouts.entries());
                 sessionPhotosPlayedStable = Iter.toArray(sessionPhotosPlayed.entries());
+                sessionCompletionIndexStable = Buffer.toArray(sessionCompletionIndex);
                 totalSessions = totalSessions;
                 totalRounds = totalRounds;
                 errorCount = errorCount;
@@ -537,6 +592,7 @@ module {
             userSessionsStable: [(Principal, [Text])];
             sessionTimeoutsStable: [(Text, Time.Time)];
             sessionPhotosPlayedStable: ?[(Text, [(Nat, Nat)])]; // Optional for backward compatibility
+            sessionCompletionIndexStable: ?[SessionCompletionRecord]; // Optional for backward compatibility
             totalSessions: Nat;
             totalRounds: Nat;
             errorCount: Nat;
@@ -561,6 +617,19 @@ module {
                 };
                 case (?photosData) {
                     sessionPhotosPlayed := TrieMap.fromEntries(photosData.vals(), Text.equal, Text.hash);
+                };
+            };
+            
+            // Restore sessionCompletionIndex if available
+            switch (stableData.sessionCompletionIndexStable) {
+                case null { 
+                    sessionCompletionIndex := Buffer.Buffer<SessionCompletionRecord>(1000);
+                };
+                case (?indexData) {
+                    sessionCompletionIndex := Buffer.Buffer<SessionCompletionRecord>(indexData.size());
+                    for (record in indexData.vals()) {
+                        sessionCompletionIndex.add(record);
+                    };
                 };
             };
             
