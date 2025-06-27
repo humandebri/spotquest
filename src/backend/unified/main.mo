@@ -34,6 +34,7 @@ import IIIntegrationModule "modules/IIIntegrationModule";
 import RatingModule "modules/RatingModule";
 import EloRatingModule "modules/EloRatingModule";
 import PlayerStatsModule "modules/PlayerStatsModule";
+import GameLimitsModule "modules/GameLimitsModule";
 
 // HTTP types
 import Blob "mo:base/Blob";
@@ -101,6 +102,7 @@ actor GameUnified {
     private var ratingManager = RatingModule.RatingManager(photoManagerV2); // PhotoModuleV2を渡す
     private var eloRatingManager = EloRatingModule.EloRatingManager(photoManagerV2); // Eloレーティング管理
     private var playerStatsManager = PlayerStatsModule.PlayerStatsManager(); // プレイヤー統計管理
+    private var gameLimitsManager = GameLimitsModule.GameLimitsManager(); // プレイ回数制限管理
     
     // Random number generator for photo selection (unique seed to avoid duplicates)
     private var photoSelectionPrng = Random.Finite(
@@ -217,6 +219,19 @@ actor GameUnified {
     
     // Player stats stable storage
     private stable var playerStatsStable : ?[(Principal, PlayerStatsModule.PlayerStats)] = null;
+    
+    // Game limits stable storage (old format for compatibility)
+    private stable var gameLimitsStable : ?{
+        dailyPlayCountsStable: [(Principal, Nat)];
+        lastResetTime: Time.Time;
+    } = null;
+    
+    // New game limits stable storage with Pro membership data
+    private stable var gameLimitsStableV2 : ?{
+        dailyPlayCountsStable: [(Principal, Nat)];
+        proMembershipExpiryStable: ?[(Principal, Time.Time)];
+        lastResetTime: Time.Time;
+    } = null;
     
     // Runtime username map
     private var usernames = HashMap.HashMap<Principal, Text>(100, Principal.equal, Principal.hash);
@@ -497,12 +512,119 @@ actor GameUnified {
         ?availablePhotos.get(randomIndex)
     };
 
+    // Get weekly photo (from the last 7 days) excluding already used ones
+    private func getWeeklyPhotoExcluding(region: ?Text, usedPhotoIds: [Nat]) : ?PhotoModuleV2.Photo {
+        // Calculate timestamp for 7 days ago
+        let oneWeekAgo = Time.now() - (7 * 24 * 60 * 60 * 1000000000); // 7 days in nanoseconds
+        
+        // Search for photos with region filter if provided
+        let filter: Photo.SearchFilter = {
+            status = ?#Active;
+            country = switch(region) {
+                case null { null };
+                case (?r) { 
+                    if (not Text.contains(r, #char ',')) { ?r } else { null }
+                };
+            };
+            region = switch(region) {
+                case null { null };
+                case (?r) { 
+                    if (Text.contains(r, #char ',')) { ?r } else { null }
+                };
+            };
+            sceneKind = null;
+            tags = null;
+            nearLocation = null;
+            owner = null;
+            difficulty = null;
+        };
+        
+        let searchResult = photoManagerV2.search(filter, null, 1000);
+        let allPhotos = searchResult.photos;
+        let availablePhotos = Buffer.Buffer<PhotoModuleV2.Photo>(allPhotos.size());
+        
+        // Filter photos from the last 7 days and exclude used photos
+        for (photo in allPhotos.vals()) {
+            // Check if photo is from the last 7 days
+            if (photo.uploadTime >= oneWeekAgo) {
+                var isUsed = false;
+                for (usedId in usedPhotoIds.vals()) {
+                    if (photo.id == usedId) {
+                        isUsed := true;
+                    };
+                };
+                if (not isUsed) {
+                    availablePhotos.add(photo);
+                };
+            };
+        };
+        
+        let availableCount = availablePhotos.size();
+        if (availableCount == 0) {
+            Debug.print("🎮 No unused weekly photos found" # 
+                       (switch(region) { 
+                           case null { "" }; 
+                           case (?r) { " in region: " # r } 
+                       }) # 
+                       " (total photos: " # Nat.toText(allPhotos.size()) # 
+                       ", used: " # Nat.toText(usedPhotoIds.size()) # ")");
+            return null;
+        };
+        
+        // Reseed PRNG periodically for better randomness
+        if (prngCounter % 10 == 0) {
+            reseedPrng();
+        };
+        
+        prngCounter += 1;
+        
+        // Get random value with multiple attempts and fallback
+        var randomValue : Nat = 0;
+        var needReseed = false;
+        for (_ in Iter.range(0, 7)) {
+            if (randomValue > 0) {
+                // We have enough randomness
+                randomValue := randomValue % availableCount;
+                Debug.print("🎮 Selected weekly photo #" # Nat.toText(randomValue) # " from " # Nat.toText(availableCount) # " available photos");
+                return ?Buffer.toArray(availablePhotos)[randomValue];
+            };
+            
+            switch (photoSelectionPrng.byte()) {
+                case null {
+                    // PRNG exhausted, mark for reseed
+                    needReseed := true;
+                };
+                case (?byte) {
+                    randomValue := randomValue * 256 + Nat8.toNat(byte);
+                };
+            };
+        };
+        
+        // If we still couldn't get enough bytes, use fallback
+        if (randomValue == 0) {
+            // Fallback to time-based random
+            let now = Time.now();
+            let seed = Int.abs(now) + prngCounter;
+            randomValue := Int.abs(seed);
+        };
+        
+        let selectedIndex = randomValue % availableCount;
+        Debug.print("🎮 Selected weekly photo at index " # Nat.toText(selectedIndex) # " from " # Nat.toText(availableCount) # " available photos");
+        ?Buffer.toArray(availablePhotos)[selectedIndex]
+    };
+    
     // ======================================
     // GAME ENGINE FUNCTIONS
     // ======================================
     public shared(msg) func createSession() : async Result.Result<GameV2.SessionId, Text> {
         if (reputationManager.isBanned(msg.caller)) {
             return #err("User is banned");
+        };
+        
+        // Check play limits
+        switch (gameLimitsManager.consumePlay(msg.caller)) {
+            case (#err(e)) { return #err(e) };
+            case (#ok()) { /* Continue */ };
         };
         
         // Create the session
@@ -763,8 +885,25 @@ actor GameUnified {
                         getRandomPhotoExcluding(Buffer.toArray(usedPhotoIds))
                     };
                     case (?region) {
-                        // Get photos from region excluding already used ones
-                        getRegionPhotoExcluding(region, Buffer.toArray(usedPhotoIds))
+                        // Check if this is a weekly photo request
+                        if (Text.startsWith(region, #text "weekly:")) {
+                            // Extract actual region filter (if any) after "weekly:"
+                            let actualRegion = if (Text.size(region) > 7) {
+                                Text.trimStart(region, #text "weekly:")
+                            } else {
+                                ""
+                            };
+                            
+                            // Get weekly photo
+                            if (actualRegion == "") {
+                                getWeeklyPhotoExcluding(null, Buffer.toArray(usedPhotoIds))
+                            } else {
+                                getWeeklyPhotoExcluding(?actualRegion, Buffer.toArray(usedPhotoIds))
+                            }
+                        } else {
+                            // Get photos from region excluding already used ones
+                            getRegionPhotoExcluding(region, Buffer.toArray(usedPhotoIds))
+                        }
                     };
                 };
 
@@ -1266,6 +1405,89 @@ actor GameUnified {
                 
                 #ok()
             };
+        }
+    };
+    
+    /// 週間写真を取得（過去7日間の写真）
+    public query func getWeeklyPhotos(regionFilter: ?Text, limit: Nat) : async Photo.SearchResult {
+        // 過去7日間のタイムスタンプを計算
+        let oneWeekAgo = Time.now() - (7 * 24 * 60 * 60 * 1000000000); // 7日間をナノ秒で計算
+        
+        // まずregionFilterでフィルタリング
+        let filter : Photo.SearchFilter = {
+            country = null;
+            region = switch (regionFilter) {
+                case null { null };
+                case (?r) { ?r };
+            };
+            sceneKind = null;
+            tags = null;
+            nearLocation = null;
+            owner = null;
+            difficulty = null;
+            status = ?#Active;
+        };
+        
+        // 検索実行（より多くの写真を取得して日付でフィルタリング）
+        let searchResult = photoManagerV2.search(filter, null, 1000); // 多めに取得
+        
+        // 日付でフィルタリング
+        let weeklyPhotos = Array.filter<PhotoModuleV2.Photo>(
+            searchResult.photos,
+            func(photo) : Bool {
+                photo.uploadTime >= oneWeekAgo
+            }
+        );
+        
+        // 制限数に調整
+        let limitedPhotos = if (Array.size(weeklyPhotos) > limit) {
+            Array.subArray(weeklyPhotos, 0, limit)
+        } else {
+            weeklyPhotos
+        };
+        
+        // エンリッチ処理
+        let enrichedPhotos = Array.map<PhotoModuleV2.Photo, Photo.PhotoMetaV2>(
+            limitedPhotos,
+            func(photo) : Photo.PhotoMetaV2 {
+                {
+                    id = photo.id;
+                    owner = photo.owner;
+                    uploadTime = photo.uploadTime;
+                    
+                    latitude = photo.latitude;
+                    longitude = photo.longitude;
+                    azimuth = photo.azimuth;
+                    geoHash = photo.geoHash;
+                    
+                    title = photo.title;
+                    description = photo.description;
+                    difficulty = photo.difficulty;
+                    hint = photo.hint;
+                    
+                    country = photo.country;
+                    region = photo.region;
+                    sceneKind = photo.sceneKind;
+                    tags = photo.tags;
+                    
+                    chunkCount = photo.chunkCount;
+                    totalSize = photo.totalSize;
+                    uploadState = photo.uploadState;
+                    
+                    status = photo.status;
+                    timesUsed = photo.timesUsed;
+                    lastUsedTime = photo.lastUsedTime;
+                    
+                    aggregatedRatings = null;
+                }
+            }
+        );
+        
+        {
+            photos = enrichedPhotos;
+            totalCount = Array.size(weeklyPhotos);
+            cursor = ?0;
+            hasMore = false;
         }
     };
     
@@ -2301,6 +2523,79 @@ actor GameUnified {
     };
     
     // ======================================
+    // GAME LIMITS FUNCTIONS
+    // ======================================
+    public query func getRemainingPlays(player: ?Principal) : async {
+        remainingPlays: Nat;
+        playLimit: Nat;
+    } {
+        let targetPlayer = switch (player) {
+            case null { Principal.fromText("2vxsx-fae") }; // Anonymous principal
+            case (?p) { p };
+        };
+        
+        {
+            remainingPlays = gameLimitsManager.getRemainingPlays(targetPlayer);
+            playLimit = gameLimitsManager.getPlayLimit(targetPlayer);
+        }
+    };
+    
+    // Purchase Pro membership
+    public shared(msg) func purchaseProMembership() : async Result.Result<{
+        expiryTime: Time.Time;
+        transactionId: Nat;
+    }, Text> {
+        let cost = gameLimitsManager.getProMembershipCost();
+        
+        // Check balance
+        let account : ICRC1.Account = { owner = msg.caller; subaccount = null };
+        let balance = tokenManager.icrc1_balance_of(account);
+        if (balance < cost) {
+            return #err("Insufficient balance. Need " # Nat.toText(cost / 100) # " SPOT");
+        };
+        
+        // Process payment
+        switch (tokenManager.burn(msg.caller, cost)) {
+            case (#err(e)) { return #err("Failed to process payment: " # e) };
+            case (#ok(transactionId)) {
+                // Activate Pro membership
+                switch (gameLimitsManager.purchaseProMembership(msg.caller)) {
+                    case (#err(e)) { 
+                        // Refund on error
+                        ignore tokenManager.mint(msg.caller, cost);
+                        #err(e)
+                    };
+                    case (#ok(expiryTime)) {
+                        Debug.print("💎 Pro membership purchased by " # Principal.toText(msg.caller) # " for " # Nat.toText(cost) # " SPOT");
+                        #ok({
+                            expiryTime = expiryTime;
+                            transactionId = transactionId;
+                        })
+                    };
+                };
+            };
+        };
+    };
+    
+    // Get Pro membership status
+    public query func getProMembershipStatus(player: ?Principal) : async {
+        isPro: Bool;
+        expiryTime: ?Time.Time;
+        cost: Nat;
+    } {
+        let targetPlayer = switch (player) {
+            case null { Principal.fromText("2vxsx-fae") }; // Anonymous principal
+            case (?p) { p };
+        };
+        
+        {
+            isPro = gameLimitsManager.isProMember(targetPlayer);
+            expiryTime = gameLimitsManager.getProMembershipExpiry(targetPlayer);
+            cost = gameLimitsManager.getProMembershipCost();
+        }
+    };
+    
+    // ======================================
     // STATS AND METRICS
     // ======================================
     public query func getSystemStats() : async {
@@ -3256,6 +3551,11 @@ actor GameUnified {
         
         // Save player stats data
         playerStatsStable := ?playerStatsManager.getAllStats();
+        
+        // Save game limits data to V2 format
+        gameLimitsStableV2 := ?gameLimitsManager.toStable();
+        // Clear old format
+        gameLimitsStable := null;
     };
     
     system func postupgrade() {
@@ -3401,6 +3701,30 @@ actor GameUnified {
             case (?statsData) {
                 playerStatsManager.restoreStats(statsData);
                 playerStatsStable := null;
+            };
+        };
+        
+        // Restore game limits data - check V2 first, then fallback to V1
+        switch(gameLimitsStableV2) {
+            case null { 
+                // Try old format
+                switch(gameLimitsStable) {
+                    case null { };
+                    case (?oldData) {
+                        // Migrate from old format
+                        let migratedData = {
+                            dailyPlayCountsStable = oldData.dailyPlayCountsStable;
+                            proMembershipExpiryStable = null : ?[(Principal, Time.Time)];
+                            lastResetTime = oldData.lastResetTime;
+                        };
+                        gameLimitsManager.fromStable(migratedData);
+                        gameLimitsStable := null;
+                    };
+                };
+            };
+            case (?v2Data) {
+                gameLimitsManager.fromStable(v2Data);
+                gameLimitsStableV2 := null;
             };
         };
         

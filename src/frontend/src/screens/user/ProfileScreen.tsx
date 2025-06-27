@@ -100,6 +100,10 @@ export default function ProfileScreen() {
   // Token balance state
   const [tokenBalance, setTokenBalance] = useState<bigint>(BigInt(0));
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
+  
+  // Pro membership state
+  const [isProMember, setIsProMember] = useState(false);
+  const [proExpiryDate, setProExpiryDate] = useState<Date | null>(null);
 
   // Withdraw modal state
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
@@ -349,12 +353,31 @@ export default function ProfileScreen() {
     setWithdrawAmount(maxAmountSpot.toFixed(2));
   };
 
+  // Check Pro membership status
+  const checkProMembership = useCallback(async () => {
+    if (!isServiceInitialized) return;
+    
+    try {
+      const expiryDate = await gameService.getProMembershipExpiry();
+      if (expiryDate && expiryDate > new Date()) {
+        setIsProMember(true);
+        setProExpiryDate(expiryDate);
+      } else {
+        setIsProMember(false);
+        setProExpiryDate(null);
+      }
+    } catch (error) {
+      console.error('Failed to check Pro membership:', error);
+    }
+  }, [isServiceInitialized]);
+
   // Load stats when service is ready
   React.useEffect(() => {
     if (isServiceInitialized && currentTab === 'stats') {
       loadPlayerStats();
+      checkProMembership();
     }
-  }, [isServiceInitialized, currentTab, loadPlayerStats]);
+  }, [isServiceInitialized, currentTab, loadPlayerStats, checkProMembership]);
 
   // Load user photos
   const loadUserPhotos = async (showRefreshing = false) => {
@@ -549,6 +572,20 @@ export default function ProfileScreen() {
                   <Text style={styles.withdrawButtonText}>Withdraw</Text>
                 </TouchableOpacity>
               </View>
+              <TouchableOpacity
+                style={styles.proButton}
+                onPress={() => navigation.navigate('ProMembership')}
+              >
+                <LinearGradient
+                  colors={['#f59e0b', '#d97706']}
+                  style={styles.proButtonGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                >
+                  <Ionicons name="star" size={16} color="#ffffff" />
+                  <Text style={styles.proButtonText}>Go Pro</Text>
+                </LinearGradient>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
@@ -608,6 +645,24 @@ export default function ProfileScreen() {
 
               {/* Action Buttons */}
               <View style={styles.actions}>
+                {isProMember && (
+                  <TouchableOpacity 
+                    style={[styles.actionButton, styles.proActionButton]}
+                    onPress={() => navigation.navigate('DetailedStats')}
+                  >
+                    <LinearGradient
+                      colors={['#FFD700', '#FFA500']}
+                      style={styles.proGradient}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                    >
+                      <Ionicons name="stats-chart" size={24} color="#fff" />
+                      <Text style={styles.proActionButtonText}>Detailed Stats</Text>
+                      <Ionicons name="chevron-forward" size={20} color="#fff" />
+                    </LinearGradient>
+                  </TouchableOpacity>
+                )}
+                
                 <TouchableOpacity style={styles.actionButton}>
                   <Ionicons name="settings" size={24} color="#94a3b8" />
                   <Text style={styles.actionButtonText}>Settings</Text>
@@ -1280,6 +1335,24 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: 'bold',
   },
+  proButton: {
+    marginTop: 12,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  proButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  proButtonText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
   tabContainer: {
     paddingHorizontal: 24,
     marginBottom: 24,
@@ -1745,5 +1818,22 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     marginTop: 8,
     fontSize: 14,
+  },
+  proActionButton: {
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  proGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 16,
+  },
+  proActionButtonText: {
+    color: '#ffffff',
+    marginLeft: 12,
+    fontWeight: 'bold',
+    flex: 1,
+    fontSize: 16,
   },
 });

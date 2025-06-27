@@ -12,14 +12,16 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../navigation/AppNavigator';
 import { photoServiceV2 } from '../../services/photoV2';
 import { useAuth } from '../../hooks/useAuth';
 import { matchesLocationSearch, getLocationLevel, extractCountryName } from '../../utils/regionMapping';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'RegionSelect'>;
+type RouteProps = RouteProp<RootStackParamList, 'RegionSelect'>;
 
 interface RegionInfo {
   code: string;
@@ -32,11 +34,14 @@ interface RegionInfo {
 
 export default function RegionSelectScreen() {
   const navigation = useNavigation<NavigationProp>();
+  const route = useRoute<RouteProps>();
   const { identity } = useAuth();
   const [regions, setRegions] = useState<RegionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<'all' | 'country' | 'region'>('all');
+  
+  const gameMode = route.params?.gameMode || 'classic';
 
   useEffect(() => {
     loadRegions();
@@ -110,6 +115,7 @@ export default function RegionSelectScreen() {
     // Navigate to GamePlayScreen with region filter
     navigation.navigate('GamePlay', {
       mode: 'classic',
+      gameMode: gameMode,
       regionFilter: region.code,
       regionName: region.name,
     });
@@ -119,6 +125,7 @@ export default function RegionSelectScreen() {
     // Navigate without region filter (all regions)
     navigation.navigate('GamePlay', {
       mode: 'classic',
+      gameMode: gameMode,
     });
   };
 

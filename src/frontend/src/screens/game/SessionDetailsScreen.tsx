@@ -13,7 +13,7 @@ import {
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { RootStackParamList } from '../../navigation/AppNavigator';
 import { gameService } from '../../services/game';
@@ -73,6 +73,7 @@ export default function SessionDetailsScreen() {
   const [hasFetched, setHasFetched] = useState(false);
   const [loadingPhotos, setLoadingPhotos] = useState<{ [key: number]: boolean }>({});
   const [isMapLoading, setIsMapLoading] = useState(true);
+  const [playerProStatus, setPlayerProStatus] = useState<{ isPro: boolean } | null>(null);
   const mapRef = useRef<MapView>(null);
   const isMountedRef = useRef(true);
 
@@ -206,6 +207,18 @@ export default function SessionDetailsScreen() {
         console.log('🎯 Session data:', sessionResult.ok);
         if (isMountedRef.current) {
           setSession(sessionResult.ok);
+          
+          // Fetch Pro status for the session owner
+          if (sessionResult.ok.userId) {
+            try {
+              const proStatus = await gameService.getProMembershipStatus(sessionResult.ok.userId);
+              if (isMountedRef.current) {
+                setPlayerProStatus(proStatus || { isPro: false });
+              }
+            } catch (error) {
+              console.error('Failed to fetch Pro status:', error);
+            }
+          }
         }
 
         // Process rounds WITHOUT photo data first
@@ -474,6 +487,19 @@ export default function SessionDetailsScreen() {
           {/* Session Summary */}
           <View style={styles.summaryCard}>
             <Text style={styles.summaryTitle}>Session Summary</Text>
+            {session.userId && (
+              <View style={styles.playerInfo}>
+                <Text style={styles.playerLabel}>Player:</Text>
+                <View style={styles.playerNameContainer}>
+                  <Text style={styles.playerName}>
+                    {session.userId.toString().slice(0, 10)}...
+                  </Text>
+                  {playerProStatus?.isPro && (
+                    <MaterialCommunityIcons name="crown" size={16} color="#f59e0b" style={styles.proCrownIcon} />
+                  )}
+                </View>
+              </View>
+            )}
             <View style={styles.summaryStats}>
               <View style={styles.statItem}>
                 <Text style={styles.statLabel}>Total Score</Text>
@@ -1186,5 +1212,27 @@ const styles = StyleSheet.create({
   tagText: {
     color: '#a5b4fc',
     fontSize: 12,
+  },
+  playerInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  playerLabel: {
+    color: '#94a3b8',
+    fontSize: 14,
+    marginRight: 8,
+  },
+  playerNameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  playerName: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  proCrownIcon: {
+    marginLeft: 6,
   },
 });

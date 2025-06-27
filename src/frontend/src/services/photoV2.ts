@@ -438,6 +438,35 @@ class PhotoServiceV2 {
   }
 
   /**
+   * 週間写真を取得（過去7日間）
+   */
+  async getWeeklyPhotos(regionFilter?: string, limit: number = 100, identity?: Identity): Promise<SearchResult> {
+    if (!this.actor && identity) {
+      await this.init(identity);
+    }
+
+    try {
+      console.log('📅 Getting weekly photos with region filter:', regionFilter);
+      
+      const result = await this.actor.getWeeklyPhotos(
+        regionFilter ? [regionFilter] : [],
+        BigInt(limit)
+      );
+      
+      console.log(`📅 Found ${result.photos.length} photos from this week`);
+      return result;
+    } catch (error) {
+      console.error('❌ Get weekly photos error:', error);
+      return {
+        photos: [],
+        totalCount: BigInt(0),
+        cursor: null,
+        hasMore: false,
+      };
+    }
+  }
+
+  /**
    * 写真メタデータを取得（キャッシュ付き）
    */
   async getPhotoMetadata(photoId: bigint, identity?: Identity): Promise<PhotoMetaV2 | null> {

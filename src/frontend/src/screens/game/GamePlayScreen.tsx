@@ -86,7 +86,7 @@ interface GamePlayScreenProps {
 
 export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { gameMode = 'normal', difficulty = Difficulty.NORMAL, regionFilter, regionName } = route.params || {};
+  const { gameMode = 'classic', difficulty = Difficulty.NORMAL, regionFilter, regionName } = route.params || {};
   
   // Game store
   const { 
@@ -119,6 +119,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     updateSessionStatus,
     clearSessionData,
     resetGame,
+    clearCurrentGuess,
   } = useGameStore();
   
   // Auth store
@@ -159,6 +160,8 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
       setNeedsNewPhoto(true);
       // Clear current photo to show loading state instead of old photo
       setCurrentPhoto(null);
+      // Clear the previous round's guess location
+      clearCurrentGuess();
       
       // DON'T update previousRoundRef here - wait until new photo is loaded
       // previousRoundRef.current = roundNumber;
@@ -260,7 +263,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
           
           // Parallelize round data and token balance fetching with error handling
           const promises = await Promise.allSettled([
-            gameService.getNextRound(currentSessionId, regionFilter),
+            gameService.getNextRound(currentSessionId, regionFilter, gameMode),
             gameService.getTokenBalance(principal)
           ]);
           

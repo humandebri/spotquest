@@ -28,6 +28,10 @@ import PhotoDetailsScreen from '../screens/photo/PhotoDetailsScreen';
 // User
 import LeaderboardScreen from '../screens/user/LeaderboardScreen';
 import ProfileScreen from '../screens/user/ProfileScreen';
+import DetailedStatsScreen from '../screens/user/DetailedStatsScreen';
+
+// Pro
+import ProMembershipScreen from '../screens/pro/ProMembershipScreen';
 
 // Admin
 import AdminScreen from '../screens/admin/AdminScreen';
@@ -35,7 +39,9 @@ import AdminScreen from '../screens/admin/AdminScreen';
 export type RootStackParamList = {
   Home: undefined;
   Game: undefined;
-  RegionSelect: undefined;
+  RegionSelect: {
+    gameMode?: string;
+  };
   PhotoLibrary: undefined;
   GamePlay: {
     gameMode?: string;
@@ -92,8 +98,10 @@ export type RootStackParamList = {
   };
   Leaderboard: undefined;
   Profile: undefined;
+  ProMembership: undefined;
   Login: undefined;
   Admin: undefined;
+  DetailedStats: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -137,7 +145,7 @@ export default function AppNavigator() {
           <Stack.Screen
             name="Game"
             component={GameModeScreen}
-            options={{ title: 'Select Game Mode' }}
+            options={{ headerShown: false }}
           />
           <Stack.Screen
             name="RegionSelect"
@@ -212,6 +220,16 @@ export default function AppNavigator() {
             name="Profile"
             component={ProfileScreen}
             options={{ title: 'My Profile' }}
+          />
+          <Stack.Screen
+            name="DetailedStats"
+            component={DetailedStatsScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="ProMembership"
+            component={ProMembershipScreen}
+            options={{ title: 'Pro Membership' }}
           />
           <Stack.Screen
             name="Admin"

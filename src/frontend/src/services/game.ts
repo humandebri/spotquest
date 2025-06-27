@@ -407,6 +407,26 @@ class GameService {
           eloRating: IDL.Int,
         })], ['query']),
         
+        // Game limits functions
+        getRemainingPlays: IDL.Func([IDL.Opt(IDL.Principal)], [IDL.Record({
+          remainingPlays: IDL.Nat,
+          playLimit: IDL.Nat,
+        })], ['query']),
+        
+        // Pro membership functions
+        purchaseProMembership: IDL.Func([], [IDL.Variant({
+          ok: IDL.Record({
+            expiryTime: IDL.Int,
+            transactionId: IDL.Nat,
+          }),
+          err: IDL.Text,
+        })], []),
+        getProMembershipStatus: IDL.Func([IDL.Opt(IDL.Principal)], [IDL.Record({
+          isPro: IDL.Bool,
+          expiryTime: IDL.Opt(IDL.Int),
+          cost: IDL.Nat,
+        })], ['query']),
+        
         // Ranking functions
         getPlayerRank: IDL.Func([IDL.Principal], [IDL.Opt(IDL.Nat)], ['query']),
         getLeaderboard: IDL.Func([IDL.Nat], [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Nat))], ['query']),
@@ -673,15 +693,22 @@ class GameService {
     }
   }
 
-  async getNextRound(sessionId: string, regionFilter?: string): Promise<any> {
+  async getNextRound(sessionId: string, regionFilter?: string, gameMode: string = 'classic'): Promise<any> {
     if (!this.initialized || !this.actor) {
       return { err: 'Service not initialized. Please login first.' };
     }
     
     try {
-      const result = await this.actor.getNextRound(sessionId, regionFilter ? [regionFilter] : []);
-      console.log('🎮 getNextRound called with regionFilter:', regionFilter);
-      return result;
+      console.log('🎮 getNextRound called with regionFilter:', regionFilter, 'gameMode:', gameMode);
+      
+      // For 'thisweek' mode, use a special filter that tells the backend to use weekly photos
+      if (gameMode === 'thisweek') {
+        const result = await this.actor.getNextRound(sessionId, regionFilter ? [`weekly:${regionFilter}`] : ['weekly:']);
+        return result;
+      } else {
+        const result = await this.actor.getNextRound(sessionId, regionFilter ? [regionFilter] : []);
+        return result;
+      }
     } catch (error: any) {
       console.error('Failed to get next round:', error);
       return { err: error.message || 'Failed to get next round' };
@@ -1230,6 +1257,60 @@ class GameService {
     }
   }
 
+  async getRemainingPlays(principal?: any): Promise<{ remainingPlays: number; playLimit: number } | null> {
+    if (!this.initialized || !this.actor) {
+      return null;
+    }
+    
+    try {
+      const result = await this.actor.getRemainingPlays(principal ? [principal] : []);
+      console.log('🎮 getRemainingPlays result:', result);
+      
+      return {
+        remainingPlays: Number(result.remainingPlays),
+        playLimit: Number(result.playLimit),
+      };
+    } catch (error) {
+      console.error('Failed to get remaining plays:', error);
+      return null;
+    }
+  }
+
+  async purchaseProMembership(): Promise<{ ok?: { expiryTime: bigint; transactionId: bigint }; err?: string }> {
+    if (!this.initialized || !this.actor) {
+      return { err: 'Service not initialized. Please login first.' };
+    }
+    
+    try {
+      const result = await this.actor.purchaseProMembership();
+      console.log('💎 purchaseProMembership result:', result);
+      return result;
+    } catch (error: any) {
+      console.error('Failed to purchase Pro membership:', error);
+      return { err: error.message || 'Failed to purchase Pro membership' };
+    }
+  }
+
+  async getProMembershipStatus(principal?: any): Promise<{ isPro: boolean; expiryTime?: bigint; cost: bigint } | null> {
+    if (!this.initialized || !this.actor) {
+      return null;
+    }
+    
+    try {
+      const result = await this.actor.getProMembershipStatus(principal ? [principal] : []);
+      console.log('🎯 getProMembershipStatus result:', result);
+      
+      return {
+        isPro: result.isPro,
+        expiryTime: result.expiryTime.length > 0 ? result.expiryTime[0] : undefined,
+        cost: result.cost,
+      };
+    } catch (error) {
+      console.error('Failed to get Pro membership status:', error);
+      return null;
+    }
+  }
+
   async getUserRatingStats(): Promise<{
     totalRatings: number;
     averageDifficulty: number;
@@ -1329,6 +1410,31 @@ class GameService {
       return null;
     } catch (error) {
       console.error('Failed to get photo stats:', error);
+      return null;
+    }
+  }
+
+  async getProMembershipExpiry(): Promise<Date | null> {
+    if (!this.initialized || !this.actor) {
+      throw new Error('Service not initialized');
+    }
+    
+    try {
+      console.log('🏆 Checking Pro membership status');
+      const expiry = await this.actor.getProMembershipExpiry();
+      
+      if (expiry && expiry.length > 0) {
+        // Convert nanoseconds to milliseconds for JavaScript Date
+        const expiryTime = Number(expiry[0]) / 1_000_000;
+        const expiryDate = new Date(expiryTime);
+        console.log('🏆 Pro membership expires:', expiryDate);
+        return expiryDate;
+      }
+      
+      console.log('🏆 No active Pro membership');
+      return null;
+    } catch (error) {
+      console.error('Failed to get Pro membership status:', error);
       return null;
     }
   }

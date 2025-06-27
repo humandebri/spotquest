@@ -69,6 +69,7 @@ module {
             
             // Clean up any expired or completed sessions for this user
             let activeSessionIds = Buffer.Buffer<Text>(userSessionBuffer.size());
+            let cleanedSessionIds = Buffer.Buffer<Text>(userSessionBuffer.size());
             let now = Time.now();
             
             for (sessionId in userSessionBuffer.vals()) {
@@ -77,6 +78,9 @@ module {
                         // Session doesn't exist, remove from user sessions
                     }; 
                     case (?session) {
+                        // Add to cleaned list (includes both active and completed)
+                        cleanedSessionIds.add(sessionId);
+                        
                         // Check if session should be considered active
                         let isActive = session.endTime == null and 
                                       session.currentRound < Constants.ROUNDS_PER_SESSION;
@@ -102,7 +106,8 @@ module {
                     };
                 };
             };
-            userSessions.put(userId, activeSessionIds);
+            // Update with cleaned sessions (preserves both active and completed)
+            userSessions.put(userId, cleanedSessionIds);
             
             // If still at limit, force finalize oldest sessions
             if (activeSessionIds.size() >= Constants.MAX_CONCURRENT_SESSIONS) {
@@ -119,8 +124,8 @@ module {
                         };
                     };
                 };
-                // Clear user sessions after force finalization
-                userSessions.put(userId, Buffer.Buffer<Text>(0));
+                // Keep completed sessions but clear active ones
+                // No need to clear - cleanedSessionIds already has the correct state
             };
             
             // Generate session ID
@@ -144,7 +149,7 @@ module {
             
             // Store session
             sessions.put(sessionId, session);
-            activeSessionIds.add(sessionId);
+            cleanedSessionIds.add(sessionId);
             sessionTimeouts.put(sessionId, now + Constants.SESSION_TIMEOUT);
             
             totalSessions += 1;

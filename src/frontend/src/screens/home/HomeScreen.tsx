@@ -49,6 +49,9 @@ export default function HomeScreen() {
   const [isLoadingStats, setIsLoadingStats] = React.useState(false);
   const [recentSessions, setRecentSessions] = React.useState<SessionSummary[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = React.useState(false);
+  const [remainingPlays, setRemainingPlays] = React.useState<{ remainingPlays: number; playLimit: number } | null>(null);
+  const [isLoadingPlays, setIsLoadingPlays] = React.useState(false);
+  const [proStatus, setProStatus] = React.useState<{ isPro: boolean; expiryTime?: bigint; cost: bigint } | null>(null);
   
   // Convert bigint balance to display string
   const displayBalance = React.useMemo(() => {
@@ -117,6 +120,33 @@ export default function HomeScreen() {
     }
   }, [principal]);
 
+  const fetchRemainingPlays = React.useCallback(async () => {
+    if (!principal) return;
+    
+    setIsLoadingPlays(true);
+    try {
+      const result = await gameService.getRemainingPlays(CustomPrincipal.fromText(principal.toString()));
+      console.log('🏠 Remaining plays:', result);
+      setRemainingPlays(result);
+    } catch (error) {
+      console.error('Failed to fetch remaining plays:', error);
+    } finally {
+      setIsLoadingPlays(false);
+    }
+  }, [principal]);
+
+  const fetchProStatus = React.useCallback(async () => {
+    if (!principal) return;
+    
+    try {
+      const status = await gameService.getProMembershipStatus(CustomPrincipal.fromText(principal.toString()));
+      console.log('🏠 Pro status:', status);
+      setProStatus(status);
+    } catch (error) {
+      console.error('Failed to fetch Pro status:', error);
+    }
+  }, [principal]);
+
   // Initialize game service with identity
   React.useEffect(() => {
     const initService = async () => {
@@ -137,10 +167,12 @@ export default function HomeScreen() {
       fetchTokenBalance();
       fetchPlayerStats();
       fetchRecentSessions();
+      fetchRemainingPlays();
+      fetchProStatus();
       
       // Dev mode: disabled auto-minting per user request
     }
-  }, [fetchTokenBalance, fetchPlayerStats, fetchRecentSessions, isServiceInitialized, identity, principal]);
+  }, [fetchTokenBalance, fetchPlayerStats, fetchRecentSessions, fetchRemainingPlays, fetchProStatus, isServiceInitialized, identity, principal]);
 
   // Fetch data when screen comes into focus
   useFocusEffect(
@@ -149,20 +181,22 @@ export default function HomeScreen() {
         fetchTokenBalance();
         fetchPlayerStats();
         fetchRecentSessions();
+        fetchRemainingPlays();
       }
-    }, [isServiceInitialized, principal, fetchTokenBalance, fetchPlayerStats, fetchRecentSessions])
+    }, [isServiceInitialized, principal, fetchTokenBalance, fetchPlayerStats, fetchRecentSessions, fetchRemainingPlays])
   );
 
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
     await Promise.all([
       fetchTokenBalance(),
-      fetchPlayerStats()
+      fetchPlayerStats(),
+      fetchRemainingPlays()
     ]);
     setTimeout(() => {
       setRefreshing(false);
     }, 2000);
-  }, [fetchTokenBalance, fetchPlayerStats]);
+  }, [fetchTokenBalance, fetchPlayerStats, fetchRemainingPlays]);
 
   const copyPrincipalToClipboard = async () => {
     if (principal) {
@@ -246,9 +280,14 @@ export default function HomeScreen() {
                 onPress={copyPrincipalToClipboard}
                 activeOpacity={0.7}
               >
-                <Text style={styles.principalText}>
-                  {principal ? principal.toString().slice(0, 12) : 'Explorer'}
-                </Text>
+                <View style={styles.principalTextContainer}>
+                  <Text style={styles.principalText}>
+                    {principal ? principal.toString().slice(0, 12) : 'Explorer'}
+                  </Text>
+                  {proStatus?.isPro && (
+                    <MaterialCommunityIcons name="crown" size={16} color="#f59e0b" style={styles.proCrownIcon} />
+                  )}
+                </View>
                 {principal && (
                   <Ionicons name="copy-outline" size={16} color="#64748b" style={styles.copyIcon} />
                 )}
@@ -272,9 +311,9 @@ export default function HomeScreen() {
                     {isLoadingBalance ? '...' : `${displayBalance} SPOT`}
                   </Text>
                 </View>
-                <View style={styles.statsBadge}>
-                  <Text style={styles.statsBadgeText}>
-                    {isLoadingStats ? "..." : (playerStats && playerStats.eloRating !== undefined ? `ELO: ${Number(playerStats.eloRating)}` : "ELO: 1500")}
+                <View style={[styles.statsBadge, remainingPlays?.playLimit === 5 && styles.proBadge]}>
+                  <Text style={[styles.statsBadgeText, remainingPlays?.playLimit === 5 && styles.proBadgeText]}>
+                    {isLoadingPlays ? "..." : (remainingPlays ? `${remainingPlays.remainingPlays}/${remainingPlays.playLimit} plays${remainingPlays.playLimit === 5 ? ' (Pro)' : ''}` : '3/3 plays')}
                   </Text>
                 </View>
               </View>
@@ -325,17 +364,23 @@ export default function HomeScreen() {
             {menuItems.map((item) => (
               <TouchableOpacity
                 key={item.screen}
-                style={styles.menuCard}
-                onPress={() => navigation.navigate(item.screen)}
+                style={[styles.menuCard, (item.screen === 'Game' && remainingPlays?.remainingPlays === 0) && styles.disabledCard]}
+                onPress={() => {
+                  if (item.screen === 'Game' && remainingPlays?.remainingPlays === 0) {
+                    return; // Don't navigate if no plays remaining
+                  }
+                  navigation.navigate(item.screen);
+                }}
                 activeOpacity={0.8}
+                disabled={item.screen === 'Game' && remainingPlays?.remainingPlays === 0}
               >
                 <LinearGradient
-                  colors={item.gradient as any}
+                  colors={(item.screen === 'Game' && remainingPlays?.remainingPlays === 0) ? ['#4b5563', '#374151'] : item.gradient as any}
                   style={styles.menuGradient}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                 >
-                  <View style={styles.menuIconContainer}>
+                  <View style={[styles.menuIconContainer, (item.screen === 'Game' && remainingPlays?.remainingPlays === 0) && styles.disabledIcon]}>
                     {item.icon === 'trophy' ? (
                       <FontAwesome5 name={item.icon} size={28} color="#ffffff" />
                     ) : item.icon === 'person' ? (
@@ -345,10 +390,14 @@ export default function HomeScreen() {
                     )}
                   </View>
                   <View style={styles.menuTextContainer}>
-                    <Text style={styles.menuTitle}>{item.title}</Text>
-                    <Text style={styles.menuDescription}>{item.description}</Text>
+                    <Text style={[styles.menuTitle, (item.screen === 'Game' && remainingPlays?.remainingPlays === 0) && styles.disabledText]}>
+                      {item.title}
+                    </Text>
+                    <Text style={[styles.menuDescription, (item.screen === 'Game' && remainingPlays?.remainingPlays === 0) && styles.disabledText]}>
+                      {(item.screen === 'Game' && remainingPlays?.remainingPlays === 0) ? 'No plays remaining today' : item.description}
+                    </Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={24} color="rgba(255,255,255,0.8)" />
+                  <Ionicons name="chevron-forward" size={24} color={(item.screen === 'Game' && remainingPlays?.remainingPlays === 0) ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.8)"} />
                 </LinearGradient>
               </TouchableOpacity>
             ))}
@@ -752,5 +801,27 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginLeft: 8,
     flex: 1,
+  },
+  disabledCard: {
+    opacity: 0.6,
+  },
+  disabledIcon: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  disabledText: {
+    color: 'rgba(255, 255, 255, 0.5)',
+  },
+  proBadge: {
+    backgroundColor: 'rgba(245, 158, 11, 0.2)',
+  },
+  proBadgeText: {
+    color: '#f59e0b',
+  },
+  principalTextContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  proCrownIcon: {
+    marginLeft: 6,
   },
 });

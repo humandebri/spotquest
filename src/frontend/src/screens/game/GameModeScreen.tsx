@@ -28,6 +28,7 @@ export default function GameModeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'Game'>>();
   const [selectedDifficulty, setSelectedDifficulty] = useState('NORMAL');
   const [photoCount, setPhotoCount] = useState<number | null>(null);
+  const [weeklyPhotoCount, setWeeklyPhotoCount] = useState<number | null>(null);
   const [isCheckingPhotos, setIsCheckingPhotos] = useState(false);
   const { identity } = useAuth();
   const { resetGame, sessionId, sessionStatus } = useGameStore();
@@ -58,9 +59,17 @@ export default function GameModeScreen() {
         
         // searchPhotos returns SearchResult directly (not wrapped in Result)
         setPhotoCount(result.photos.length);
+        
+        // Calculate weekly photos (photos uploaded in the last 7 days)
+        const oneWeekAgo = Date.now() * 1000000 - (7 * 24 * 60 * 60 * 1000000000); // nanoseconds
+        const weeklyPhotos = result.photos.filter(photo => 
+          Number(photo.createdAt) >= oneWeekAgo
+        );
+        setWeeklyPhotoCount(weeklyPhotos.length);
       } catch (error) {
         console.error('Error checking photo count:', error);
         setPhotoCount(0);
+        setWeeklyPhotoCount(0);
       } finally {
         setIsCheckingPhotos(false);
       }
@@ -69,9 +78,9 @@ export default function GameModeScreen() {
     checkPhotoCount();
   }, [identity]);
 
-  const startGamePlay = (difficulty: string) => {
+  const startGamePlay = (difficulty: string, mode: string = 'classic') => {
     // Check if we have enough photos
-    if (photoCount !== null && photoCount < 5) {
+    if (mode === 'classic' && photoCount !== null && photoCount < 5) {
       Alert.alert(
         'Insufficient Photos',
         `We need at least 5 photos to start a game, but only ${photoCount} photos are available. Please try again later when more photos have been uploaded.`,
@@ -79,9 +88,18 @@ export default function GameModeScreen() {
       );
       return;
     }
+    
+    if (mode === 'thisweek' && weeklyPhotoCount !== null && weeklyPhotoCount < 5) {
+      Alert.alert(
+        'Insufficient Weekly Photos',
+        `We need at least 5 photos from this week to start, but only ${weeklyPhotoCount} are available. Please try again later when more photos have been uploaded.`,
+        [{ text: 'OK' }]
+      );
+      return;
+    }
 
-    // Navigate to region selection for classic mode
-    navigation.navigate('RegionSelect');
+    // Navigate to region selection for both classic and thisweek modes
+    navigation.navigate('RegionSelect', { gameMode: mode });
   };
 
   const gameModes = [
@@ -92,6 +110,16 @@ export default function GameModeScreen() {
       gradient: ['#3b82f6', '#2563eb'] as const,
       available: photoCount === null || photoCount >= 5,
       difficulty: 'NORMAL',
+      mode: 'classic',
+    },
+    {
+      title: "This Week's Photos",
+      description: 'Play with photos from the last 7 days',
+      icon: 'calendar' as const,
+      gradient: ['#10b981', '#059669'] as const,
+      available: weeklyPhotoCount === null || weeklyPhotoCount >= 5,
+      difficulty: 'NORMAL',
+      mode: 'thisweek',
     },
     {
       title: 'Speed Mode',
@@ -100,6 +128,7 @@ export default function GameModeScreen() {
       gradient: ['#f59e0b', '#d97706'] as const,
       available: false,
       difficulty: 'HARD',
+      mode: 'speed',
     },
     {
       title: 'Multiplayer',
@@ -108,6 +137,7 @@ export default function GameModeScreen() {
       gradient: ['#8b5cf6', '#7c3aed'] as const,
       available: false,
       difficulty: 'EXTREME',
+      mode: 'multiplayer',
     },
   ];
 
@@ -151,11 +181,22 @@ export default function GameModeScreen() {
       colors={['#0f172a', '#1e293b']}
       style={styles.container}
     >
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <SafeAreaView style={styles.safeArea} edges={[]}>
+        {/* Back Button */}
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="arrow-back" size={24} color="#ffffff" />
+          <Text style={styles.backButtonText}>Back</Text>
+        </TouchableOpacity>
+        
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
+
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.title}>Choose Your Challenge</Text>
@@ -201,7 +242,7 @@ export default function GameModeScreen() {
               <TouchableOpacity
                 key={mode.title}
                 style={[styles.modeCard, !mode.available && styles.modeCardDisabled]}
-                onPress={() => mode.available && startGamePlay(selectedDifficulty)}
+                onPress={() => mode.available && startGamePlay(selectedDifficulty, mode.mode)}
                 disabled={!mode.available}
                 activeOpacity={mode.available ? 0.8 : 1}
               >
@@ -214,6 +255,8 @@ export default function GameModeScreen() {
                   <View style={styles.modeIconContainer}>
                     {mode.icon === 'earth' ? (
                       <MaterialCommunityIcons name="earth" size={32} color="#ffffff" />
+                    ) : mode.icon === 'calendar' ? (
+                      <Ionicons name="calendar" size={32} color="#ffffff" />
                     ) : mode.icon === 'speed' ? (
                       <MaterialIcons name="speed" size={32} color="#ffffff" />
                     ) : (
@@ -330,9 +373,22 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 20,
   },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingTop: 44, // iPhone's status bar height
+    paddingBottom: 16,
+    gap: 8,
+  },
+  backButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
   header: {
     paddingHorizontal: 24,
-    paddingTop: 24,
+    paddingTop: 16,
     paddingBottom: 16,
   },
   photoStatusContainer: {

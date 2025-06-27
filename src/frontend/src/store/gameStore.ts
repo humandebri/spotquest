@@ -71,6 +71,7 @@ interface GameStore {
   // Actions - Game state
   setCurrentPhoto: (photo: GamePhoto | null) => void;
   setGuess: (guess: { latitude: number; longitude: number }, radius: number) => void;
+  clearCurrentGuess: () => void;
   setTimeLeft: (time: number) => void;
   setTokenBalance: (balance: bigint) => void;
   addPurchasedHint: (hint: HintInfo) => void;
@@ -121,6 +122,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setGuess: (guess, radius) => set({ 
     currentGuess: guess, 
     confidenceRadius: radius 
+  }),
+  
+  clearCurrentGuess: () => set({ 
+    currentGuess: null,
+    confidenceRadius: 1000
   }),
   
   setTimeLeft: (time) => set({ timeLeft: time }),

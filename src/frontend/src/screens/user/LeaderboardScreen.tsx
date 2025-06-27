@@ -26,6 +26,7 @@ interface LeaderboardEntry {
   photosUploaded?: number;
   totalRewards?: number;
   change?: number;
+  isPro?: boolean;
 }
 
 interface PhotoLeaderboardEntry {
@@ -42,6 +43,7 @@ interface UploaderLeaderboardEntry {
   username?: string;
   totalPhotos: number;
   totalTimesUsed: number;
+  isPro?: boolean;
 }
 
 type LeaderboardType = 'global' | 'uploaders' | 'weekly' | 'monthly';
@@ -137,6 +139,16 @@ export default function LeaderboardScreen({ navigation }: any) {
               console.log(`🏆 Player ${index + 1} - Principal: ${player.principal.toString().slice(0, 10)}... Rewards: ${player.totalRewards}`);
             });
           }
+          // Fetch Pro status for all players in parallel
+          const proStatusPromises = playerLeaderboard.map(entry => 
+            gameService.getProMembershipStatus(entry.principal as any)
+              .then(status => ({ principal: entry.principal.toString(), isPro: status?.isPro || false }))
+              .catch(() => ({ principal: entry.principal.toString(), isPro: false }))
+          );
+          
+          const proStatuses = await Promise.all(proStatusPromises);
+          const proStatusMap = new Map(proStatuses.map(s => [s.principal, s.isPro]));
+          
           leaderboardData = playerLeaderboard.map((entry, index) => ({
             rank: index + 1,
             principal: entry.principal.toString(),
@@ -145,6 +157,7 @@ export default function LeaderboardScreen({ navigation }: any) {
             gamesPlayed: Number(entry.gamesPlayed),
             photosUploaded: Number(entry.photosUploaded),
             totalRewards: Number(entry.totalRewards),
+            isPro: proStatusMap.get(entry.principal.toString()) || false,
           }));
           
           break;
@@ -153,6 +166,17 @@ export default function LeaderboardScreen({ navigation }: any) {
           // Get top uploaders
           const uploaders = await gameService.getTopUploaders(50);
           console.log('🏆 Uploaders leaderboard loaded:', uploaders.length, 'uploaders');
+          
+          // Fetch Pro status for all uploaders
+          const uploaderProStatusPromises = uploaders.map(entry => 
+            gameService.getProMembershipStatus(entry.principal as any)
+              .then(status => ({ principal: entry.principal.toString(), isPro: status?.isPro || false }))
+              .catch(() => ({ principal: entry.principal.toString(), isPro: false }))
+          );
+          
+          const uploaderProStatuses = await Promise.all(uploaderProStatusPromises);
+          const uploaderProStatusMap = new Map(uploaderProStatuses.map(s => [s.principal, s.isPro]));
+          
           leaderboardData = uploaders.map((entry, index) => ({
             rank: index + 1,
             principal: entry.principal.toString(),
@@ -160,6 +184,7 @@ export default function LeaderboardScreen({ navigation }: any) {
             score: Number(entry.totalTimesUsed), // Use total times used as score
             totalPhotos: Number(entry.totalPhotos),
             totalTimesUsed: Number(entry.totalTimesUsed),
+            isPro: uploaderProStatusMap.get(entry.principal.toString()) || false,
           }));
           break;
           
@@ -172,7 +197,10 @@ export default function LeaderboardScreen({ navigation }: any) {
           const weeklyDataWithStats = await Promise.all(
             weeklyLeaderboard.map(async (entry, index) => {
               try {
-                const stats = await gameService.getPlayerStats(entry.principal as any);
+                const [stats, proStatus] = await Promise.all([
+                  gameService.getPlayerStats(entry.principal as any),
+                  gameService.getProMembershipStatus(entry.principal as any)
+                ]);
                 return {
                   rank: index + 1,
                   principal: entry.principal.toString(),
@@ -181,6 +209,7 @@ export default function LeaderboardScreen({ navigation }: any) {
                   gamesPlayed: stats ? Number(stats.totalGamesPlayed) : 0,
                   photosUploaded: stats ? Number(stats.totalPhotosUploaded) : 0,
                   totalRewards: Number(entry.rewards), // This is weekly rewards
+                  isPro: proStatus?.isPro || false,
                 };
               } catch (error) {
                 console.error(`Failed to get stats for ${entry.principal}:`, error);
@@ -192,6 +221,7 @@ export default function LeaderboardScreen({ navigation }: any) {
                   gamesPlayed: 0,
                   photosUploaded: 0,
                   totalRewards: Number(entry.rewards),
+                  isPro: false,
                 };
               }
             })
@@ -209,7 +239,10 @@ export default function LeaderboardScreen({ navigation }: any) {
           const monthlyDataWithStats = await Promise.all(
             monthlyLeaderboard.map(async (entry, index) => {
               try {
-                const stats = await gameService.getPlayerStats(entry.principal as any);
+                const [stats, proStatus] = await Promise.all([
+                  gameService.getPlayerStats(entry.principal as any),
+                  gameService.getProMembershipStatus(entry.principal as any)
+                ]);
                 return {
                   rank: index + 1,
                   principal: entry.principal.toString(),
@@ -218,6 +251,7 @@ export default function LeaderboardScreen({ navigation }: any) {
                   gamesPlayed: stats ? Number(stats.totalGamesPlayed) : 0,
                   photosUploaded: stats ? Number(stats.totalPhotosUploaded) : 0,
                   totalRewards: Number(entry.rewards), // This is monthly rewards
+                  isPro: proStatus?.isPro || false,
                 };
               } catch (error) {
                 console.error(`Failed to get stats for ${entry.principal}:`, error);
@@ -229,6 +263,7 @@ export default function LeaderboardScreen({ navigation }: any) {
                   gamesPlayed: 0,
                   photosUploaded: 0,
                   totalRewards: Number(entry.rewards),
+                  isPro: false,
                 };
               }
             })
@@ -287,9 +322,14 @@ export default function LeaderboardScreen({ navigation }: any) {
           </View>
 
           <View style={styles.userInfo}>
-            <Text style={styles.username}>
-              {item.username || `${String(item.principal || 'Unknown').slice(0, 8)}...`}
-            </Text>
+            <View style={styles.usernameContainer}>
+              <Text style={styles.username}>
+                {item.username || `${String(item.principal || 'Unknown').slice(0, 8)}...`}
+              </Text>
+              {item.isPro && (
+                <MaterialCommunityIcons name="crown" size={16} color="#f59e0b" style={styles.proCrownIcon} />
+              )}
+            </View>
             <View style={styles.statsRow}>
               <View style={styles.statItem}>
                 <Ionicons name="camera-outline" size={14} color="#94a3b8" />
@@ -329,9 +369,14 @@ export default function LeaderboardScreen({ navigation }: any) {
           </View>
 
           <View style={styles.userInfo}>
-            <Text style={styles.username}>
-              {item.username || `${String(item.principal || 'Unknown').slice(0, 8)}...`}
-            </Text>
+            <View style={styles.usernameContainer}>
+              <Text style={styles.username}>
+                {item.username || `${String(item.principal || 'Unknown').slice(0, 8)}...`}
+              </Text>
+              {item.isPro && (
+                <MaterialCommunityIcons name="crown" size={16} color="#f59e0b" style={styles.proCrownIcon} />
+              )}
+            </View>
             <View style={styles.statsRow}>
               <View style={styles.statItem}>
                 <Ionicons name="game-controller-outline" size={14} color="#94a3b8" />
@@ -843,5 +888,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
+  },
+  usernameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  proCrownIcon: {
+    marginLeft: 6,
   },
 });
