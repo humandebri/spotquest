@@ -815,19 +815,30 @@ export async function blobToUint8Array(blob: Blob): Promise<Uint8Array> {
 // 地域情報を取得するヘルパー関数（簡素化版）
 export async function getRegionInfo(latitude: number, longitude: number): Promise<{ country: string; region: string }> {
   try {
+    console.log('🌍 Getting region info for coordinates:', { latitude, longitude });
+    
     const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10&addressdetails=1&accept-language=en`;
+    console.log('🌍 Region info URL:', url);
     
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'GuessTheSpotApp/2.0',
+        'User-Agent': 'GuessTheSpotApp/2.0 (https://guess-the-spot.com; contact@guess-the-spot.com)',
+        'Accept': 'application/json',
+        'Accept-Language': 'en',
       },
     });
     
+    console.log('🌍 Region info response status:', response.status);
+    
     if (!response.ok) {
-      throw new Error('Geocoding request failed');
+      console.error('🌍 Region info request failed with status:', response.status);
+      const text = await response.text();
+      console.error('🌍 Response text:', text.substring(0, 200));
+      throw new Error(`Geocoding request failed with status: ${response.status}`);
     }
     
     const data = await response.json();
+    console.log('🌍 Region info response data:', JSON.stringify(data, null, 2));
     const address = data.address || {};
     
     // 新しい簡素化されたアプローチ: 英語地域名をそのまま使用
@@ -851,7 +862,48 @@ export async function getRegionInfo(latitude: number, longitude: number): Promis
     
   } catch (error) {
     console.error('❌ Geocoding error:', error);
-    return { country: 'Unknown', region: 'Unknown Location' };
+    
+    // フォールバック: 座標から大まかな地域を推定
+    let fallbackCountry = 'Unknown';
+    let fallbackRegion = 'Unknown Location';
+    
+    // 北米の大まかな範囲
+    if (latitude >= 25 && latitude <= 70 && longitude >= -170 && longitude <= -50) {
+      if (latitude >= 49) {
+        fallbackCountry = 'Canada';
+      } else if (latitude >= 30) {
+        fallbackCountry = 'United States';
+      } else {
+        fallbackCountry = 'Mexico';
+      }
+      
+      // アメリカの主要都市の範囲
+      if (fallbackCountry === 'United States') {
+        if (latitude >= 37 && latitude <= 38 && longitude >= -123 && longitude <= -122) {
+          fallbackRegion = 'San Francisco, United States';
+        } else if (latitude >= 40.5 && latitude <= 41 && longitude >= -74.5 && longitude <= -73.5) {
+          fallbackRegion = 'New York, United States';
+        } else if (latitude >= 33.5 && latitude <= 34.5 && longitude >= -118.5 && longitude <= -117.5) {
+          fallbackRegion = 'Los Angeles, United States';
+        } else {
+          fallbackRegion = `${fallbackCountry} (${latitude.toFixed(2)}°, ${longitude.toFixed(2)}°)`;
+        }
+      }
+    }
+    // 日本の大まかな範囲
+    else if (latitude >= 30 && latitude <= 46 && longitude >= 129 && longitude <= 146) {
+      fallbackCountry = 'Japan';
+      if (latitude >= 35.5 && latitude <= 36 && longitude >= 139.5 && longitude <= 140) {
+        fallbackRegion = 'Tokyo, Japan';
+      } else if (latitude >= 34.5 && latitude <= 35 && longitude >= 135 && longitude <= 136) {
+        fallbackRegion = 'Osaka, Japan';
+      } else {
+        fallbackRegion = `Japan (${latitude.toFixed(2)}°, ${longitude.toFixed(2)}°)`;
+      }
+    }
+    
+    console.log('📍 Using fallback location:', { country: fallbackCountry, region: fallbackRegion });
+    return { country: fallbackCountry, region: fallbackRegion };
   }
 }
 

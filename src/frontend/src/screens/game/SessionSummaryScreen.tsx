@@ -201,10 +201,9 @@ export default function SessionSummaryScreen() {
   const handlePlayAgain = () => {
     resetGame();
     navigation.reset({
-      index: 1,
+      index: 0,
       routes: [
         { name: 'Home' },
-        { name: 'Game' },
       ],
     });
   };

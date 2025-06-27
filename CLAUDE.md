@@ -419,3 +419,34 @@ dfx canister --network ic call unified rebuildPlayerStats
 # メインネット
 ./test_icrc1_metadata.sh
 ```
+
+## Recent Updates (2025-06-27) - DetailedStatsScreenのカテゴリ別分析機能
+
+### カテゴリ別パフォーマンス分析を実装
+
+1. **機能追加**
+   - 難易度別統計（Easy、Normal、Hard、Extreme）の表示
+   - 地域別統計（上位10地域）の表示
+   - 各カテゴリごとの平均スコア、勝率、誤差距離を計算
+
+2. **実装詳細**
+   - セッションからラウンドデータを抽出し、写真IDを収集
+   - photoServiceV2を使用して写真メタデータ（地域、難易度）を取得
+   - 地域と難易度でデータを集計し、統計を計算
+   - 学習タブに新しい「カテゴリ別パフォーマンス」セクションを追加
+
+3. **バグ修正**
+   - totalScoreフィールドの欠落エラーを修正（totalRewardsEarnedを使用）
+   - "Text strings must be rendered within a Text component"エラーを修正
+     - 条件演算子の文字列結合を改善（`{isPositive ? '+' : ''}{point.change}` → `{isPositive ? \`+${point.change}\` : \`${point.change}\`}`）
+   - タブレイアウトの改善（高さ制限とパディング調整）
+
+4. **追加機能**
+   - 難易度別のカラーコーディング（Easy: 青緑、Normal: 薄緑、Hard: オレンジ、Extreme: 赤）
+   - 高難易度での苦戦を検出してアドバイスを表示
+   - 地域別の詳細な統計情報（プレイ回数順で上位10地域）
+
+5. **技術的な詳細**
+   - RoundDataインターフェースにtimestampフィールドを追加
+   - カテゴリデータの集計にMapを使用して効率的に処理
+   - 勝率計算では3000点以上を「勝利」として定義

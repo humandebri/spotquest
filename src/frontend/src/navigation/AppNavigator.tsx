@@ -199,7 +199,7 @@ export default function AppNavigator() {
           <Stack.Screen
             name="Camera"
             component={CameraScreen}
-            options={{ title: 'Take Photo' }}
+            options={{ headerShown: false }}
           />
           <Stack.Screen
             name="PhotoLibrary"
@@ -219,7 +219,7 @@ export default function AppNavigator() {
           <Stack.Screen
             name="Profile"
             component={ProfileScreen}
-            options={{ title: 'My Profile' }}
+            options={{ headerShown: false }}
           />
           <Stack.Screen
             name="DetailedStats"

@@ -84,6 +84,12 @@ export default function CameraScreen() {
         accuracy: Location.Accuracy.Balanced,
       });
 
+      console.log('📍 Quick location obtained:', {
+        latitude: quickLocation.coords.latitude,
+        longitude: quickLocation.coords.longitude,
+        accuracy: quickLocation.coords.accuracy,
+      });
+
       setLocation({
         latitude: quickLocation.coords.latitude,
         longitude: quickLocation.coords.longitude,
@@ -104,6 +110,12 @@ export default function CameraScreen() {
           distanceInterval: 0,
         },
         (newLocation) => {
+          console.log('📍 Watch location update:', {
+            latitude: newLocation.coords.latitude,
+            longitude: newLocation.coords.longitude,
+            accuracy: newLocation.coords.accuracy,
+          });
+
           setLocation({
             latitude: newLocation.coords.latitude,
             longitude: newLocation.coords.longitude,
@@ -270,6 +282,13 @@ export default function CameraScreen() {
 
       const validAzimuth = getValidAzimuth(heading, location.heading);
 
+      console.log('📸 Navigating to PhotoUpload with coordinates:', {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        azimuth: validAzimuth,
+        timestamp: Date.now(),
+      });
+
       // 写真アップロード画面に遷移
       navigation.navigate('PhotoUpload', {
         photoUri: photo.uri,
@@ -312,7 +331,17 @@ export default function CameraScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+    <SafeAreaView style={styles.container} edges={[]}>
+      {/* Back Button */}
+      <TouchableOpacity
+        style={styles.backButton}
+        onPress={() => navigation.goBack()}
+        activeOpacity={0.7}
+      >
+        <Ionicons name="arrow-back" size={28} color="#ffffff" />
+        <Text style={styles.backButtonText}>Home</Text>
+      </TouchableOpacity>
+
       <View style={styles.cameraContainer}>
         <CameraView style={styles.camera} facing="back" ref={cameraRef} />
         <View style={[StyleSheet.absoluteFillObject, styles.overlay]}>
@@ -372,6 +401,21 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0f1117',
   },
+  backButton: {
+    position: 'absolute',
+    top: 12,
+    left: 24,
+    zIndex: 10,
+    padding: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  backButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
   cameraContainer: {
     flex: 1,
   },
@@ -386,7 +430,9 @@ const styles = StyleSheet.create({
   locationInfo: {
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
     padding: 15,
-    margin: 20,
+    marginTop: 80,
+    marginHorizontal: 20,
+    marginBottom: 20,
     borderRadius: 10,
   },
   locationText: {

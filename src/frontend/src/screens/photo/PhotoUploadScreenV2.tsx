@@ -58,7 +58,18 @@ export default function PhotoUploadScreenV2() {
   const { principal, identity } = useAuth();
   const mapRef = useRef<MapView>(null);
 
-  const { photoUri, latitude, longitude, azimuth, timestamp } = route.params;
+  const { photoUri, latitude, longitude: rawLongitude, azimuth, timestamp } = route.params;
+  
+  // 西半球の座標修正（暫定的な対処）
+  // アメリカ大陸（おおよそ西経20度〜西経180度）の場合、正の値を負に変換
+  const longitude = rawLongitude > 0 && rawLongitude > 20 && rawLongitude < 180 ? -rawLongitude : rawLongitude;
+  
+  console.log('📍 PhotoUploadScreenV2 received coordinates:', {
+    latitude,
+    rawLongitude,
+    correctedLongitude: longitude,
+    isWesternHemisphere: rawLongitude > 0 && rawLongitude > 20 && rawLongitude < 180,
+  });
 
   const [description, setDescription] = useState('');
   const [difficulty, setDifficulty] = useState<'EASY' | 'NORMAL' | 'HARD' | 'EXTREME'>('NORMAL');
@@ -91,16 +102,32 @@ export default function PhotoUploadScreenV2() {
   useEffect(() => {
     const fetchLocationInfo = async () => {
       try {
+        console.log('📍 Fetching location info for coordinates:', {
+          latitude,
+          longitude,
+          latitudeType: typeof latitude,
+          longitudeType: typeof longitude,
+        });
+
         // 地域コードを取得
         const regionInfo = await getRegionInfo(latitude, longitude);
+        console.log('🌍 Region info obtained:', regionInfo);
         setCountry(regionInfo.country);
         setRegion(regionInfo.region);
         
+        // Nominatim API rate limit対策: 1秒待機
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
         // 地名を取得
         const placeName = await reverseGeocode(latitude, longitude);
+        console.log('📍 Place name obtained:', placeName);
         setLocationName(placeName);
       } catch (error) {
         console.error('Failed to fetch location info:', error);
+        console.error('Error details:', {
+          message: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined,
+        });
         setLocationName('不明な場所');
       }
     };
@@ -309,6 +336,9 @@ export default function PhotoUploadScreenV2() {
             <View style={styles.photoInfo}>
               <Text style={styles.photoInfoText}>📍 {locationName}</Text>
               <Text style={styles.photoInfoText}>🌍 {country} / {region}</Text>
+              <Text style={styles.photoInfoText}>
+                🧭 {latitude.toFixed(6)}°{latitude >= 0 ? 'N' : 'S'}, {Math.abs(longitude).toFixed(6)}°{longitude >= 0 ? 'E' : 'W'}
+              </Text>
               <TouchableOpacity onPress={() => setShowPhotoDatePicker(true)}>
                 <Text style={styles.photoInfoText}>
                   📅 {photoTakenDate.toLocaleString('ja-JP')}

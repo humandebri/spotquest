@@ -13,6 +13,7 @@ import {
   Image,
   Platform,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Principal } from '@dfinity/principal';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -545,7 +546,17 @@ export default function ProfileScreen() {
 
   return (
     <LinearGradient colors={['#0f172a', '#1e293b']} style={styles.container}>
-      <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
+      <SafeAreaView style={styles.safeArea} edges={[]}>
+        {/* Back Button */}
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="arrow-back" size={28} color="#ffffff" />
+          <Text style={styles.backButtonText}>Home</Text>
+        </TouchableOpacity>
+
         {/* Profile Header */}
         <View style={styles.header}>
           <View style={styles.profileInfo}>
@@ -562,9 +573,19 @@ export default function ProfileScreen() {
                   <Text style={styles.username}>{username}</Text>
                   <Text style={styles.editUsernameHint}>Tap to edit</Text>
                 </TouchableOpacity>
-                <Text style={styles.principal}>
-                  PID: {principal ? principal.toString() : 'Not connected'}
-                </Text>
+                <TouchableOpacity 
+                  onPress={async () => {
+                    if (principal) {
+                      await Clipboard.setStringAsync(principal.toString());
+                      Alert.alert('Copied!', 'Principal ID copied to clipboard');
+                    }
+                  }}
+                >
+                  <Text style={styles.principal}>
+                    PID: {principal ? principal.toString() : 'Not connected'}
+                  </Text>
+                  <Text style={styles.copyHint}>Tap to copy</Text>
+                </TouchableOpacity>
               </View>
             </View>
 
@@ -584,20 +605,22 @@ export default function ProfileScreen() {
                   <Text style={styles.withdrawButtonText}>Withdraw</Text>
                 </TouchableOpacity>
               </View>
-              <TouchableOpacity
-                style={styles.proButton}
-                onPress={() => navigation.navigate('ProMembership')}
-              >
-                <LinearGradient
-                  colors={['#f59e0b', '#d97706']}
-                  style={styles.proButtonGradient}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
+              {!isProMember && (
+                <TouchableOpacity
+                  style={styles.proButton}
+                  onPress={() => navigation.navigate('ProMembership')}
                 >
-                  <Ionicons name="star" size={16} color="#ffffff" />
-                  <Text style={styles.proButtonText}>Go Pro</Text>
-                </LinearGradient>
-              </TouchableOpacity>
+                  <LinearGradient
+                    colors={['#f59e0b', '#d97706']}
+                    style={styles.proButtonGradient}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                  >
+                    <Ionicons name="star" size={16} color="#ffffff" />
+                    <Text style={styles.proButtonText}>Go Pro</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         </View>
@@ -1270,9 +1293,24 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
+  backButton: {
+    position: 'absolute',
+    top: 12,
+    left: 24,
+    zIndex: 10,
+    padding: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  backButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
   header: {
     paddingHorizontal: 24,
-    paddingTop: 24,
+    paddingTop: 60,
     paddingBottom: 8,
   },
   profileInfo: {
@@ -1312,6 +1350,11 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     fontSize: 13,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  copyHint: {
+    color: '#64748b',
+    fontSize: 11,
+    marginTop: 2,
   },
   balanceCard: {
     width: '100%',
