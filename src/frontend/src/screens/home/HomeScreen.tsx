@@ -60,7 +60,7 @@ export default function HomeScreen() {
   }, [storeBalance]);
 
   const fetchTokenBalance = React.useCallback(async () => {
-    if (!principal) return;
+    if (!principal || !gameService.isInitialized) return;
     
     setIsLoadingBalance(true);
     try {
@@ -76,7 +76,10 @@ export default function HomeScreen() {
   }, [principal, setStoreBalance]);
 
   const fetchPlayerStats = React.useCallback(async () => {
-    if (!principal) return;
+    if (!principal || !gameService.isInitialized) {
+      console.log('🏠 fetchPlayerStats skipped - principal:', !!principal, 'gameService.isInitialized:', gameService.isInitialized);
+      return;
+    }
     
     setIsLoadingStats(true);
     try {
@@ -100,10 +103,10 @@ export default function HomeScreen() {
     } finally {
       setIsLoadingStats(false);
     }
-  }, [principal]);
+  }, [principal, identity]);
 
   const fetchRecentSessions = React.useCallback(async () => {
-    if (!principal) return;
+    if (!principal || !gameService.isInitialized) return;
     
     setIsLoadingSessions(true);
     try {
@@ -121,7 +124,7 @@ export default function HomeScreen() {
   }, [principal]);
 
   const fetchRemainingPlays = React.useCallback(async () => {
-    if (!principal) return;
+    if (!principal || !gameService.isInitialized) return;
     
     setIsLoadingPlays(true);
     try {
@@ -136,7 +139,7 @@ export default function HomeScreen() {
   }, [principal]);
 
   const fetchProStatus = React.useCallback(async () => {
-    if (!principal) return;
+    if (!principal || !gameService.isInitialized) return;
     
     try {
       const status = await gameService.getProMembershipStatus(CustomPrincipal.fromText(principal.toString()));
@@ -150,20 +153,28 @@ export default function HomeScreen() {
   // Initialize game service with identity
   React.useEffect(() => {
     const initService = async () => {
-      if (identity && !isServiceInitialized) {
+      if (identity && !gameService.isInitialized) {
         try {
+          console.log('🏠 HomeScreen: Initializing game service...');
           await gameService.init(identity);
+          console.log('🏠 HomeScreen: Game service initialized');
           setIsServiceInitialized(true);
         } catch (error) {
           console.error('Failed to initialize game service:', error);
+          setIsServiceInitialized(false);
         }
+      } else if (identity && gameService.isInitialized) {
+        // Service already initialized
+        console.log('🏠 HomeScreen: Game service already initialized');
+        setIsServiceInitialized(true);
       }
     };
     initService();
-  }, [identity, isServiceInitialized]);
+  }, [identity]);
 
   React.useEffect(() => {
-    if (isServiceInitialized) {
+    if (isServiceInitialized && gameService.isInitialized) {
+      console.log('🏠 HomeScreen: Fetching data...');
       fetchTokenBalance();
       fetchPlayerStats();
       fetchRecentSessions();
@@ -177,7 +188,7 @@ export default function HomeScreen() {
   // Fetch data when screen comes into focus
   useFocusEffect(
     React.useCallback(() => {
-      if (isServiceInitialized && principal) {
+      if (isServiceInitialized && gameService.isInitialized && principal) {
         fetchTokenBalance();
         fetchPlayerStats();
         fetchRecentSessions();
@@ -187,15 +198,17 @@ export default function HomeScreen() {
   );
 
   const onRefresh = React.useCallback(async () => {
-    setRefreshing(true);
-    await Promise.all([
-      fetchTokenBalance(),
-      fetchPlayerStats(),
-      fetchRemainingPlays()
-    ]);
-    setTimeout(() => {
-      setRefreshing(false);
-    }, 2000);
+    if (gameService.isInitialized) {
+      setRefreshing(true);
+      await Promise.all([
+        fetchTokenBalance(),
+        fetchPlayerStats(),
+        fetchRemainingPlays()
+      ]);
+      setTimeout(() => {
+        setRefreshing(false);
+      }, 2000);
+    }
   }, [fetchTokenBalance, fetchPlayerStats, fetchRemainingPlays]);
 
   const copyPrincipalToClipboard = async () => {
