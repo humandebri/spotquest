@@ -84,6 +84,10 @@ class GameService {
     this.identity = identity;
     await this.initializeActor(identity);
     this.initialized = true;
+    
+    // Small delay to ensure everything is settled
+    await new Promise(resolve => setTimeout(resolve, 100));
+    console.log('🎮 GameService fully initialized');
   }
 
   private async initializeActor(identity: Identity) {
@@ -557,6 +561,13 @@ class GameService {
       if (isDevMode) {
         console.log('🎮 DEV: Actor created in dev mode - mock responses will be used for network errors');
       }
+      
+      // Verify actor is properly initialized
+      if (!this.actor) {
+        throw new Error('Actor creation failed - actor is null');
+      }
+      
+      console.log('🎮 Actor initialized successfully');
     } catch (error: any) {
       console.error('Failed to initialize game service actor:', error);
       console.error('Initialization error details:', {
@@ -564,6 +575,10 @@ class GameService {
         stack: error.stack,
         name: error.name,
       });
+      // Reset state on failure
+      this.actor = null;
+      this.agent = null;
+      this.initialized = false;
       throw error;
     }
   }
