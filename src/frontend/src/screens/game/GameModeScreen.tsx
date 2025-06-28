@@ -54,40 +54,79 @@ export default function GameModeScreen() {
       
       setIsCheckingPhotos(true);
       try {
-        // Initialize services
-        await photoServiceV2.init(identity);
-        await gameService.init(identity);
+        // 🚀 並列実行による高速化: サービスの初期化を同時に行う
+        console.log('🎮 Initializing services in parallel...');
+        await Promise.all([
+          photoServiceV2.init(identity),
+          gameService.init(identity)
+        ]);
+        console.log('🎮 Services initialized');
         
-        // Check Pro membership status
-        const proStatus = await gameService.getProMembershipStatus();
-        console.log('🎮 Pro membership status:', proStatus);
-        if (proStatus) {
-          setIsProMember(proStatus.isPro);
+        const principal = identity.getPrincipal();
+        
+        // 🚀 並列実行による高速化: ProステータスとPhoto検索を同時に実行
+        // これらは互いに依存しないため、並列化可能
+        console.log('🎮 Fetching Pro status and photos in parallel...');
+        const [proStatusResult, searchResult] = await Promise.allSettled([
+          gameService.getProMembershipStatus(principal),
+          photoServiceV2.searchPhotos({
+            status: { Active: null }
+          }, undefined, 10)
+        ]);
+        
+        // Process Pro status
+        if (proStatusResult.status === 'fulfilled') {
+          console.log('🎮 Pro membership status:', proStatusResult.value);
+          if (proStatusResult.value) {
+            setIsProMember(proStatusResult.value.isPro);
+          }
+        } else {
+          console.error('Failed to fetch Pro status:', proStatusResult.reason);
         }
         
-        // Check photo count
-        const result = await photoServiceV2.searchPhotos({
-          status: { Active: null }
-        }, undefined, 10);
+        // Process photo search results
+        if (searchResult.status === 'fulfilled') {
+          const result = searchResult.value;
+          console.log('🎮 Search result:', {
+            photosCount: result.photos.length,
+            firstPhoto: result.photos[0] ? {
+              id: result.photos[0].id?.toString(),
+              uploadTime: result.photos[0].uploadTime?.toString(),
+              createdAt: result.photos[0].createdAt?.toString(),
+              hasUploadTime: 'uploadTime' in result.photos[0],
+              hasCreatedAt: 'createdAt' in result.photos[0]
+            } : null
+          });
+          
+          // searchPhotos returns SearchResult directly (not wrapped in Result)
+          setPhotoCount(result.photos.length);
+          
+          // Calculate weekly photos (photos uploaded in the last 7 days)
+          const oneWeekAgo = BigInt(Date.now() * 1000000) - BigInt(7 * 24 * 60 * 60 * 1000000000); // nanoseconds
+          const weeklyPhotos = result.photos.filter(photo => {
+            // Use uploadTime if createdAt is not available
+            const timestamp = photo.uploadTime || photo.createdAt;
+            return timestamp && timestamp >= oneWeekAgo;
+          });
+          
+          console.log('🎮 Weekly photos check:', {
+            currentTime: Date.now() * 1000000,
+            oneWeekAgo: oneWeekAgo.toString(),
+            photoTimestamps: result.photos.map(p => {
+              const timestamp = p.uploadTime || p.createdAt;
+              return timestamp ? timestamp.toString() : 'no-timestamp';
+            }),
+            weeklyCount: weeklyPhotos.length
+          });
+          
+          setWeeklyPhotoCount(weeklyPhotos.length);
+        } else {
+          console.error('Failed to fetch photos:', searchResult.reason);
+          setPhotoCount(0);
+          setWeeklyPhotoCount(0);
+        }
         
-        // searchPhotos returns SearchResult directly (not wrapped in Result)
-        setPhotoCount(result.photos.length);
-        
-        // Calculate weekly photos (photos uploaded in the last 7 days)
-        const oneWeekAgo = Date.now() * 1000000 - (7 * 24 * 60 * 60 * 1000000000); // nanoseconds
-        const weeklyPhotos = result.photos.filter(photo => 
-          Number(photo.createdAt) >= oneWeekAgo
-        );
-        
-        console.log('🎮 Weekly photos check:', {
-          currentTime: Date.now() * 1000000,
-          oneWeekAgo,
-          photoCreatedTimes: result.photos.map(p => Number(p.createdAt)),
-          weeklyCount: weeklyPhotos.length
-        });
-        
-        setWeeklyPhotoCount(weeklyPhotos.length);
-        
+        console.log('🎮 Game mode data fetch completed');
       } catch (error) {
         console.error('Error checking photo count and Pro status:', error);
         setPhotoCount(0);
@@ -305,7 +344,7 @@ export default function GameModeScreen() {
                       {!mode.available && (
                         <View style={styles.comingSoonBadge}>
                           <Text style={styles.comingSoonText}>
-                            {'requiresPro' in mode && mode.requiresPro && !isProMember ? 'PRO' : 'COMING SOON'}
+                            {'requiresPro' in mode && mode.requiresPro ? 'PRO' : 'COMING SOON'}
                           </Text>
                         </View>
                       )}

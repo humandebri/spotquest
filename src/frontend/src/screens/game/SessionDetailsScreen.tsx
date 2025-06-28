@@ -188,9 +188,13 @@ export default function SessionDetailsScreen() {
 
     setHasFetched(true);
     try {
-      // Initialize both game and photo services
-      await gameService.init(identity);
-      await photoService.init(identity);
+      // 🚀 並列実行による高速化: サービスの初期化を同時に行う
+      console.log('🎯 Initializing services in parallel...');
+      await Promise.all([
+        gameService.init(identity),
+        photoService.init(identity)
+      ]);
+      console.log('🎯 Services initialized');
 
       // Get session details
       console.log('🎯 Calling gameService.getSession with:', sessionId);
@@ -208,16 +212,18 @@ export default function SessionDetailsScreen() {
         if (isMountedRef.current) {
           setSession(sessionResult.ok);
           
-          // Fetch Pro status for the session owner
+          // 🚀 並列実行による高速化: Proステータスの取得を非同期で開始
+          // UIのレンダリングをブロックしない
           if (sessionResult.ok.userId) {
-            try {
-              const proStatus = await gameService.getProMembershipStatus(sessionResult.ok.userId);
-              if (isMountedRef.current) {
-                setPlayerProStatus(proStatus || { isPro: false });
-              }
-            } catch (error) {
-              console.error('Failed to fetch Pro status:', error);
-            }
+            gameService.getProMembershipStatus(sessionResult.ok.userId)
+              .then(proStatus => {
+                if (isMountedRef.current) {
+                  setPlayerProStatus(proStatus || { isPro: false });
+                }
+              })
+              .catch(error => {
+                console.error('Failed to fetch Pro status:', error);
+              });
           }
         }
 
@@ -272,72 +278,88 @@ export default function SessionDetailsScreen() {
           fetchOrder.push(i);
         }
 
-        // Fetch photos in parallel with priority for selected round
-        fetchOrder.forEach(async (index, orderIndex) => {
-          // Add small delay between requests to prevent overwhelming
-          const delay = orderIndex * 50; // 50ms stagger
+        // 🚀 並列実行による高速化: 写真データの並列フェッチ
+        // 最初のラウンドを優先的に取得し、残りは並列で取得
+        const fetchPhotoData = async (index: number) => {
+          if (!isMountedRef.current) return;
           
-          setTimeout(async () => {
-            if (!isMountedRef.current) return;
-            
-            const roundData = initialRounds[index];
-            try {
-              console.log('🎯 Fetching photo for round:', index + 1, 'photoId:', roundData.photoId);
-              const photoMeta = await photoService.getPhotoMetadataV2(roundData.photoId);
+          const roundData = initialRounds[index];
+          try {
+            console.log('🎯 Fetching photo for round:', index + 1, 'photoId:', roundData.photoId);
+            const photoMeta = await photoService.getPhotoMetadataV2(roundData.photoId);
 
-              if (photoMeta && isMountedRef.current) {
-                // Update location and metadata immediately
-                setRounds(prevRounds => {
-                  const newRounds = [...prevRounds];
-                  newRounds[index] = {
-                    ...newRounds[index],
-                    photoLocation: {
-                      lat: photoMeta.latitude,
-                      lon: photoMeta.longitude,
-                    },
-                    photoMeta: photoMeta,
-                  };
-                  return newRounds;
-                });
-                
-                // Check if photo is complete and active
-                if (photoMeta.uploadState?.Complete !== undefined && photoMeta.status?.Active !== undefined) {
-                  // Get photo chunks for display
-                  const dataUrl = await photoService.getPhotoDataUrl(roundData.photoId, photoMeta);
-                  if (dataUrl && isMountedRef.current) {
-                    console.log('🎯 Photo URL generated for round:', index + 1);
-                    // Update photo URL separately for faster display
-                    setRounds(prevRounds => {
-                      const newRounds = [...prevRounds];
-                      newRounds[index] = {
-                        ...newRounds[index],
-                        photoUrl: dataUrl
-                      };
-                      return newRounds;
-                    });
-                  }
+            if (photoMeta && isMountedRef.current) {
+              // Update location and metadata immediately
+              setRounds(prevRounds => {
+                const newRounds = [...prevRounds];
+                newRounds[index] = {
+                  ...newRounds[index],
+                  photoLocation: {
+                    lat: photoMeta.latitude,
+                    lon: photoMeta.longitude,
+                  },
+                  photoMeta: photoMeta,
+                };
+                return newRounds;
+              });
+              
+              // Check if photo is complete and active
+              if (photoMeta.uploadState?.Complete !== undefined && photoMeta.status?.Active !== undefined) {
+                // Get photo chunks for display
+                const dataUrl = await photoService.getPhotoDataUrl(roundData.photoId, photoMeta);
+                if (dataUrl && isMountedRef.current) {
+                  console.log('🎯 Photo URL generated for round:', index + 1);
+                  // Update photo URL separately for faster display
+                  setRounds(prevRounds => {
+                    const newRounds = [...prevRounds];
+                    newRounds[index] = {
+                      ...newRounds[index],
+                      photoUrl: dataUrl
+                    };
+                    return newRounds;
+                  });
                 }
               }
-
-              // Clear loading state for this photo
-              if (isMountedRef.current) {
-                setLoadingPhotos(prev => ({
-                  ...prev,
-                  [index]: false
-                }));
-              }
-            } catch (error) {
-              console.error('🎯 Failed to fetch photo data for round:', index + 1, error);
-              // Clear loading state even on error
-              if (isMountedRef.current) {
-                setLoadingPhotos(prev => ({
-                  ...prev,
-                  [index]: false
-                }));
-              }
             }
-          }, delay);
-        });
+
+            // Clear loading state for this photo
+            if (isMountedRef.current) {
+              setLoadingPhotos(prev => ({
+                ...prev,
+                [index]: false
+              }));
+            }
+          } catch (error) {
+            console.error('🎯 Failed to fetch photo data for round:', index + 1, error);
+            // Clear loading state even on error
+            if (isMountedRef.current) {
+              setLoadingPhotos(prev => ({
+                ...prev,
+                [index]: false
+              }));
+            }
+          }
+        };
+
+        // Fetch first round immediately, then others in parallel
+        if (fetchOrder.length > 0) {
+          // Fetch first round
+          fetchPhotoData(fetchOrder[0]).then(() => {
+            // Fetch remaining rounds in parallel (limit concurrency to 3)
+            const remaining = fetchOrder.slice(1);
+            const batches = [];
+            for (let i = 0; i < remaining.length; i += 3) {
+              batches.push(remaining.slice(i, i + 3));
+            }
+            
+            // Process batches sequentially
+            batches.reduce((promise, batch) => {
+              return promise.then(() => 
+                Promise.all(batch.map(index => fetchPhotoData(index)))
+              );
+            }, Promise.resolve());
+          });
+        }
 
         return; // Exit early, don't wait for photos
       }

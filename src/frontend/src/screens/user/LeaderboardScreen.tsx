@@ -276,18 +276,24 @@ export default function LeaderboardScreen({ navigation }: any) {
       console.log('🏆 Leaderboard data loaded:', leaderboardData.length, 'items');
       setData(leaderboardData);
       
-      // Get user's stats and rank if authenticated (for all tabs)
+      // 🚀 並列実行による高速化: ユーザー統計を非同期で取得
+      // UIの更新をブロックしない
       if (auth && auth.identity) {
         const principal = auth.identity.getPrincipal();
-        const stats = await gameService.getPlayerStats(principal as any);
-        console.log('🏆 Player stats received:', stats);
-        if (stats) {
-          setUserStats(stats);
-          // Fix: Check for null/undefined explicitly, not falsy (0 is falsy but valid rank)
-          const rankValue = stats.rank !== null && stats.rank !== undefined ? Number(stats.rank) : null;
-          setUserRank(rankValue);
-          console.log('🏆 User rank set to:', stats.rank, '-> parsed as:', rankValue);
-        }
+        gameService.getPlayerStats(principal as any)
+          .then(stats => {
+            console.log('🏆 Player stats received:', stats);
+            if (stats) {
+              setUserStats(stats);
+              // Fix: Check for null/undefined explicitly, not falsy (0 is falsy but valid rank)
+              const rankValue = stats.rank !== null && stats.rank !== undefined ? Number(stats.rank) : null;
+              setUserRank(rankValue);
+              console.log('🏆 User rank set to:', stats.rank, '-> parsed as:', rankValue);
+            }
+          })
+          .catch(error => {
+            console.error('Failed to fetch user stats:', error);
+          });
       }
       
       setIsLoading(false);

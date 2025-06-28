@@ -32,8 +32,18 @@ export default function ProMembershipScreen() {
   const [tokenBalance, setTokenBalance] = useState<bigint>(0n);
 
   useEffect(() => {
-    loadProStatus();
-    loadTokenBalance();
+    // 既存機能を保護: principalがない場合は何もしない
+    if (!principal) return;
+    
+    console.log('🎯 ProMembershipScreen: Loading data in parallel...');
+    
+    // Promise.allで並列実行（エラーが発生しても個別にハンドリング）
+    Promise.all([
+      loadProStatus().catch(err => console.error('Failed to load Pro status in effect:', err)),
+      loadTokenBalance().catch(err => console.error('Failed to load balance in effect:', err))
+    ]).then(() => {
+      console.log('🎯 ProMembershipScreen: All data loaded');
+    });
   }, [principal]);
 
   const loadProStatus = async () => {
@@ -71,8 +81,12 @@ export default function ProMembershipScreen() {
           'Welcome to Pro membership! You now have 5 plays per day.',
           [{ text: 'OK', onPress: () => navigation.goBack() }]
         );
-        loadProStatus();
-        loadTokenBalance();
+        // 購入成功後もデータを並列で更新
+        console.log('🎯 ProMembershipScreen: Refreshing data after purchase...');
+        await Promise.all([
+          loadProStatus(),
+          loadTokenBalance()
+        ]);
       } else if (result.err) {
         Alert.alert('Error', result.err);
       }

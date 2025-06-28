@@ -174,12 +174,25 @@ export default function HomeScreen() {
 
   React.useEffect(() => {
     if (isServiceInitialized && gameService.isInitialized) {
-      console.log('🏠 HomeScreen: Fetching data...');
-      fetchTokenBalance();
-      fetchPlayerStats();
-      fetchRecentSessions();
-      fetchRemainingPlays();
-      fetchProStatus();
+      console.log('🏠 HomeScreen: Fetching data in parallel...');
+      
+      // 🚀 並列実行による高速化: 5つのAPIを同時に呼び出し
+      // 各関数は既に内部でエラーハンドリングを行っているため、
+      // Promise.allSettledを使用して、一部が失敗しても他の結果を取得可能にする
+      Promise.allSettled([
+        fetchTokenBalance(),
+        fetchPlayerStats(),
+        fetchRecentSessions(),
+        fetchRemainingPlays(),
+        fetchProStatus()
+      ]).then(results => {
+        // デバッグ用: 各APIの成功/失敗を記録
+        const statuses = results.map((result, index) => {
+          const apis = ['tokenBalance', 'playerStats', 'recentSessions', 'remainingPlays', 'proStatus'];
+          return `${apis[index]}: ${result.status}`;
+        });
+        console.log('🏠 HomeScreen: Data fetch results:', statuses);
+      });
       
       // Dev mode: disabled auto-minting per user request
     }

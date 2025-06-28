@@ -57,53 +57,87 @@ export default function PhotoDetailsScreen() {
 
   useEffect(() => {
     if (photoId && identity) {
-      fetchPhotoDetails();
-      checkVoteStatus();
-      fetchUserStats();
+      console.log('📸 PhotoDetailsScreen: Loading data in parallel...');
+      
+      // 🚀 並列実行による高速化: 3つの独立したデータフェッチを同時実行
+      // 各関数は内部でエラーハンドリングを行っているため、
+      // Promise.allSettledで個別の失敗を許容
+      Promise.allSettled([
+        fetchPhotoDetails(),
+        checkVoteStatus(),
+        fetchUserStats()
+      ]).then(results => {
+        // デバッグ用: 各APIの成功/失敗を記録
+        const statuses = results.map((result, index) => {
+          const apis = ['photoDetails', 'voteStatus', 'userStats'];
+          return `${apis[index]}: ${result.status}`;
+        });
+        console.log('📸 PhotoDetailsScreen: Data fetch results:', statuses);
+      });
     }
   }, [photoId, identity]);
 
   const fetchPhotoDetails = async () => {
     try {
-      // Initialize services
-      await photoService.init(identity!);
-      await gameService.init(identity!);
+      // 🚀 並列実行による高速化: サービスの初期化を同時に行う
+      console.log('📸 Initializing services in parallel...');
+      await Promise.all([
+        photoService.init(identity!),
+        gameService.init(identity!)
+      ]);
+      console.log('📸 Services initialized');
       
       // Only fetch photo metadata if not cached
+      let currentMetadata = cachedPhotoMeta;
       if (!cachedPhotoMeta) {
         const metadata = await photoService.getPhotoMetadataV2(photoId);
         if (metadata) {
           setPhotoMeta(metadata);
-          
-          // Get photo URL only if not cached
-          if (!cachedPhotoUrl && metadata.uploadState?.Complete !== undefined && metadata.status?.Active !== undefined) {
-            const url = await photoService.getPhotoDataUrl(photoId, metadata);
-            setPhotoUrl(url);
-          }
+          currentMetadata = metadata;
         }
       }
       
-      // Always fetch ratings, Elo rating, and stats (not cached from SessionDetailsScreen)
-      // Get existing ratings if available
-      const photoRatings = await gameService.getPhotoRatings(photoId);
-      if (photoRatings) {
-        setExistingRatings(photoRatings);
+      // 🚀 並列実行による高速化: 独立したAPIコールを同時に実行
+      // 各APIは互いに依存しないため、並列化可能
+      console.log('📸 Fetching photo data in parallel...');
+      const [photoUrlResult, ratingsResult, eloResult, statsResult] = await Promise.allSettled([
+        // Get photo URL only if not cached and metadata is available
+        (!cachedPhotoUrl && currentMetadata && 
+         currentMetadata.uploadState?.Complete !== undefined && 
+         currentMetadata.status?.Active !== undefined)
+          ? photoService.getPhotoDataUrl(photoId, currentMetadata)
+          : Promise.resolve(cachedPhotoUrl),
+        
+        // Always fetch these (not cached from SessionDetailsScreen)
+        gameService.getPhotoRatings(photoId),
+        gameService.getPhotoEloRating(photoId),
+        gameService.getPhotoStatsById(photoId)
+      ]);
+      
+      // Process results
+      if (photoUrlResult.status === 'fulfilled' && photoUrlResult.value) {
+        setPhotoUrl(photoUrlResult.value);
       }
       
-      // Get photo Elo rating
-      const eloRating = await gameService.getPhotoEloRating(photoId);
-      setPhotoEloRating(eloRating);
-      
-      // Get photo stats
-      console.log('📊 [PhotoDetailsScreen] Fetching stats for photoId:', photoId, 'type:', typeof photoId);
-      const stats = await gameService.getPhotoStatsById(photoId);
-      console.log('📊 [PhotoDetailsScreen] Received stats:', stats);
-      console.log('📊 [PhotoDetailsScreen] playCount:', stats?.playCount, 'averageScore:', stats?.averageScore);
-      if (stats) {
-        setPhotoStats(stats);
-      } else {
-        console.log('📊 [PhotoDetailsScreen] No stats returned for photoId:', photoId);
+      if (ratingsResult.status === 'fulfilled' && ratingsResult.value) {
+        setExistingRatings(ratingsResult.value);
       }
+      
+      if (eloResult.status === 'fulfilled') {
+        setPhotoEloRating(eloResult.value);
+      }
+      
+      if (statsResult.status === 'fulfilled') {
+        console.log('📊 [PhotoDetailsScreen] Received stats:', statsResult.value);
+        console.log('📊 [PhotoDetailsScreen] playCount:', statsResult.value?.playCount, 'averageScore:', statsResult.value?.averageScore);
+        if (statsResult.value) {
+          setPhotoStats(statsResult.value);
+        } else {
+          console.log('📊 [PhotoDetailsScreen] No stats returned for photoId:', photoId);
+        }
+      }
+      
+      console.log('📸 Photo details fetch completed');
     } catch (error) {
       console.error('Failed to fetch photo details:', error);
       Alert.alert('Error', 'Failed to load photo details');
@@ -116,7 +150,10 @@ export default function PhotoDetailsScreen() {
     // Check if user has already voted for this photo in this session
     if (sessionId && roundIndex !== undefined && identity) {
       try {
-        await gameService.init(identity);
+        // サービスは既に初期化されているはずだが、念のため確認
+        if (!gameService.isInitialized) {
+          await gameService.init(identity);
+        }
         const canRate = await gameService.canRatePhoto(sessionId, photoId);
         setHasVoted(!canRate);
       } catch (error) {
@@ -131,19 +168,27 @@ export default function PhotoDetailsScreen() {
     if (!identity) return;
     
     try {
-      await gameService.init(identity);
-      
-      // Fetch player stats
-      const playerStats = await gameService.getPlayerStats();
-      if (playerStats) {
-        setUserStats(playerStats);
+      // サービスは既に初期化されているはずだが、念のため確認
+      if (!gameService.isInitialized) {
+        await gameService.init(identity);
       }
       
-      // Fetch user rating stats
-      const ratingStats = await gameService.getUserRatingStats();
-      if (ratingStats) {
-        setUserRatingStats(ratingStats);
+      // 🚀 並列実行による高速化: プレイヤー統計と評価統計を同時に取得
+      const [playerStatsResult, ratingStatsResult] = await Promise.allSettled([
+        gameService.getPlayerStats(),
+        gameService.getUserRatingStats()
+      ]);
+      
+      // Process results
+      if (playerStatsResult.status === 'fulfilled' && playerStatsResult.value) {
+        setUserStats(playerStatsResult.value);
       }
+      
+      if (ratingStatsResult.status === 'fulfilled' && ratingStatsResult.value) {
+        setUserRatingStats(ratingStatsResult.value);
+      }
+      
+      console.log('📸 User stats fetch completed');
     } catch (error) {
       console.error('Failed to fetch user stats:', error);
     }
@@ -188,10 +233,18 @@ export default function PhotoDetailsScreen() {
         setHasVoted(true);
         Alert.alert('Success', 'Thank you for rating this photo!');
         
-        // Refresh ratings
-        const updatedRatings = await gameService.getPhotoRatings(photoId);
-        if (updatedRatings) {
-          setExistingRatings(updatedRatings);
+        // 🚀 並列実行による高速化: 評価とEloレーティングを同時に更新
+        const [ratingsResult, eloResult] = await Promise.allSettled([
+          gameService.getPhotoRatings(photoId),
+          gameService.getPhotoEloRating(photoId)
+        ]);
+        
+        if (ratingsResult.status === 'fulfilled' && ratingsResult.value) {
+          setExistingRatings(ratingsResult.value);
+        }
+        
+        if (eloResult.status === 'fulfilled') {
+          setPhotoEloRating(eloResult.value);
         }
       } else {
         // Handle specific error messages
