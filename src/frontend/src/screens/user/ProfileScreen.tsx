@@ -15,7 +15,6 @@ import {
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Principal } from '@dfinity/principal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -321,25 +320,13 @@ export default function ProfileScreen() {
       return;
     }
 
+    setIsWithdrawing(true);
+
     try {
-      const toPrincipal = Principal.fromText(withdrawTo.trim());
+      const result = await gameService.transferTokens(withdrawTo.trim(), amountUnits);
 
-      setIsWithdrawing(true);
-
-      // Add icrc1_transfer method to game service temporarily
-      const transferArgs = {
-        to: { owner: toPrincipal, subaccount: [] },
-        amount: amountUnits,
-        fee: [transferFee],
-        memo: [],
-        from_subaccount: [],
-        created_at_time: []
-      };
-
-      const result = await (gameService as any).actor.icrc1_transfer(transferArgs);
-
-      if (result.Err) {
-        throw new Error(`Transfer failed: ${Object.keys(result.Err)[0]}`);
+      if (result.err) {
+        throw new Error(result.err);
       }
 
       Alert.alert('Success', `Transferred ${withdrawAmount} SPOT`);

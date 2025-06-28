@@ -35,11 +35,6 @@ module {
         
         // Check if user is a Pro member
         public func isProMember(player: Principal) : Bool {
-            // Debug: Always treat this principal as Pro member
-            if (Principal.toText(player) == "6lvto-wk4rq-wwea5-neix6-nelpy-tgifs-crt3y-whqnf-5kns5-t3il6-xae") {
-                return true;
-            };
-            
             switch (proMembershipExpiry.get(player)) {
                 case null { false };
                 case (?expiry) { Time.now() < expiry };
@@ -135,11 +130,6 @@ module {
         
         // Get Pro membership expiry
         public func getProMembershipExpiry(player: Principal) : ?Time.Time {
-            // Debug: Always return future expiry for this principal
-            if (Principal.toText(player) == "6lvto-wk4rq-wwea5-neix6-nelpy-tgifs-crt3y-whqnf-5kns5-t3il6-xae") {
-                return ?(Time.now() + 365 * 24 * 60 * 60 * 1_000_000_000); // 1 year from now
-            };
-            
             switch (proMembershipExpiry.get(player)) {
                 case null { null };
                 case (?expiry) {

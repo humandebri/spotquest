@@ -25,8 +25,6 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'PhotoDetail
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Developer principal for testing own photos
-const DEVELOPER_PRINCIPAL = '6lvto-wk4rq-wwea5-neix6-nelpy-tgifs-crt3y-whqnf-5kns5-t3il6-xae';
 
 export default function PhotoDetailsScreen() {
   const route = useRoute<PhotoDetailsRouteProp>();
@@ -54,11 +52,8 @@ export default function PhotoDetailsScreen() {
   const isOwnPhoto = photoMeta && principal && 
     photoMeta.owner?.toString() === principal?.toString();
   
-  // Check if current user is a developer
-  const isDeveloper = principal?.toString() === DEVELOPER_PRINCIPAL;
-  
-  // Can rate if: not own photo OR is developer
-  const canRatePhoto = !isOwnPhoto || isDeveloper;
+  // Can rate if: not own photo
+  const canRatePhoto = !isOwnPhoto;
 
   useEffect(() => {
     if (photoId && identity) {

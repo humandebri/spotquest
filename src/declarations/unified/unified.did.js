@@ -1,7 +1,7 @@
 export const idlFactory = ({ IDL }) => {
   const Result = IDL.Variant({ 'ok' : IDL.Null, 'err' : IDL.Text });
-  const Result_14 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text });
-  const Result_15 = IDL.Variant({
+  const Result_15 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text });
+  const Result_16 = IDL.Variant({
     'ok' : IDL.Record({ 'clearedChunks' : IDL.Nat, 'clearedPhotos' : IDL.Nat }),
     'err' : IDL.Text,
   });
@@ -35,7 +35,7 @@ export const idlFactory = ({ IDL }) => {
     'expectedChunks' : IDL.Nat,
   });
   const SessionId = IDL.Text;
-  const Result_13 = IDL.Variant({ 'ok' : SessionId, 'err' : IDL.Text });
+  const Result_14 = IDL.Variant({ 'ok' : SessionId, 'err' : IDL.Text });
   const SessionResult = IDL.Record({
     'playerReward' : IDL.Nat,
     'duration' : IDL.Nat,
@@ -48,7 +48,7 @@ export const idlFactory = ({ IDL }) => {
     'totalScoreNorm' : IDL.Nat,
     'sessionId' : SessionId,
   });
-  const Result_12 = IDL.Variant({ 'ok' : SessionResult, 'err' : IDL.Text });
+  const Result_13 = IDL.Variant({ 'ok' : SessionResult, 'err' : IDL.Text });
   const Heatmap = IDL.Record({
     'gridSize' : IDL.Nat,
     'bounds' : IDL.Record({
@@ -61,7 +61,7 @@ export const idlFactory = ({ IDL }) => {
     'totalGuesses' : IDL.Nat,
     'photoId' : IDL.Nat,
   });
-  const Result_11 = IDL.Variant({ 'ok' : Heatmap, 'err' : IDL.Text });
+  const Result_12 = IDL.Variant({ 'ok' : Heatmap, 'err' : IDL.Text });
   const Time = IDL.Int;
   const AggregatedRatings = IDL.Record({
     'interest' : IDL.Record({
@@ -111,7 +111,7 @@ export const idlFactory = ({ IDL }) => {
     'scoreNorm' : IDL.Nat,
     'photoId' : IDL.Nat,
   });
-  const Result_10 = IDL.Variant({ 'ok' : RoundState, 'err' : IDL.Text });
+  const Result_11 = IDL.Variant({ 'ok' : RoundState, 'err' : IDL.Text });
   const Guess = IDL.Record({
     'lat' : IDL.Float64,
     'lon' : IDL.Float64,
@@ -172,7 +172,6 @@ export const idlFactory = ({ IDL }) => {
     'description' : IDL.Text,
     'lastUsedTime' : IDL.Opt(Time),
     'totalSize' : IDL.Nat,
-    'qualityScore' : IDL.Float64,
     'timesUsed' : IDL.Nat,
     'longitude' : IDL.Float64,
     'sceneKind' : SceneKind,
@@ -180,7 +179,7 @@ export const idlFactory = ({ IDL }) => {
     'chunkCount' : IDL.Nat,
     'uploadTime' : Time,
   });
-  const Result_9 = IDL.Variant({
+  const Result_10 = IDL.Variant({
     'ok' : IDL.Record({
       'stableChunks' : IDL.Nat,
       'stablePhotos' : IDL.Nat,
@@ -219,13 +218,17 @@ export const idlFactory = ({ IDL }) => {
   const SessionSummary = IDL.Record({
     'id' : SessionId,
     'status' : SessionStatus,
+    'playerReward' : IDL.Opt(IDL.Nat),
+    'initialEloRating' : IDL.Opt(IDL.Int),
     'duration' : IDL.Opt(IDL.Nat),
     'currentRound' : IDL.Opt(IDL.Nat),
     'createdAt' : Time,
+    'finalEloRating' : IDL.Opt(IDL.Int),
     'totalScore' : IDL.Nat,
+    'eloRatingChange' : IDL.Opt(IDL.Int),
     'roundCount' : IDL.Nat,
   });
-  const Result_8 = IDL.Variant({
+  const Result_9 = IDL.Variant({
     'ok' : IDL.Vec(SessionSummary),
     'err' : IDL.Text,
   });
@@ -239,6 +242,8 @@ export const idlFactory = ({ IDL }) => {
   const GameSession = IDL.Record({
     'id' : SessionId,
     'startTime' : Time,
+    'playerReward' : IDL.Opt(IDL.Nat),
+    'initialEloRating' : IDL.Opt(IDL.Int),
     'endTime' : IDL.Opt(Time),
     'currentRound' : IDL.Nat,
     'userId' : IDL.Principal,
@@ -248,7 +253,7 @@ export const idlFactory = ({ IDL }) => {
     'totalScoreNorm' : IDL.Nat,
     'rounds' : IDL.Vec(RoundState),
   });
-  const Result_7 = IDL.Variant({ 'ok' : GameSession, 'err' : IDL.Text });
+  const Result_8 = IDL.Variant({ 'ok' : GameSession, 'err' : IDL.Text });
   const SearchResult = IDL.Record({
     'hasMore' : IDL.Bool,
     'cursor' : IDL.Opt(IDL.Nat),
@@ -263,7 +268,7 @@ export const idlFactory = ({ IDL }) => {
     'players' : IDL.Vec(IDL.Principal),
     'roundCount' : IDL.Nat,
   });
-  const Result_6 = IDL.Variant({
+  const Result_7 = IDL.Variant({
     'ok' : IDL.Vec(SessionInfo),
     'err' : IDL.Text,
   });
@@ -282,6 +287,13 @@ export const idlFactory = ({ IDL }) => {
     'owner' : IDL.Principal,
     'subaccount' : IDL.Opt(IDL.Vec(IDL.Nat8)),
   });
+  const MetadataValue = IDL.Variant({
+    'Int' : IDL.Int,
+    'Nat' : IDL.Nat,
+    'Blob' : IDL.Vec(IDL.Nat8),
+    'Text' : IDL.Text,
+  });
+  const Metadata = IDL.Record({ 'key' : IDL.Text, 'value' : MetadataValue });
   const TransferArgs = IDL.Record({
     'to' : Account,
     'fee' : IDL.Opt(IDL.Nat),
@@ -303,8 +315,8 @@ export const idlFactory = ({ IDL }) => {
     'TooOld' : IDL.Null,
     'InsufficientFunds' : IDL.Record({ 'balance' : IDL.Nat }),
   });
-  const Result_5 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : TransferError });
-  const Result_4 = IDL.Variant({
+  const Result_6 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : TransferError });
+  const Result_5 = IDL.Variant({
     'ok' : IDL.Record({
       'chunksCount' : IDL.Nat,
       'errors' : IDL.Vec(IDL.Text),
@@ -316,7 +328,12 @@ export const idlFactory = ({ IDL }) => {
     'RadiusHint' : IDL.Nat,
     'DirectionHint' : IDL.Text,
   });
-  const Result_3 = IDL.Variant({ 'ok' : HintInfo, 'err' : IDL.Text });
+  const Result_4 = IDL.Variant({ 'ok' : HintInfo, 'err' : IDL.Text });
+  const Result_3 = IDL.Variant({
+    'ok' : IDL.Record({ 'expiryTime' : Time, 'transactionId' : IDL.Nat }),
+    'err' : IDL.Text,
+  });
+  const Result_1 = IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text });
   const SearchFilter = IDL.Record({
     'region' : IDL.Opt(RegionCode),
     'status' : IDL.Opt(
@@ -348,23 +365,27 @@ export const idlFactory = ({ IDL }) => {
   });
   const RoundResult = IDL.Record({
     'actualLocation' : IDL.Record({ 'lat' : IDL.Float64, 'lon' : IDL.Float64 }),
+    'photoRatingChange' : IDL.Int,
     'distance' : IDL.Float64,
+    'newPhotoRating' : IDL.Int,
     'displayScore' : IDL.Nat,
     'normalizedScore' : IDL.Nat,
+    'newPlayerRating' : IDL.Int,
+    'playerRatingChange' : IDL.Int,
     'guessLocation' : IDL.Record({ 'lat' : IDL.Float64, 'lon' : IDL.Float64 }),
     'photoId' : IDL.Nat,
   });
   const Result_2 = IDL.Variant({ 'ok' : RoundResult, 'err' : IDL.Text });
-  const Result_1 = IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text });
   return IDL.Service({
     'adminBanPhoto' : IDL.Func([IDL.Nat], [Result], []),
     'adminBanUser' : IDL.Func([IDL.Principal], [Result], []),
-    'adminMint' : IDL.Func([IDL.Principal, IDL.Nat], [Result_14], []),
+    'adminMint' : IDL.Func([IDL.Principal, IDL.Nat], [Result_15], []),
     'adminUnbanUser' : IDL.Func([IDL.Principal], [Result], []),
+    'burnTokens' : IDL.Func([IDL.Nat], [Result_15], []),
     'canRatePhoto' : IDL.Func([IDL.Text, IDL.Nat], [IDL.Bool], ['query']),
-    'clearLegacyPhotoData' : IDL.Func([], [Result_15], []),
-    'createPhotoV2' : IDL.Func([CreatePhotoRequest], [Result_14], []),
-    'createSession' : IDL.Func([], [Result_13], []),
+    'clearLegacyPhotoData' : IDL.Func([], [Result_16], []),
+    'createPhotoV2' : IDL.Func([CreatePhotoRequest], [Result_15], []),
+    'createSession' : IDL.Func([], [Result_14], []),
     'debugCalculatePlayerReward' : IDL.Func(
         [IDL.Text],
         [
@@ -375,6 +396,22 @@ export const idlFactory = ({ IDL }) => {
             'totalReward' : IDL.Nat,
             'roundCount' : IDL.Nat,
           }),
+        ],
+        ['query'],
+      ),
+    'debugGetAllPlayerStats' : IDL.Func(
+        [],
+        [
+          IDL.Vec(
+            IDL.Tuple(
+              IDL.Principal,
+              IDL.Record({
+                'totalGamesPlayed' : IDL.Nat,
+                'bestScore' : IDL.Nat,
+                'totalRewardsEarned' : IDL.Nat,
+              }),
+            )
+          ),
         ],
         ['query'],
       ),
@@ -409,6 +446,24 @@ export const idlFactory = ({ IDL }) => {
         ],
         ['query'],
       ),
+    'debugPhotoStats' : IDL.Func(
+        [],
+        [
+          IDL.Vec(
+            IDL.Tuple(
+              IDL.Nat,
+              IDL.Record({
+                'playCount' : IDL.Nat,
+                'bestScore' : IDL.Nat,
+                'worstScore' : IDL.Nat,
+                'totalScore' : IDL.Nat,
+                'averageScore' : IDL.Float64,
+              }),
+            )
+          ),
+        ],
+        ['query'],
+      ),
     'debugPhotoStorage' : IDL.Func(
         [],
         [
@@ -423,13 +478,59 @@ export const idlFactory = ({ IDL }) => {
         ],
         ['query'],
       ),
+    'debugPlayerStatsAndRewards' : IDL.Func(
+        [IDL.Principal],
+        [
+          IDL.Record({
+            'stats' : IDL.Record({
+              'totalGamesPlayed' : IDL.Nat,
+              'bestScore' : IDL.Nat,
+              'totalScore' : IDL.Nat,
+              'totalRewardsEarned' : IDL.Nat,
+            }),
+            'sessions' : IDL.Vec(
+              IDL.Record({
+                'storedReward' : IDL.Opt(IDL.Nat),
+                'totalScore' : IDL.Nat,
+                'calculatedReward' : IDL.Nat,
+                'roundsCompleted' : IDL.Nat,
+                'sessionId' : IDL.Text,
+              })
+            ),
+          }),
+        ],
+        ['query'],
+      ),
     'deletePhotoV2' : IDL.Func([IDL.Nat], [Result], []),
     'finalizePhotoUploadV2' : IDL.Func([IDL.Nat], [Result], []),
-    'finalizeSession' : IDL.Func([IDL.Text], [Result_12], []),
-    'generateHeatmap' : IDL.Func([IDL.Nat], [Result_11], ['query']),
+    'finalizeSession' : IDL.Func([IDL.Text], [Result_13], []),
+    'generateHeatmap' : IDL.Func([IDL.Nat], [Result_12], ['query']),
+    'getEloLeaderboard' : IDL.Func(
+        [IDL.Nat],
+        [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Int))],
+        ['query'],
+      ),
     'getLeaderboard' : IDL.Func(
         [IDL.Nat],
         [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Nat))],
+        ['query'],
+      ),
+    'getLeaderboardByRewards' : IDL.Func(
+        [IDL.Nat],
+        [
+          IDL.Vec(
+            IDL.Tuple(
+              IDL.Principal,
+              IDL.Record({
+                'principal' : IDL.Principal,
+                'username' : IDL.Opt(IDL.Text),
+                'totalGamesPlayed' : IDL.Nat,
+                'bestScore' : IDL.Nat,
+                'totalRewardsEarned' : IDL.Nat,
+              }),
+            )
+          ),
+        ],
         ['query'],
       ),
     'getLeaderboardWithStats' : IDL.Func(
@@ -450,12 +551,17 @@ export const idlFactory = ({ IDL }) => {
         ],
         ['query'],
       ),
+    'getMonthlyLeaderboard' : IDL.Func(
+        [IDL.Nat],
+        [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Nat, IDL.Text))],
+        ['query'],
+      ),
     'getMultiplePhotoRatings' : IDL.Func(
         [IDL.Vec(IDL.Nat)],
         [IDL.Vec(IDL.Tuple(IDL.Nat, IDL.Opt(AggregatedRatings)))],
         ['query'],
       ),
-    'getNextRound' : IDL.Func([IDL.Text, IDL.Opt(IDL.Text)], [Result_10], []),
+    'getNextRound' : IDL.Func([IDL.Text, IDL.Opt(IDL.Text)], [Result_11], []),
     'getOwner' : IDL.Func([], [IDL.Principal], ['query']),
     'getPhotoChunkV2' : IDL.Func(
         [IDL.Nat, IDL.Nat],
@@ -467,6 +573,7 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Opt(IDL.Vec(IDL.Nat8))],
         ['query'],
       ),
+    'getPhotoEloRating' : IDL.Func([IDL.Nat], [IDL.Int], ['query']),
     'getPhotoGuesses' : IDL.Func(
         [IDL.Nat, IDL.Opt(IDL.Nat)],
         [IDL.Vec(Guess)],
@@ -477,10 +584,25 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Opt(PhotoMetaV2)],
         ['query'],
       ),
-    'getPhotoMigrationStatus' : IDL.Func([], [Result_9], ['query']),
+    'getPhotoMigrationStatus' : IDL.Func([], [Result_10], ['query']),
     'getPhotoRatings' : IDL.Func(
         [IDL.Nat],
         [IDL.Opt(AggregatedRatings)],
+        ['query'],
+      ),
+    'getPhotoStatsById' : IDL.Func(
+        [IDL.Nat],
+        [
+          IDL.Opt(
+            IDL.Record({
+              'playCount' : IDL.Nat,
+              'bestScore' : IDL.Nat,
+              'worstScore' : IDL.Nat,
+              'totalScore' : IDL.Nat,
+              'averageScore' : IDL.Float64,
+            })
+          ),
+        ],
         ['query'],
       ),
     'getPhotoStatsDetailsV2' : IDL.Func(
@@ -489,6 +611,21 @@ export const idlFactory = ({ IDL }) => {
         ['query'],
       ),
     'getPhotoStatsV2' : IDL.Func([], [OverallPhotoStats], ['query']),
+    'getPlayerEloRating' : IDL.Func(
+        [IDL.Principal],
+        [
+          IDL.Record({
+            'gamesPlayed' : IDL.Nat,
+            'wins' : IDL.Nat,
+            'losses' : IDL.Nat,
+            'lowestRating' : IDL.Int,
+            'rating' : IDL.Int,
+            'draws' : IDL.Nat,
+            'highestRating' : IDL.Int,
+          }),
+        ],
+        ['query'],
+      ),
     'getPlayerHistory' : IDL.Func(
         [IDL.Principal, IDL.Opt(IDL.Nat)],
         [IDL.Vec(IDL.Nat)],
@@ -501,6 +638,7 @@ export const idlFactory = ({ IDL }) => {
           IDL.Record({
             'rank' : IDL.Opt(IDL.Nat),
             'totalGamesPlayed' : IDL.Nat,
+            'eloRating' : IDL.Int,
             'averageDuration' : IDL.Nat,
             'reputation' : IDL.Float64,
             'bestScore' : IDL.Nat,
@@ -513,6 +651,18 @@ export const idlFactory = ({ IDL }) => {
             'winRate' : IDL.Float64,
             'averageScore' : IDL.Nat,
             'currentStreak' : IDL.Nat,
+          }),
+        ],
+        ['query'],
+      ),
+    'getProMembershipExpiry' : IDL.Func([], [IDL.Opt(Time)], ['query']),
+    'getProMembershipStatus' : IDL.Func(
+        [IDL.Opt(IDL.Principal)],
+        [
+          IDL.Record({
+            'cost' : IDL.Nat,
+            'expiryTime' : IDL.Opt(Time),
+            'isPro' : IDL.Bool,
           }),
         ],
         ['query'],
@@ -535,7 +685,12 @@ export const idlFactory = ({ IDL }) => {
       ),
     'getRecentSessionsWithScores' : IDL.Func(
         [IDL.Principal, IDL.Nat],
-        [Result_8],
+        [Result_9],
+        ['query'],
+      ),
+    'getRemainingPlays' : IDL.Func(
+        [IDL.Opt(IDL.Principal)],
+        [IDL.Record({ 'remainingPlays' : IDL.Nat, 'playLimit' : IDL.Nat })],
         ['query'],
       ),
     'getReputation' : IDL.Func([IDL.Principal], [Reputation], ['query']),
@@ -544,7 +699,7 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Float64))],
         ['query'],
       ),
-    'getSession' : IDL.Func([IDL.Text], [Result_7], ['query']),
+    'getSession' : IDL.Func([IDL.Text], [Result_8], ['query']),
     'getSinkHistory' : IDL.Func(
         [IDL.Opt(IDL.Nat)],
         [IDL.Vec(IDL.Tuple(Time, IDL.Text, IDL.Nat))],
@@ -646,25 +801,40 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Vec(IDL.Tuple(IDL.Nat, IDL.Bool))],
         ['query'],
       ),
-    'getUserSessions' : IDL.Func([IDL.Principal], [Result_6], ['query']),
+    'getUserSessions' : IDL.Func([IDL.Principal], [Result_7], ['query']),
     'getUsername' : IDL.Func([IDL.Principal], [IDL.Opt(IDL.Text)], ['query']),
+    'getWeeklyLeaderboard' : IDL.Func(
+        [IDL.Nat],
+        [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Nat, IDL.Text))],
+        ['query'],
+      ),
+    'getWeeklyPhotos' : IDL.Func(
+        [IDL.Opt(IDL.Text), IDL.Nat],
+        [SearchResult],
+        ['query'],
+      ),
     'http_request' : IDL.Func([HttpRequest], [HttpResponse], ['query']),
     'http_request_update' : IDL.Func([HttpRequest], [HttpResponse], []),
     'icrc1_balance_of' : IDL.Func([Account], [IDL.Nat], ['query']),
     'icrc1_decimals' : IDL.Func([], [IDL.Nat8], ['query']),
     'icrc1_fee' : IDL.Func([], [IDL.Nat], ['query']),
+    'icrc1_metadata' : IDL.Func([], [IDL.Vec(Metadata)], ['query']),
     'icrc1_name' : IDL.Func([], [IDL.Text], ['query']),
     'icrc1_symbol' : IDL.Func([], [IDL.Text], ['query']),
     'icrc1_total_supply' : IDL.Func([], [IDL.Nat], ['query']),
-    'icrc1_transfer' : IDL.Func([TransferArgs], [Result_5], []),
+    'icrc1_transfer' : IDL.Func([TransferArgs], [Result_6], []),
     'init' : IDL.Func([], [Result], []),
-    'migrateLegacyPhotoData' : IDL.Func([], [Result_4], []),
-    'purchaseHint' : IDL.Func([IDL.Text, HintType], [Result_3], []),
+    'migrateLegacyPhotoData' : IDL.Func([], [Result_5], []),
+    'purchaseHint' : IDL.Func([IDL.Text, HintType], [Result_4], []),
+    'purchaseProMembership' : IDL.Func([], [Result_3], []),
+    'rebuildPhotoStats' : IDL.Func([], [Result_1], []),
+    'rebuildPlayerStats' : IDL.Func([], [IDL.Text], []),
     'searchPhotosV2' : IDL.Func(
         [SearchFilter, IDL.Opt(IDL.Nat), IDL.Nat],
         [SearchResult],
         ['query'],
       ),
+    'setOwner' : IDL.Func([IDL.Principal], [Result], []),
     'setPlayFee' : IDL.Func([IDL.Nat], [Result], []),
     'setUsername' : IDL.Func([IDL.Text], [Result], []),
     'submitGuess' : IDL.Func(

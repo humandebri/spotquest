@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,7 @@ import {
 } from '@expo/vector-icons';
 import { RootStackParamList } from '../../navigation/AppNavigator';
 import { photoServiceV2 } from '../../services/photoV2';
+import { gameService } from '../../services/game';
 import { useAuth } from '../../hooks/useAuth';
 import { useGameStore } from '../../store/gameStore';
 import { useFocusEffect } from '@react-navigation/native';
@@ -30,6 +31,7 @@ export default function GameModeScreen() {
   const [photoCount, setPhotoCount] = useState<number | null>(null);
   const [weeklyPhotoCount, setWeeklyPhotoCount] = useState<number | null>(null);
   const [isCheckingPhotos, setIsCheckingPhotos] = useState(false);
+  const [isProMember, setIsProMember] = useState(false);
   const { identity } = useAuth();
   const { resetGame, sessionId, sessionStatus } = useGameStore();
 
@@ -45,14 +47,25 @@ export default function GameModeScreen() {
     }, [sessionStatus, resetGame])
   );
 
-  // Check photo count on component mount
+  // Check photo count and Pro membership on component mount
   useEffect(() => {
-    const checkPhotoCount = async () => {
+    const checkPhotoCountAndPro = async () => {
       if (!identity) return;
       
       setIsCheckingPhotos(true);
       try {
+        // Initialize services
         await photoServiceV2.init(identity);
+        await gameService.init(identity);
+        
+        // Check Pro membership status
+        const proStatus = await gameService.getProMembershipStatus();
+        console.log('🎮 Pro membership status:', proStatus);
+        if (proStatus) {
+          setIsProMember(proStatus.isPro);
+        }
+        
+        // Check photo count
         const result = await photoServiceV2.searchPhotos({
           status: { Active: null }
         }, undefined, 10);
@@ -65,9 +78,18 @@ export default function GameModeScreen() {
         const weeklyPhotos = result.photos.filter(photo => 
           Number(photo.createdAt) >= oneWeekAgo
         );
+        
+        console.log('🎮 Weekly photos check:', {
+          currentTime: Date.now() * 1000000,
+          oneWeekAgo,
+          photoCreatedTimes: result.photos.map(p => Number(p.createdAt)),
+          weeklyCount: weeklyPhotos.length
+        });
+        
         setWeeklyPhotoCount(weeklyPhotos.length);
+        
       } catch (error) {
-        console.error('Error checking photo count:', error);
+        console.error('Error checking photo count and Pro status:', error);
         setPhotoCount(0);
         setWeeklyPhotoCount(0);
       } finally {
@@ -75,10 +97,23 @@ export default function GameModeScreen() {
       }
     };
 
-    checkPhotoCount();
+    checkPhotoCountAndPro();
   }, [identity]);
 
   const startGamePlay = (difficulty: string, mode: string = 'classic') => {
+    // Check Pro membership for This Week's Photos mode
+    if (mode === 'thisweek' && !isProMember) {
+      Alert.alert(
+        'Pro Membership Required',
+        "This Week's Photos mode is exclusive to Pro members. Upgrade to Pro to access this feature!",
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Upgrade to Pro', onPress: () => navigation.navigate('Profile') }
+        ]
+      );
+      return;
+    }
+    
     // Check if we have enough photos
     if (mode === 'classic' && photoCount !== null && photoCount < 5) {
       Alert.alert(
@@ -102,7 +137,7 @@ export default function GameModeScreen() {
     navigation.navigate('RegionSelect', { gameMode: mode });
   };
 
-  const gameModes = [
+  const gameModes = useMemo(() => [
     {
       title: 'Classic Mode',
       description: 'Guess the location from a single photo',
@@ -117,9 +152,10 @@ export default function GameModeScreen() {
       description: 'Play with photos from the last 7 days',
       icon: 'calendar' as const,
       gradient: ['#10b981', '#059669'] as const,
-      available: weeklyPhotoCount === null || weeklyPhotoCount >= 5,
+      available: isProMember && (weeklyPhotoCount === null || weeklyPhotoCount >= 5),
       difficulty: 'NORMAL',
       mode: 'thisweek',
+      requiresPro: true,
     },
     {
       title: 'Speed Mode',
@@ -139,7 +175,7 @@ export default function GameModeScreen() {
       difficulty: 'EXTREME',
       mode: 'multiplayer',
     },
-  ];
+  ], [isProMember, photoCount, weeklyPhotoCount]);
 
   const difficultyLevels = [
     {
@@ -268,7 +304,9 @@ export default function GameModeScreen() {
                       <Text style={styles.modeTitle}>{mode.title}</Text>
                       {!mode.available && (
                         <View style={styles.comingSoonBadge}>
-                          <Text style={styles.comingSoonText}>COMING SOON</Text>
+                          <Text style={styles.comingSoonText}>
+                            {'requiresPro' in mode && mode.requiresPro && !isProMember ? 'PRO' : 'COMING SOON'}
+                          </Text>
                         </View>
                       )}
                     </View>

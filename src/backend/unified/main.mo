@@ -86,7 +86,7 @@ actor GameUnified {
     // ======================================
     // SYSTEM CONFIGURATION
     // ======================================
-    private stable var owner : Principal = Principal.fromText("aaaaa-aa");
+    private stable var owner : Principal = Principal.fromText("lqfvd-m7ihy-e5dvc-gngvr-blzbt-pupeq-6t7ua-r7v4p-bvqjw-ea7gl-4qe");
     private stable var initialized : Bool = false;
     
     // ======================================
@@ -1862,6 +1862,36 @@ actor GameUnified {
     
     public query func getOwner() : async Principal {
         owner
+    };
+    
+    public shared(msg) func setOwner(newOwner: Principal) : async Result.Result<(), Text> {
+        // Only current owner or controller can change owner
+        if (msg.caller != owner and msg.caller != Principal.fromText("lqfvd-m7ihy-e5dvc-gngvr-blzbt-pupeq-6t7ua-r7v4p-bvqjw-ea7gl-4qe")) {
+            return #err("Unauthorized: Only owner or controller can change owner");
+        };
+        owner := newOwner;
+        #ok()
+    };
+    
+    // Burn tokens from caller's balance
+    public shared(msg) func burnTokens(amount: Nat) : async Result.Result<Nat, Text> {
+        Debug.print("🔥 Burn request from " # Principal.toText(msg.caller) # " for " # Nat.toText(amount) # " SPOT");
+        
+        // Check balance
+        let account : ICRC1.Account = { owner = msg.caller; subaccount = null };
+        let balance = tokenManager.icrc1_balance_of(account);
+        if (balance < amount) {
+            return #err("Insufficient balance. You have " # Nat.toText(balance / 100) # " SPOT");
+        };
+        
+        // Burn the tokens
+        switch (tokenManager.burn(msg.caller, amount)) {
+            case (#err(e)) { #err("Failed to burn tokens: " # e) };
+            case (#ok(transactionId)) {
+                Debug.print("🔥 Successfully burned " # Nat.toText(amount) # " SPOT from " # Principal.toText(msg.caller));
+                #ok(transactionId)
+            };
+        };
     };
     
     // ======================================

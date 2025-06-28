@@ -530,6 +530,12 @@ class GameService {
           balanceCount: IDL.Nat,
           firstFiveBalances: IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Nat)),
         })], ['query']),
+        
+        // Token burn function
+        burnTokens: IDL.Func([IDL.Nat], [IDL.Variant({
+          ok: IDL.Nat,
+          err: IDL.Text,
+        })], []),
       });
     };
 
@@ -1324,6 +1330,65 @@ class GameService {
     } catch (error) {
       console.error('Failed to get Pro membership status:', error);
       return null;
+    }
+  }
+
+  async burnTokens(amount: bigint): Promise<{ ok?: bigint; err?: string }> {
+    if (!this.initialized || !this.actor) {
+      return { err: 'Service not initialized' };
+    }
+    
+    try {
+      const result = await this.actor.burnTokens(amount);
+      return result;
+    } catch (error) {
+      console.error('Failed to burn tokens:', error);
+      return { err: error instanceof Error ? error.message : 'Burn failed' };
+    }
+  }
+
+  async transferTokens(to: string, amount: bigint): Promise<{ ok?: bigint; err?: string }> {
+    if (!this.initialized || !this.actor) {
+      return { err: 'Service not initialized' };
+    }
+    
+    try {
+      // Convert the principal string to CustomPrincipal
+      const toPrincipal = CustomPrincipal.fromText(to);
+      const transferFee = BigInt(1); // 1 unit transfer fee
+      
+      const transferArgs = {
+        to: { owner: toPrincipal, subaccount: [] },
+        amount: amount,
+        fee: [transferFee],
+        memo: [],
+        from_subaccount: [],
+        created_at_time: []
+      };
+      
+      const result = await this.actor.icrc1_transfer(transferArgs);
+      
+      if ('Err' in result) {
+        const error = result.Err;
+        let errorMessage = 'Transfer failed';
+        
+        if ('InsufficientFunds' in error) {
+          errorMessage = `Insufficient funds. Balance: ${error.InsufficientFunds.balance}`;
+        } else if ('BadFee' in error) {
+          errorMessage = `Bad fee. Expected: ${error.BadFee.expected_fee}`;
+        } else if ('GenericError' in error) {
+          errorMessage = error.GenericError.message;
+        } else {
+          errorMessage = `Transfer failed: ${Object.keys(error)[0]}`;
+        }
+        
+        return { err: errorMessage };
+      }
+      
+      return { ok: result.Ok };
+    } catch (error) {
+      console.error('Failed to transfer tokens:', error);
+      return { err: error instanceof Error ? error.message : 'Transfer failed' };
     }
   }
 

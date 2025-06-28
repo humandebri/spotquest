@@ -319,6 +319,30 @@ Note: `EloRatingModule.mo` and `frontend-vite-backup/` were preserved for future
 - **Elo Rating**: プレイヤー/写真の競技レーティング
 - **Rating/評価**: 写真への5段階評価（difficulty, interest, scenery）
 
+## Recent Updates (2025-06-28)
+
+### 開発者プリンシパルの特別扱いを削除とトークンBurn機能の追加
+
+**変更内容**:
+1. **フロントエンドから開発者プリンシパルの特別扱いを削除**:
+   - `GameModeScreen.tsx`: 
+     - 開発者プリンシパル(6lvto-wk4rq-...)が常にProメンバーとして扱われる処理を削除
+     - 週間写真モードで開発者プリンシパルが全写真を利用できる特別処理を削除
+   - `PhotoDetailsScreen.tsx`:
+     - 開発者プリンシパルが自分の写真を評価できる特別処理を削除
+
+2. **トークンBurn機能を追加**:
+   - `main.mo`: `burnTokens`関数を追加 - ユーザーが自分のトークンをburnできる
+   - `game.ts`: IDL定義とサービスメソッドに`burnTokens`を追加
+
+3. **ProメンバーシップのSPOT処理について確認**:
+   - `purchaseProMembership`関数でSPOTトークンは正しくburnされている（line 2567）
+   - 500 SPOT（50000最小単位）がProメンバーシップ購入時にburnされる
+
+**注意事項**:
+- 誤って50,000 SPOTをmintした場合は、`burnTokens(BigInt(4950000))`を呼び出して余分な49,500 SPOTをburnできる
+- バックエンドで`dfx canister call unified burnTokens '(4950000)' --network ic`でも実行可能
+
 ## Recent Updates (2025-06-27)
 
 ### 1. Recent Activity表示の修正

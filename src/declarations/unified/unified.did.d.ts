@@ -38,6 +38,8 @@ export interface CreatePhotoRequest {
 export interface GameSession {
   'id' : SessionId,
   'startTime' : Time,
+  'playerReward' : [] | [bigint],
+  'initialEloRating' : [] | [bigint],
   'endTime' : [] | [Time],
   'currentRound' : bigint,
   'userId' : Principal,
@@ -92,6 +94,11 @@ export interface HttpResponse {
   'headers' : Array<[string, string]>,
   'status_code' : number,
 }
+export interface Metadata { 'key' : string, 'value' : MetadataValue }
+export type MetadataValue = { 'Int' : bigint } |
+  { 'Nat' : bigint } |
+  { 'Blob' : Uint8Array | number[] } |
+  { 'Text' : string };
 export interface OverallPhotoStats {
   'photosByRegion' : Array<[RegionCode, bigint]>,
   'photosBySceneKind' : Array<[SceneKind, bigint]>,
@@ -130,7 +137,6 @@ export interface PhotoMetaV2 {
   'description' : string,
   'lastUsedTime' : [] | [Time],
   'totalSize' : bigint,
-  'qualityScore' : number,
   'timesUsed' : bigint,
   'longitude' : number,
   'sceneKind' : SceneKind,
@@ -163,41 +169,7 @@ export type Result = { 'ok' : null } |
   { 'err' : string };
 export type Result_1 = { 'ok' : string } |
   { 'err' : string };
-export type Result_10 = { 'ok' : RoundState } |
-  { 'err' : string };
-export type Result_11 = { 'ok' : Heatmap } |
-  { 'err' : string };
-export type Result_12 = { 'ok' : SessionResult } |
-  { 'err' : string };
-export type Result_13 = { 'ok' : SessionId } |
-  { 'err' : string };
-export type Result_14 = { 'ok' : bigint } |
-  { 'err' : string };
-export type Result_15 = {
-    'ok' : { 'clearedChunks' : bigint, 'clearedPhotos' : bigint }
-  } |
-  { 'err' : string };
-export type Result_2 = { 'ok' : RoundResult } |
-  { 'err' : string };
-export type Result_3 = { 'ok' : HintInfo } |
-  { 'err' : string };
-export type Result_4 = {
-    'ok' : {
-      'chunksCount' : bigint,
-      'errors' : Array<string>,
-      'photosCount' : bigint,
-    }
-  } |
-  { 'err' : string };
-export type Result_5 = { 'ok' : bigint } |
-  { 'err' : TransferError };
-export type Result_6 = { 'ok' : Array<SessionInfo> } |
-  { 'err' : string };
-export type Result_7 = { 'ok' : GameSession } |
-  { 'err' : string };
-export type Result_8 = { 'ok' : Array<SessionSummary> } |
-  { 'err' : string };
-export type Result_9 = {
+export type Result_10 = {
     'ok' : {
       'stableChunks' : bigint,
       'stablePhotos' : bigint,
@@ -206,11 +178,53 @@ export type Result_9 = {
     }
   } |
   { 'err' : string };
+export type Result_11 = { 'ok' : RoundState } |
+  { 'err' : string };
+export type Result_12 = { 'ok' : Heatmap } |
+  { 'err' : string };
+export type Result_13 = { 'ok' : SessionResult } |
+  { 'err' : string };
+export type Result_14 = { 'ok' : SessionId } |
+  { 'err' : string };
+export type Result_15 = { 'ok' : bigint } |
+  { 'err' : string };
+export type Result_16 = {
+    'ok' : { 'clearedChunks' : bigint, 'clearedPhotos' : bigint }
+  } |
+  { 'err' : string };
+export type Result_2 = { 'ok' : RoundResult } |
+  { 'err' : string };
+export type Result_3 = {
+    'ok' : { 'expiryTime' : Time, 'transactionId' : bigint }
+  } |
+  { 'err' : string };
+export type Result_4 = { 'ok' : HintInfo } |
+  { 'err' : string };
+export type Result_5 = {
+    'ok' : {
+      'chunksCount' : bigint,
+      'errors' : Array<string>,
+      'photosCount' : bigint,
+    }
+  } |
+  { 'err' : string };
+export type Result_6 = { 'ok' : bigint } |
+  { 'err' : TransferError };
+export type Result_7 = { 'ok' : Array<SessionInfo> } |
+  { 'err' : string };
+export type Result_8 = { 'ok' : GameSession } |
+  { 'err' : string };
+export type Result_9 = { 'ok' : Array<SessionSummary> } |
+  { 'err' : string };
 export interface RoundResult {
   'actualLocation' : { 'lat' : number, 'lon' : number },
+  'photoRatingChange' : bigint,
   'distance' : number,
+  'newPhotoRating' : bigint,
   'displayScore' : bigint,
   'normalizedScore' : bigint,
+  'newPlayerRating' : bigint,
+  'playerRatingChange' : bigint,
   'guessLocation' : { 'lat' : number, 'lon' : number },
   'photoId' : bigint,
 }
@@ -288,10 +302,14 @@ export type SessionStatus = { 'Abandoned' : null } |
 export interface SessionSummary {
   'id' : SessionId,
   'status' : SessionStatus,
+  'playerReward' : [] | [bigint],
+  'initialEloRating' : [] | [bigint],
   'duration' : [] | [bigint],
   'currentRound' : [] | [bigint],
   'createdAt' : Time,
+  'finalEloRating' : [] | [bigint],
   'totalScore' : bigint,
+  'eloRatingChange' : [] | [bigint],
   'roundCount' : bigint,
 }
 export type Time = bigint;
@@ -316,12 +334,13 @@ export type TransferError = {
 export interface _SERVICE {
   'adminBanPhoto' : ActorMethod<[bigint], Result>,
   'adminBanUser' : ActorMethod<[Principal], Result>,
-  'adminMint' : ActorMethod<[Principal, bigint], Result_14>,
+  'adminMint' : ActorMethod<[Principal, bigint], Result_15>,
   'adminUnbanUser' : ActorMethod<[Principal], Result>,
+  'burnTokens' : ActorMethod<[bigint], Result_15>,
   'canRatePhoto' : ActorMethod<[string, bigint], boolean>,
-  'clearLegacyPhotoData' : ActorMethod<[], Result_15>,
-  'createPhotoV2' : ActorMethod<[CreatePhotoRequest], Result_14>,
-  'createSession' : ActorMethod<[], Result_13>,
+  'clearLegacyPhotoData' : ActorMethod<[], Result_16>,
+  'createPhotoV2' : ActorMethod<[CreatePhotoRequest], Result_15>,
+  'createSession' : ActorMethod<[], Result_14>,
   'debugCalculatePlayerReward' : ActorMethod<
     [string],
     {
@@ -331,6 +350,19 @@ export interface _SERVICE {
       'totalReward' : bigint,
       'roundCount' : bigint,
     }
+  >,
+  'debugGetAllPlayerStats' : ActorMethod<
+    [],
+    Array<
+      [
+        Principal,
+        {
+          'totalGamesPlayed' : bigint,
+          'bestScore' : bigint,
+          'totalRewardsEarned' : bigint,
+        },
+      ]
+    >
   >,
   'debugGetPlayerSessions' : ActorMethod<
     [Principal],
@@ -357,6 +389,21 @@ export interface _SERVICE {
       'legacyPhotos' : bigint,
     }
   >,
+  'debugPhotoStats' : ActorMethod<
+    [],
+    Array<
+      [
+        bigint,
+        {
+          'playCount' : bigint,
+          'bestScore' : bigint,
+          'worstScore' : bigint,
+          'totalScore' : bigint,
+          'averageScore' : number,
+        },
+      ]
+    >
+  >,
   'debugPhotoStorage' : ActorMethod<
     [],
     {
@@ -368,11 +415,47 @@ export interface _SERVICE {
       'nextPhotoId' : bigint,
     }
   >,
+  'debugPlayerStatsAndRewards' : ActorMethod<
+    [Principal],
+    {
+      'stats' : {
+        'totalGamesPlayed' : bigint,
+        'bestScore' : bigint,
+        'totalScore' : bigint,
+        'totalRewardsEarned' : bigint,
+      },
+      'sessions' : Array<
+        {
+          'storedReward' : [] | [bigint],
+          'totalScore' : bigint,
+          'calculatedReward' : bigint,
+          'roundsCompleted' : bigint,
+          'sessionId' : string,
+        }
+      >,
+    }
+  >,
   'deletePhotoV2' : ActorMethod<[bigint], Result>,
   'finalizePhotoUploadV2' : ActorMethod<[bigint], Result>,
-  'finalizeSession' : ActorMethod<[string], Result_12>,
-  'generateHeatmap' : ActorMethod<[bigint], Result_11>,
+  'finalizeSession' : ActorMethod<[string], Result_13>,
+  'generateHeatmap' : ActorMethod<[bigint], Result_12>,
+  'getEloLeaderboard' : ActorMethod<[bigint], Array<[Principal, bigint]>>,
   'getLeaderboard' : ActorMethod<[bigint], Array<[Principal, bigint]>>,
+  'getLeaderboardByRewards' : ActorMethod<
+    [bigint],
+    Array<
+      [
+        Principal,
+        {
+          'principal' : Principal,
+          'username' : [] | [string],
+          'totalGamesPlayed' : bigint,
+          'bestScore' : bigint,
+          'totalRewardsEarned' : bigint,
+        },
+      ]
+    >
+  >,
   'getLeaderboardWithStats' : ActorMethod<
     [bigint],
     Array<
@@ -388,11 +471,15 @@ export interface _SERVICE {
       ]
     >
   >,
+  'getMonthlyLeaderboard' : ActorMethod<
+    [bigint],
+    Array<[Principal, bigint, string]>
+  >,
   'getMultiplePhotoRatings' : ActorMethod<
     [Array<bigint>],
     Array<[bigint, [] | [AggregatedRatings]]>
   >,
-  'getNextRound' : ActorMethod<[string, [] | [string]], Result_10>,
+  'getNextRound' : ActorMethod<[string, [] | [string]], Result_11>,
   'getOwner' : ActorMethod<[], Principal>,
   'getPhotoChunkV2' : ActorMethod<
     [bigint, bigint],
@@ -402,12 +489,37 @@ export interface _SERVICE {
     [bigint],
     [] | [Uint8Array | number[]]
   >,
+  'getPhotoEloRating' : ActorMethod<[bigint], bigint>,
   'getPhotoGuesses' : ActorMethod<[bigint, [] | [bigint]], Array<Guess>>,
   'getPhotoMetadataV2' : ActorMethod<[bigint], [] | [PhotoMetaV2]>,
-  'getPhotoMigrationStatus' : ActorMethod<[], Result_9>,
+  'getPhotoMigrationStatus' : ActorMethod<[], Result_10>,
   'getPhotoRatings' : ActorMethod<[bigint], [] | [AggregatedRatings]>,
+  'getPhotoStatsById' : ActorMethod<
+    [bigint],
+    [] | [
+      {
+        'playCount' : bigint,
+        'bestScore' : bigint,
+        'worstScore' : bigint,
+        'totalScore' : bigint,
+        'averageScore' : number,
+      }
+    ]
+  >,
   'getPhotoStatsDetailsV2' : ActorMethod<[bigint], [] | [PhotoStats]>,
   'getPhotoStatsV2' : ActorMethod<[], OverallPhotoStats>,
+  'getPlayerEloRating' : ActorMethod<
+    [Principal],
+    {
+      'gamesPlayed' : bigint,
+      'wins' : bigint,
+      'losses' : bigint,
+      'lowestRating' : bigint,
+      'rating' : bigint,
+      'draws' : bigint,
+      'highestRating' : bigint,
+    }
+  >,
   'getPlayerHistory' : ActorMethod<[Principal, [] | [bigint]], Array<bigint>>,
   'getPlayerRank' : ActorMethod<[Principal], [] | [bigint]>,
   'getPlayerStats' : ActorMethod<
@@ -415,6 +527,7 @@ export interface _SERVICE {
     {
       'rank' : [] | [bigint],
       'totalGamesPlayed' : bigint,
+      'eloRating' : bigint,
       'averageDuration' : bigint,
       'reputation' : number,
       'bestScore' : bigint,
@@ -429,6 +542,11 @@ export interface _SERVICE {
       'currentStreak' : bigint,
     }
   >,
+  'getProMembershipExpiry' : ActorMethod<[], [] | [Time]>,
+  'getProMembershipStatus' : ActorMethod<
+    [[] | [Principal]],
+    { 'cost' : bigint, 'expiryTime' : [] | [Time], 'isPro' : boolean }
+  >,
   'getRatingDistribution' : ActorMethod<[bigint], [] | [RatingDistribution]>,
   'getRatingStats' : ActorMethod<
     [],
@@ -438,13 +556,17 @@ export interface _SERVICE {
       'totalRatedPhotos' : bigint,
     }
   >,
-  'getRecentSessionsWithScores' : ActorMethod<[Principal, bigint], Result_8>,
+  'getRecentSessionsWithScores' : ActorMethod<[Principal, bigint], Result_9>,
+  'getRemainingPlays' : ActorMethod<
+    [[] | [Principal]],
+    { 'remainingPlays' : bigint, 'playLimit' : bigint }
+  >,
   'getReputation' : ActorMethod<[Principal], Reputation>,
   'getReputationLeaderboard' : ActorMethod<
     [bigint],
     Array<[Principal, number]>
   >,
-  'getSession' : ActorMethod<[string], Result_7>,
+  'getSession' : ActorMethod<[string], Result_8>,
   'getSinkHistory' : ActorMethod<
     [[] | [bigint]],
     Array<[Time, string, bigint]>
@@ -517,24 +639,34 @@ export interface _SERVICE {
     [string, Array<bigint>],
     Array<[bigint, boolean]>
   >,
-  'getUserSessions' : ActorMethod<[Principal], Result_6>,
+  'getUserSessions' : ActorMethod<[Principal], Result_7>,
   'getUsername' : ActorMethod<[Principal], [] | [string]>,
+  'getWeeklyLeaderboard' : ActorMethod<
+    [bigint],
+    Array<[Principal, bigint, string]>
+  >,
+  'getWeeklyPhotos' : ActorMethod<[[] | [string], bigint], SearchResult>,
   'http_request' : ActorMethod<[HttpRequest], HttpResponse>,
   'http_request_update' : ActorMethod<[HttpRequest], HttpResponse>,
   'icrc1_balance_of' : ActorMethod<[Account], bigint>,
   'icrc1_decimals' : ActorMethod<[], number>,
   'icrc1_fee' : ActorMethod<[], bigint>,
+  'icrc1_metadata' : ActorMethod<[], Array<Metadata>>,
   'icrc1_name' : ActorMethod<[], string>,
   'icrc1_symbol' : ActorMethod<[], string>,
   'icrc1_total_supply' : ActorMethod<[], bigint>,
-  'icrc1_transfer' : ActorMethod<[TransferArgs], Result_5>,
+  'icrc1_transfer' : ActorMethod<[TransferArgs], Result_6>,
   'init' : ActorMethod<[], Result>,
-  'migrateLegacyPhotoData' : ActorMethod<[], Result_4>,
-  'purchaseHint' : ActorMethod<[string, HintType], Result_3>,
+  'migrateLegacyPhotoData' : ActorMethod<[], Result_5>,
+  'purchaseHint' : ActorMethod<[string, HintType], Result_4>,
+  'purchaseProMembership' : ActorMethod<[], Result_3>,
+  'rebuildPhotoStats' : ActorMethod<[], Result_1>,
+  'rebuildPlayerStats' : ActorMethod<[], string>,
   'searchPhotosV2' : ActorMethod<
     [SearchFilter, [] | [bigint], bigint],
     SearchResult
   >,
+  'setOwner' : ActorMethod<[Principal], Result>,
   'setPlayFee' : ActorMethod<[bigint], Result>,
   'setUsername' : ActorMethod<[string], Result>,
   'submitGuess' : ActorMethod<
