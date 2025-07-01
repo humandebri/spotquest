@@ -59,35 +59,42 @@ class GameService {
   }
 
   async init(identity: Identity) {
-    if (!identity) {
-      throw new Error('No identity provided');
-    }
+    try {
+      if (!identity) {
+        throw new Error('No identity provided');
+      }
 
-    // Debug logging
-    console.log('🎮 GameService.init called with identity:', {
-      type: identity.constructor.name,
-      principal: identity.getPrincipal().toString()
-    });
+      // Debug logging
+      console.log('🎮 GameService.init called with identity:', {
+        type: identity.constructor.name,
+        principal: identity.getPrincipal().toString()
+      });
 
-    // Reuse existing actor if identity hasn't changed (but not for dev mode)
-    const isDevMode = identity.constructor.name === 'Ed25519KeyIdentity';
-    if (this.identity && this.identity === identity && this.actor && !isDevMode && this.initialized) {
-      console.log('🎮 Reusing existing actor');
-      return;
-    }
-    
-    // Dev modeでは常に新しいactorを作成（証明書エラー回避のため）
-    if (isDevMode && this.actor) {
-      console.log('🎮 DEV: Recreating actor with certificate bypass');
-    }
+      // Reuse existing actor if identity hasn't changed (but not for dev mode)
+      const isDevMode = identity.constructor.name === 'Ed25519KeyIdentity';
+      if (this.identity && this.identity === identity && this.actor && !isDevMode && this.initialized) {
+        console.log('🎮 Reusing existing actor');
+        return;
+      }
+      
+      // Dev modeでは常に新しいactorを作成（証明書エラー回避のため）
+      if (isDevMode && this.actor) {
+        console.log('🎮 DEV: Recreating actor with certificate bypass');
+      }
 
-    this.identity = identity;
-    await this.initializeActor(identity);
-    this.initialized = true;
-    
-    // Small delay to ensure everything is settled
-    await new Promise(resolve => setTimeout(resolve, 100));
-    console.log('🎮 GameService fully initialized');
+      this.identity = identity;
+      await this.initializeActor(identity);
+      this.initialized = true;
+      
+      // Small delay to ensure everything is settled
+      await new Promise(resolve => setTimeout(resolve, 100));
+      console.log('🎮 GameService fully initialized');
+    } catch (error) {
+      console.error('🎮 GameService initialization failed:', error);
+      this.initialized = false;
+      this.actor = null;
+      throw error;
+    }
   }
 
   private async initializeActor(identity: Identity) {

@@ -41,6 +41,7 @@ let DateTimePicker: any;
 try {
   DateTimePicker = require('@react-native-community/datetimepicker').default;
 } catch (e) {
+  console.log('DateTimePicker not available:', e);
   DateTimePicker = null;
 }
 

@@ -17,6 +17,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navigation/AppNavigator';
 import { Ionicons } from '@expo/vector-icons';
+import { safeUnsubscribe } from '../../utils/subscriptionHelper';
 
 type CameraScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Camera'>;
 
@@ -71,38 +72,15 @@ export default function CameraScreen() {
     return () => {
       isMounted = false;
       
-      // 安全なクリーンアップ関数
-      const cleanupSubscription = async (ref: any, name: string) => {
-        try {
-          if (!ref.current) {
-            return;
-          }
-          
-          // Promiseの場合は解決を待つ
-          const subscription = await Promise.resolve(ref.current);
-          
-          // subscriptionが有効で、removeメソッドを持っているか確認
-          if (subscription && typeof subscription === 'object' && 'remove' in subscription) {
-            if (typeof subscription.remove === 'function') {
-              await subscription.remove();
-              console.log(`✅ ${name} subscription removed successfully`);
-            }
-          }
-          
-          ref.current = null;
-        } catch (error) {
-          console.log(`⚠️ Error removing ${name} subscription:`, error);
-        }
-      };
+      // 各subscriptionを安全にクリーンアップ
+      safeUnsubscribe(headingSubscriptionRef.current, 'heading');
+      safeUnsubscribe(deviceMotionSubscriptionRef.current, 'deviceMotion');
+      safeUnsubscribe(locationSubscriptionRef.current, 'location');
       
-      // 各subscriptionを非同期でクリーンアップ
-      Promise.all([
-        cleanupSubscription(headingSubscriptionRef, 'heading'),
-        cleanupSubscription(deviceMotionSubscriptionRef, 'deviceMotion'),
-        cleanupSubscription(locationSubscriptionRef, 'location')
-      ]).catch(error => {
-        console.log('⚠️ Cleanup error:', error);
-      });
+      // Clear refs
+      headingSubscriptionRef.current = null;
+      deviceMotionSubscriptionRef.current = null;
+      locationSubscriptionRef.current = null;
     };
   }, []);
 
