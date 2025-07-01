@@ -89,15 +89,7 @@
       ],
       "expo-secure-store",
       "expo-router",
-      "expo-web-browser",
-      [
-        "react-native-maps",
-        {
-          "ios": {
-            "mapType": "googleMaps"
-          }
-        }
-      ]
+      "expo-web-browser"
     ],
     "extra": {
       "eas": {
