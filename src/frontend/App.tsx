@@ -22,7 +22,6 @@ import { debugStorage } from './src/utils/debugStorage';
 import { patchExpoIIIntegration } from './src/utils/expoIIIntegrationPatch';
 import { patchEd25519KeyIdentity } from './src/utils/ed25519Fix';
 import { DEBUG_CONFIG, debugLog } from './src/utils/debugConfig';
-import { GlobalErrorBoundary } from './src/components/GlobalErrorBoundary';
 
 // Apply critical patches - needed in both dev and production
 debugLog('AUTH_FLOW', '🚀 Applying patches...');

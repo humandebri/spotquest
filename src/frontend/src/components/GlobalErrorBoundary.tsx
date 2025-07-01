@@ -1,6 +1,5 @@
 import React, { Component, ReactNode } from 'react';
 import { View, Text, Button, StyleSheet, Platform, ScrollView } from 'react-native';
-import * as Updates from 'expo-updates';
 
 interface Props {
   children: ReactNode;
@@ -47,8 +46,10 @@ export class GlobalErrorBoundary extends Component<Props, State> {
     try {
       if (Platform.OS === 'web') {
         window.location.reload();
-      } else if (Updates.isAvailable) {
-        await Updates.reloadAsync();
+      } else {
+        // On native, we can't reload programmatically without expo-updates
+        // User will need to manually restart the app
+        console.log('Please restart the app manually');
       }
     } catch (error) {
       console.error('Failed to reload app:', error);
