@@ -598,3 +598,73 @@ dfx canister --network ic call unified rebuildPlayerStats
    - RoundDataインターフェースにtimestampフィールドを追加
    - カテゴリデータの集計にMapを使用して効率的に処理
    - 勝率計算では3000点以上を「勝利」として定義
+
+## Recent Updates (2025-07-01)
+
+### iOS TurboModuleクラッシュ修正とエラーハンドリング強化
+
+**クラッシュの原因**:
+- React Native TurboModuleの`performVoidMethodInvocation`でクラッシュ（ビルド9,10）
+- `CameraScreen.tsx`での不適切なsubscriptionクリーンアップ処理が原因
+
+**修正内容**:
+1. **CameraScreen.tsxのsubscription処理を改善**:
+   - 非同期subscriptionを適切に処理（`await Promise.resolve()`を使用）
+   - subscriptionがオブジェクトで`remove`メソッドを持つことを確認
+   - 各subscriptionのクリーンアップを個別にtry-catchで処理
+
+2. **App.tsxのLinkingイベントリスナー強化**:
+   - より厳密な型チェックを追加
+   - オブジェクトであることを確認してから`remove`を呼び出し
+
+3. **GlobalErrorBoundaryの追加**:
+   - 全てのエラーをキャッチする汎用エラーバウンダリー
+   - TurboModuleエラーも検出・ログ出力
+   - ユーザーフレンドリーなエラー画面とアプリ再起動機能
+
+4. **その他の確認事項**:
+   - ProfileScreen.tsxのCustomPrincipalは既にimport済み
+   - 他のファイルでsubscription関連の問題は見つからず
+
+**ビルド番号**: 13 → 14
+
+### クラッシュ対策と安全性向上（以前の対応）
+
+**問題の特定**:
+1. イベントリスナーの`remove()`メソッドの直接呼び出しがnullチェックなしで行われていた
+2. ネイティブモジュール（Location、DeviceMotion、ScreenOrientation）の存在確認が不十分
+3. 非同期処理のクリーンアップが複雑で、アンマウント時にクラッシュする可能性
+4. CustomPrincipalのインポートエラーハンドリングがない
+5. グローバルエラーバウンダリーの欠如
+6. サービスの非同期初期化でエラーハンドリングが不十分
+
+**実装した修正**:
+
+1. **GlobalErrorBoundary.tsx**を追加
+   - アプリ全体のクラッシュをキャッチ
+   - エラー詳細の表示（開発環境のみ）
+   - アプリのリセット/リロード機能
+
+2. **App.tsx**の修正
+   - Linkingイベントリスナーの`remove()`呼び出しをtry-catchでラップ
+   - GlobalErrorBoundaryでアプリ全体をラップ
+
+3. **CameraScreen.tsx**の改善
+   - subscriptionHelperを使用した安全なクリーンアップ
+   - 非同期クリーンアップを同期的に変更
+   - ネイティブモジュールの存在確認を強化
+
+4. **新しいユーティリティの追加**:
+   - `safeImport.ts`: 安全なモジュールインポート
+   - `asyncCleanup.ts`: 非同期処理の安全なキャンセル
+   - `subscriptionHelper.ts`: サブスクリプションの安全な管理
+
+5. **サービスの改善**:
+   - `game.ts`: init()メソッドにtry-catchを追加
+   - エラー時の状態リセット処理
+
+**技術的な詳細**:
+- サブスクリプションの複数のunsubscribeメソッド（remove、_remove、unsubscribe、cancel、off）に対応
+- ネイティブモジュールの動的チェック
+- 非同期処理のキャンセル可能な実装
+- エラー境界による包括的なエラーハンドリング
