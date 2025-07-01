@@ -18,7 +18,7 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.spotquest.app",
-      buildNumber: "13",
+      buildNumber: "14",
       config: {
         googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY
       },

@@ -14,6 +14,7 @@ import { IIAuthProviderWithReset } from './src/contexts/IIAuthProviderWithReset'
 import { useIIIntegrationContext } from 'expo-ii-integration';
 import { DevAuthProvider } from './src/contexts/DevAuthContext';
 import AppNavigator from './src/navigation/AppNavigator';
+import { GlobalErrorBoundary } from './src/components/GlobalErrorBoundary';
 import { enableJSONParseLogging } from './src/utils/jsonSafeParse';
 import { patchIIIntegrationFetch } from './src/utils/iiIntegrationPatch';
 import { patchStorageForIIIntegration } from './src/utils/storagePatch';
@@ -21,6 +22,7 @@ import { debugStorage } from './src/utils/debugStorage';
 import { patchExpoIIIntegration } from './src/utils/expoIIIntegrationPatch';
 import { patchEd25519KeyIdentity } from './src/utils/ed25519Fix';
 import { DEBUG_CONFIG, debugLog } from './src/utils/debugConfig';
+import { GlobalErrorBoundary } from './src/components/GlobalErrorBoundary';
 
 // Apply critical patches - needed in both dev and production
 debugLog('AUTH_FLOW', '🚀 Applying patches...');
@@ -101,7 +103,17 @@ function AppContent() {
     });
     
     return () => {
-      subscription.remove();
+      try {
+        // より安全なチェック - subscriptionがオブジェクトであることを確認
+        if (subscription && typeof subscription === 'object' && 'remove' in subscription) {
+          if (typeof subscription.remove === 'function') {
+            subscription.remove();
+            debugLog('DEEP_LINKS', '✅ Linking event listener removed successfully');
+          }
+        }
+      } catch (error) {
+        console.log('⚠️ Error removing Linking event listener:', error);
+      }
     };
   }, [isAuthenticated, isAuthReady]);
 
@@ -155,8 +167,10 @@ function AppWithAuth() {
 // Main App component
 export default function App() {
   return (
-    <SafeAreaProvider>
-      <AppWithAuth />
-    </SafeAreaProvider>
+    <GlobalErrorBoundary>
+      <SafeAreaProvider>
+        <AppWithAuth />
+      </SafeAreaProvider>
+    </GlobalErrorBoundary>
   );
 }
