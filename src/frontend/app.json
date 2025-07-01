@@ -16,7 +16,10 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.spotquest.app",
-      "buildNumber": "8",
+      "buildNumber": "12",
+      "config": {
+        "googleMapsApiKey": "YOUR_API_KEY_HERE"
+      },
       "infoPlist": {
         "CFBundleIconName": "AppIcon",
         "NSCameraUsageDescription": "This app needs access to camera to take photos for the game.",
@@ -35,6 +38,11 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.spotquest.app",
+      "config": {
+        "googleMaps": {
+          "apiKey": "YOUR_API_KEY_HERE"
+        }
+      },
       "permissions": [
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION",
@@ -81,7 +89,15 @@
       ],
       "expo-secure-store",
       "expo-router",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "react-native-maps",
+        {
+          "ios": {
+            "mapType": "googleMaps"
+          }
+        }
+      ]
     ],
     "extra": {
       "eas": {

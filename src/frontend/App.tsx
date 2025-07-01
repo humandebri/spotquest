@@ -22,21 +22,22 @@ import { patchExpoIIIntegration } from './src/utils/expoIIIntegrationPatch';
 import { patchEd25519KeyIdentity } from './src/utils/ed25519Fix';
 import { DEBUG_CONFIG, debugLog } from './src/utils/debugConfig';
 
-// Enable JSON parse debugging and fetch patching in development
+// Apply critical patches - needed in both dev and production
+debugLog('AUTH_FLOW', '🚀 Applying patches...');
+
+// Critical patches that must run in production
+patchEd25519KeyIdentity();
+patchExpoIIIntegration();
+patchStorageForIIIntegration();
+patchIIIntegrationFetch();
+
+// Debug-only patches
 if (__DEV__) {
-  debugLog('AUTH_FLOW', '🚀 Applying development patches...');
-  // Apply debug first
   debugStorage();
-  // Apply Ed25519 patch first - before any library might use it
-  patchEd25519KeyIdentity();
-  // Then patch expo-ii-integration
-  patchExpoIIIntegration();
-  // Then other patches
   enableJSONParseLogging();
-  patchStorageForIIIntegration();
-  patchIIIntegrationFetch();
-  debugLog('AUTH_FLOW', '🚀 All patches applied');
 }
+
+debugLog('AUTH_FLOW', '🚀 All patches applied');
 
 // ★ 必須: Safari/WebBrowserが閉じるように
 WebBrowser.maybeCompleteAuthSession();
@@ -102,8 +103,8 @@ function AppContent() {
   const linking = {
     prefixes: [
       Linking.createURL('/'),
-      'guessthespot://',
-      'https://guess-the-spot.app',
+      'spotquest://',
+      'https://spotquest.app',
       'https://auth.expo.io',
     ],
     config: {

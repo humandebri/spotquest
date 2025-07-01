@@ -15,7 +15,17 @@
       "distribution": "internal"
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_UNIFIED_CANISTER_ID": "77fv5-oiaaa-aaaal-qsoea-cai",
+        "EXPO_PUBLIC_IC_HOST": "https://ic0.app",
+        "EXPO_PUBLIC_FRONTEND_CANISTER_ID": "7yetj-dqaaa-aaaal-qsoeq-cai",
+        "EXPO_PUBLIC_DFX_NETWORK": "ic",
+        "EXPO_PUBLIC_LOCAL_IP_ADDRESS": "127.0.0.1",
+        "EXPO_PUBLIC_INTERNET_IDENTITY_URL": "https://identity.ic0.app",
+        "EXPO_PUBLIC_II_INTEGRATION_CANISTER_ID": "77fv5-oiaaa-aaaal-qsoea-cai",
+        "EXPO_PUBLIC_EAS_DEEP_LINK_TYPE": "custom-scheme"
+      }
     }
   },
   "submit": {

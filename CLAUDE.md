@@ -489,6 +489,27 @@ dfx canister --network ic call unified rebuildPlayerStats
   3. 関連するPNGファイルもすべてgitに追加
 - **教訓**: EASビルドはgitリポジトリの内容を使用するため、必要なファイルはすべてコミットする必要がある
 
+### TestFlightクラッシュの修正 (2025-07-01)
+- **問題**: TestFlightでアプリ起動時にクラッシュ
+- **原因**: プロダクションビルドに環境変数が含まれていない（.env.localは.gitignoreに含まれているため）
+- **解決策**: eas.jsonのproductionプロファイルに環境変数を追加
+  ```json
+  "production": {
+    "autoIncrement": true,
+    "env": {
+      "EXPO_PUBLIC_UNIFIED_CANISTER_ID": "77fv5-oiaaa-aaaal-qsoea-cai",
+      "EXPO_PUBLIC_IC_HOST": "https://ic0.app",
+      "EXPO_PUBLIC_FRONTEND_CANISTER_ID": "7yetj-dqaaa-aaaal-qsoeq-cai",
+      "EXPO_PUBLIC_DFX_NETWORK": "ic",
+      "EXPO_PUBLIC_LOCAL_IP_ADDRESS": "127.0.0.1",
+      "EXPO_PUBLIC_INTERNET_IDENTITY_URL": "https://identity.ic0.app",
+      "EXPO_PUBLIC_II_INTEGRATION_CANISTER_ID": "77fv5-oiaaa-aaaal-qsoea-cai"
+    }
+  }
+  ```
+- **buildNumber**: 10に更新（EASが11に自動インクリメント）
+- **重要**: 環境変数なしでは、Internet Identity統合とcanister通信が失敗しクラッシュする
+
 ## Recent Updates (2025-06-27) - アプリ名とアイコンの変更
 
 ### アプリ名を「SpotQuest」に変更
