@@ -48,6 +48,8 @@ export default function CameraScreen() {
 
   // カメラと位置情報の権限をリクエスト
   useEffect(() => {
+    let isMounted = true;
+    
     (async () => {
       // カメラ権限
       if (!permission?.granted) {
@@ -58,7 +60,7 @@ export default function CameraScreen() {
       const locationStatus = await Location.requestForegroundPermissionsAsync();
       setLocationPermission(locationStatus.status === 'granted');
 
-      if (locationStatus.status === 'granted') {
+      if (locationStatus.status === 'granted' && isMounted) {
         startLocationTracking();
         startDeviceMotionTracking();
       } else {
@@ -67,33 +69,40 @@ export default function CameraScreen() {
     })();
 
     return () => {
-      // クリーンアップ
-      try {
-        if (headingSubscriptionRef.current && typeof headingSubscriptionRef.current.remove === 'function') {
-          headingSubscriptionRef.current.remove();
-          headingSubscriptionRef.current = null;
-        }
-      } catch (error) {
-        console.log('Error removing heading subscription:', error);
-      }
+      isMounted = false;
       
-      try {
-        if (deviceMotionSubscriptionRef.current && typeof deviceMotionSubscriptionRef.current.remove === 'function') {
-          deviceMotionSubscriptionRef.current.remove();
-          deviceMotionSubscriptionRef.current = null;
+      // 安全なクリーンアップ関数
+      const cleanupSubscription = async (ref: any, name: string) => {
+        try {
+          if (!ref.current) {
+            return;
+          }
+          
+          // Promiseの場合は解決を待つ
+          const subscription = await Promise.resolve(ref.current);
+          
+          // subscriptionが有効で、removeメソッドを持っているか確認
+          if (subscription && typeof subscription === 'object' && 'remove' in subscription) {
+            if (typeof subscription.remove === 'function') {
+              await subscription.remove();
+              console.log(`✅ ${name} subscription removed successfully`);
+            }
+          }
+          
+          ref.current = null;
+        } catch (error) {
+          console.log(`⚠️ Error removing ${name} subscription:`, error);
         }
-      } catch (error) {
-        console.log('Error removing device motion subscription:', error);
-      }
+      };
       
-      try {
-        if (locationSubscriptionRef.current && typeof locationSubscriptionRef.current.remove === 'function') {
-          locationSubscriptionRef.current.remove();
-          locationSubscriptionRef.current = null;
-        }
-      } catch (error) {
-        console.log('Error removing location subscription:', error);
-      }
+      // 各subscriptionを非同期でクリーンアップ
+      Promise.all([
+        cleanupSubscription(headingSubscriptionRef, 'heading'),
+        cleanupSubscription(deviceMotionSubscriptionRef, 'deviceMotion'),
+        cleanupSubscription(locationSubscriptionRef, 'location')
+      ]).catch(error => {
+        console.log('⚠️ Cleanup error:', error);
+      });
     };
   }, []);
 
@@ -128,33 +137,43 @@ export default function CameraScreen() {
       });
 
       // その後、高精度ウォッチで置き換え
-      locationSubscriptionRef.current = await Location.watchPositionAsync(
-        {
-          accuracy: Platform.OS === 'ios'
-            ? Location.Accuracy.BestForNavigation
-            : Location.Accuracy.Highest,
-          timeInterval: 3000,
-          distanceInterval: 0,
-        },
-        (newLocation) => {
-          console.log('📍 Watch location update:', {
-            latitude: newLocation.coords.latitude,
-            longitude: newLocation.coords.longitude,
-            accuracy: newLocation.coords.accuracy,
-          });
+      try {
+        const subscription = await Location.watchPositionAsync(
+          {
+            accuracy: Platform.OS === 'ios'
+              ? Location.Accuracy.BestForNavigation
+              : Location.Accuracy.Highest,
+            timeInterval: 3000,
+            distanceInterval: 0,
+          },
+          (newLocation) => {
+            console.log('📍 Watch location update:', {
+              latitude: newLocation.coords.latitude,
+              longitude: newLocation.coords.longitude,
+              accuracy: newLocation.coords.accuracy,
+            });
 
-          setLocation({
-            latitude: newLocation.coords.latitude,
-            longitude: newLocation.coords.longitude,
-            accuracy: newLocation.coords.accuracy,
-            altitude: newLocation.coords.altitude,
-            heading: newLocation.coords.heading,
-            speed: newLocation.coords.speed,
-            timestamp: newLocation.timestamp,
-          });
-          setLocationError(null);
+            setLocation({
+              latitude: newLocation.coords.latitude,
+              longitude: newLocation.coords.longitude,
+              accuracy: newLocation.coords.accuracy,
+              altitude: newLocation.coords.altitude,
+              heading: newLocation.coords.heading,
+              speed: newLocation.coords.speed,
+              timestamp: newLocation.timestamp,
+            });
+            setLocationError(null);
+          }
+        );
+        
+        // subscriptionが有効な場合のみrefに格納
+        if (subscription) {
+          locationSubscriptionRef.current = subscription;
+          console.log('✅ Location watch subscription created');
         }
-      );
+      } catch (error) {
+        console.error('Failed to create location watch subscription:', error);
+      }
     } catch (error) {
       console.error('Location error:', error);
       setLocationError('位置情報の取得に失敗しました');
@@ -204,40 +223,50 @@ export default function CameraScreen() {
       // DeviceMotionの設定と監視開始
       DeviceMotion.setUpdateInterval(100); // 10Hz更新
 
-      const subscription = DeviceMotion.addListener(async (motionData) => {
-        if (!motionData || !motionData.rotation) {
-          return;
-        }
-        if (motionData.rotation && motionData.rotation.alpha !== null) {
-          // rotation.alpha はラジアンで提供される（範囲: -π to π）
-          // 符号をそのまま使用
-          const yawDeg = motionData.rotation.alpha * (180 / Math.PI);
-
-          try {
-            // 現在の画面の向きを取得
-            let orientation = ScreenOrientation.Orientation.PORTRAIT_UP; // Default
-            if (ScreenOrientation && typeof ScreenOrientation.getOrientationAsync === 'function') {
-              orientation = await ScreenOrientation.getOrientationAsync();
-            }
-
-            // オフセットを取得して適用
-            const offset = getOrientationOffset(orientation);
-            // 180度のオフセット補正を追加（南北を正しく表示）
-            const compassHeading = normalizeDeg(180 - yawDeg + offset);
-
-            setHeading(Math.round(compassHeading));
-          } catch (orientationError) {
-            // ScreenOrientationが使えない場合は、縦向き固定として90度補正
-            console.log('Using fixed portrait orientation correction');
-            // 180度のオフセット補正を追加（南北を正しく表示）
-            const compassHeading = normalizeDeg(yawDeg + 90 - 180);
-            setHeading(Math.round(compassHeading));
+      try {
+        const subscription = DeviceMotion.addListener(async (motionData) => {
+          if (!motionData || !motionData.rotation) {
+            return;
           }
-        }
-      });
+          if (motionData.rotation && motionData.rotation.alpha !== null) {
+            // rotation.alpha はラジアンで提供される（範囲: -π to π）
+            // 符号をそのまま使用
+            const yawDeg = motionData.rotation.alpha * (180 / Math.PI);
 
-      if (subscription) {
-        deviceMotionSubscriptionRef.current = subscription;
+            try {
+              // 現在の画面の向きを取得
+              let orientation = ScreenOrientation.Orientation.PORTRAIT_UP; // Default
+              if (ScreenOrientation && typeof ScreenOrientation.getOrientationAsync === 'function') {
+                orientation = await ScreenOrientation.getOrientationAsync();
+              }
+
+              // オフセットを取得して適用
+              const offset = getOrientationOffset(orientation);
+              // 180度のオフセット補正を追加（南北を正しく表示）
+              const compassHeading = normalizeDeg(180 - yawDeg + offset);
+
+              setHeading(Math.round(compassHeading));
+            } catch (orientationError) {
+              // ScreenOrientationが使えない場合は、縦向き固定として90度補正
+              console.log('Using fixed portrait orientation correction');
+              // 180度のオフセット補正を追加（南北を正しく表示）
+              const compassHeading = normalizeDeg(yawDeg + 90 - 180);
+              setHeading(Math.round(compassHeading));
+            }
+          }
+        });
+
+        // subscriptionが有効な場合のみrefに格納
+        if (subscription && typeof subscription === 'object' && 'remove' in subscription) {
+          deviceMotionSubscriptionRef.current = subscription;
+          console.log('✅ DeviceMotion subscription created');
+        } else {
+          console.log('⚠️ DeviceMotion subscription is invalid, falling back');
+          startHeadingTracking();
+        }
+      } catch (subscriptionError) {
+        console.error('Failed to create DeviceMotion subscription:', subscriptionError);
+        startHeadingTracking();
       }
     } catch (error) {
       console.error('DeviceMotion tracking error:', error);
@@ -255,19 +284,28 @@ export default function CameraScreen() {
         setLocationError('方位角の取得がサポートされていません');
         return;
       }
-      const subscription = await Location.watchHeadingAsync((headingData) => {
-        if (!headingData) {
-          return;
-        }
-        const { trueHeading, magHeading } = headingData;
-        // iOS: trueHeading があれば優先（磁北⇨真北補正済み）
-        // Android: magHeading のみだが OS 補正がかかる
-        const actualHeading = trueHeading ?? magHeading;
-        setHeading(Math.round(actualHeading));
-      });
+      try {
+        const subscription = await Location.watchHeadingAsync((headingData) => {
+          if (!headingData) {
+            return;
+          }
+          const { trueHeading, magHeading } = headingData;
+          // iOS: trueHeading があれば優先（磁北⇨真北補正済み）
+          // Android: magHeading のみだが OS 補正がかかる
+          const actualHeading = trueHeading ?? magHeading;
+          setHeading(Math.round(actualHeading));
+        });
 
-      if (subscription) {
-        headingSubscriptionRef.current = subscription;
+        // subscriptionが有効な場合のみrefに格納
+        if (subscription && typeof subscription === 'object' && 'remove' in subscription) {
+          headingSubscriptionRef.current = subscription;
+          console.log('✅ Heading watch subscription created');
+        } else {
+          console.log('⚠️ Heading subscription is invalid');
+        }
+      } catch (watchError) {
+        console.error('Failed to create heading watch subscription:', watchError);
+        setLocationError('方位角の監視に失敗しました');
       }
     } catch (error) {
       console.error('Heading tracking error:', error);
