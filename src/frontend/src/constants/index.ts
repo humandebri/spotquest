@@ -12,7 +12,7 @@ export const CANISTER_ID_II_INTEGRATION = process.env.EXPO_PUBLIC_II_INTEGRATION
 export const IC_HOST = process.env.EXPO_PUBLIC_IC_HOST || 'https://ic0.app';
 
 // App scheme for deep links
-export const APP_SCHEME = 'guessthespot';
+export const APP_SCHEME = 'spotquest';
 
 // Admin principals
 export const ADMIN_PRINCIPALS = [
