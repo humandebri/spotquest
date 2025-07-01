@@ -44,6 +44,7 @@ export default function CameraScreen() {
   // センサー監視用のrefs
   const headingSubscriptionRef = useRef<Location.LocationSubscription | null>(null);
   const deviceMotionSubscriptionRef = useRef<any>(null);
+  const locationSubscriptionRef = useRef<Location.LocationSubscription | null>(null);
 
   // カメラと位置情報の権限をリクエスト
   useEffect(() => {
@@ -67,11 +68,31 @@ export default function CameraScreen() {
 
     return () => {
       // クリーンアップ
-      if (headingSubscriptionRef.current) {
-        headingSubscriptionRef.current.remove();
+      try {
+        if (headingSubscriptionRef.current && typeof headingSubscriptionRef.current.remove === 'function') {
+          headingSubscriptionRef.current.remove();
+          headingSubscriptionRef.current = null;
+        }
+      } catch (error) {
+        console.log('Error removing heading subscription:', error);
       }
-      if (deviceMotionSubscriptionRef.current) {
-        deviceMotionSubscriptionRef.current.remove();
+      
+      try {
+        if (deviceMotionSubscriptionRef.current && typeof deviceMotionSubscriptionRef.current.remove === 'function') {
+          deviceMotionSubscriptionRef.current.remove();
+          deviceMotionSubscriptionRef.current = null;
+        }
+      } catch (error) {
+        console.log('Error removing device motion subscription:', error);
+      }
+      
+      try {
+        if (locationSubscriptionRef.current && typeof locationSubscriptionRef.current.remove === 'function') {
+          locationSubscriptionRef.current.remove();
+          locationSubscriptionRef.current = null;
+        }
+      } catch (error) {
+        console.log('Error removing location subscription:', error);
       }
     };
   }, []);
@@ -79,6 +100,12 @@ export default function CameraScreen() {
   // 位置情報の追跡を開始
   const startLocationTracking = async () => {
     try {
+      // Check if Location module exists
+      if (!Location || typeof Location.getCurrentPositionAsync !== 'function') {
+        console.error('Location module not available');
+        setLocationError('位置情報サービスが利用できません');
+        return;
+      }
       // まず粗い推定を素早く取得
       const quickLocation = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
@@ -101,7 +128,7 @@ export default function CameraScreen() {
       });
 
       // その後、高精度ウォッチで置き換え
-      await Location.watchPositionAsync(
+      locationSubscriptionRef.current = await Location.watchPositionAsync(
         {
           accuracy: Platform.OS === 'ios'
             ? Location.Accuracy.BestForNavigation
@@ -159,10 +186,17 @@ export default function CameraScreen() {
   // DeviceMotionを使った高精度方位角追跡（垂直保持対応）
   const startDeviceMotionTracking = async () => {
     try {
+      // Check if DeviceMotion module exists
+      if (!DeviceMotion || typeof DeviceMotion.isAvailableAsync !== 'function') {
+        console.log('DeviceMotion module not available, falling back to Location API');
+        startHeadingTracking();
+        return;
+      }
+      
       // DeviceMotionが利用可能かチェック
       const isAvailable = await DeviceMotion.isAvailableAsync();
       if (!isAvailable) {
-        console.log('DeviceMotion not available, falling back to Location API');
+        console.log('DeviceMotion not available on this device, falling back to Location API');
         startHeadingTracking();
         return;
       }
@@ -171,6 +205,9 @@ export default function CameraScreen() {
       DeviceMotion.setUpdateInterval(100); // 10Hz更新
 
       const subscription = DeviceMotion.addListener(async (motionData) => {
+        if (!motionData || !motionData.rotation) {
+          return;
+        }
         if (motionData.rotation && motionData.rotation.alpha !== null) {
           // rotation.alpha はラジアンで提供される（範囲: -π to π）
           // 符号をそのまま使用
@@ -178,7 +215,10 @@ export default function CameraScreen() {
 
           try {
             // 現在の画面の向きを取得
-            const orientation = await ScreenOrientation.getOrientationAsync();
+            let orientation = ScreenOrientation.Orientation.PORTRAIT_UP; // Default
+            if (ScreenOrientation && typeof ScreenOrientation.getOrientationAsync === 'function') {
+              orientation = await ScreenOrientation.getOrientationAsync();
+            }
 
             // オフセットを取得して適用
             const offset = getOrientationOffset(orientation);
@@ -196,7 +236,9 @@ export default function CameraScreen() {
         }
       });
 
-      deviceMotionSubscriptionRef.current = subscription;
+      if (subscription) {
+        deviceMotionSubscriptionRef.current = subscription;
+      }
     } catch (error) {
       console.error('DeviceMotion tracking error:', error);
       // フォールバック: Location APIを使用
@@ -207,14 +249,26 @@ export default function CameraScreen() {
   // フォールバック用のLocation API方位角追跡
   const startHeadingTracking = async () => {
     try {
-      const subscription = await Location.watchHeadingAsync(({ trueHeading, magHeading }) => {
+      // Check if Location module exists and has watchHeadingAsync
+      if (!Location || typeof Location.watchHeadingAsync !== 'function') {
+        console.error('Location.watchHeadingAsync not available');
+        setLocationError('方位角の取得がサポートされていません');
+        return;
+      }
+      const subscription = await Location.watchHeadingAsync((headingData) => {
+        if (!headingData) {
+          return;
+        }
+        const { trueHeading, magHeading } = headingData;
         // iOS: trueHeading があれば優先（磁北⇨真北補正済み）
         // Android: magHeading のみだが OS 補正がかかる
         const actualHeading = trueHeading ?? magHeading;
         setHeading(Math.round(actualHeading));
       });
 
-      headingSubscriptionRef.current = subscription;
+      if (subscription) {
+        headingSubscriptionRef.current = subscription;
+      }
     } catch (error) {
       console.error('Heading tracking error:', error);
       setLocationError('方位角の取得に失敗しました');
@@ -228,7 +282,10 @@ export default function CameraScreen() {
 
   // 写真を撮影
   const takePicture = async () => {
-    if (!cameraRef.current) return;
+    if (!cameraRef.current || typeof cameraRef.current.takePictureAsync !== 'function') {
+      console.error('Camera ref not ready or takePictureAsync not available');
+      return;
+    }
 
     if (!location) {
       Alert.alert('エラー', '位置情報が取得できていません');

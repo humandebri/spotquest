@@ -40,7 +40,13 @@ if (__DEV__) {
 debugLog('AUTH_FLOW', '🚀 All patches applied');
 
 // ★ 必須: Safari/WebBrowserが閉じるように
-WebBrowser.maybeCompleteAuthSession();
+try {
+  if (WebBrowser && typeof WebBrowser.maybeCompleteAuthSession === 'function') {
+    WebBrowser.maybeCompleteAuthSession();
+  }
+} catch (error) {
+  console.log('WebBrowser.maybeCompleteAuthSession not available:', error);
+}
 
 // App content component - must be inside IIIntegrationProvider
 function AppContent() {

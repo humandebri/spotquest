@@ -265,10 +265,16 @@ export default function PhotoLibraryScreen() {
   };
 
   // 地図上の位置を確定
-  const confirmLocation = () => {
+  const confirmLocation = async () => {
     if (manualLocation && selectedPhoto) {
       // 成功のハプティックフィードバック
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      try {
+        if (Haptics && typeof Haptics.notificationAsync === 'function') {
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+      } catch (error) {
+        console.log('Haptics not available:', error);
+      }
       
       const updatedPhoto: SelectedPhoto = {
         ...selectedPhoto,
@@ -426,7 +432,13 @@ export default function PhotoLibraryScreen() {
                 const { latitude, longitude } = event.nativeEvent.coordinate;
                 
                 // ハプティックフィードバック
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                try {
+                  if (Haptics && typeof Haptics.impactAsync === 'function') {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  }
+                } catch (error) {
+                  console.log('Haptics not available:', error);
+                }
                 
                 setManualLocation({
                   latitude,
