@@ -344,7 +344,7 @@ export default function SessionDetailsScreen() {
         // Fetch first round immediately, then others in parallel
         if (fetchOrder.length > 0) {
           // Fetch first round
-          fetchPhotoData(fetchOrder[0]).then(() => {
+          fetchPhotoData(fetchOrder[0]).then(async () => {
             // Fetch remaining rounds in parallel (limit concurrency to 3)
             const remaining = fetchOrder.slice(1);
             const batches = [];
@@ -353,11 +353,15 @@ export default function SessionDetailsScreen() {
             }
             
             // Process batches sequentially
-            batches.reduce((promise, batch) => {
-              return promise.then(() => 
-                Promise.all(batch.map(index => fetchPhotoData(index)))
-              );
-            }, Promise.resolve());
+            try {
+              for (const batch of batches) {
+                await Promise.all(batch.map(index => fetchPhotoData(index)));
+              }
+            } catch (error) {
+              console.error('Error fetching photo batches:', error);
+            }
+          }).catch(error => {
+            console.error('Error fetching first photo:', error);
           });
         }
 
