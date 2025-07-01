@@ -107,7 +107,9 @@ e2e/screenshots/
 
 # Screenshots for Claude
 screenshots/
-*.png
-*.jpg
-*.jpeg
-*.gif
+
+# Image files (except for app assets)
+# *.png
+# *.jpg
+# *.jpeg
+# *.gif

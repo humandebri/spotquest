@@ -386,6 +386,109 @@ dfx canister --network ic call unified rebuildPlayerStats
 - `finalizeSession`が正しく呼ばれることで統計が更新される
 - canisterアップグレード時はPlayerStatsのstable変数が保持される
 
+## 作業記録 (2025-06-30)
+
+### SpotQuestプロジェクトの構造理解
+1. **フロントエンドアーキテクチャ**
+   - React Native + Expoによるモバイルアプリ
+   - Internet Identity認証（開発モードではEd25519KeyIdentity）
+   - Zustandによる状態管理（ゲームセッション、ラウンド、トークン残高）
+   - React Navigation v6でのナビゲーション管理
+
+2. **バックエンドアーキテクチャ**
+   - 統合キャニスター（unified）にすべての機能を実装
+   - モジュール化されたコード構成：
+     - TokenModule: ICRC-1標準のSPOTトークン（小数点2桁）
+     - GameEngineModule: 5ラウンド制のゲームロジック
+     - PhotoModuleV2: チャンク分割による大容量写真アップロード
+     - EloRatingModule: プレイヤーと写真の動的レーティング
+     - RatingModule: 写真への5段階評価システム
+
+3. **ゲームメカニクス**
+   - スコア計算: 距離精度(Sd)と方位精度(Sφ)から最大5000点
+   - アンチチート: 座標検証、時間制限（2秒〜5分）、信頼半径制限
+   - 報酬システム: プレイヤーとアップロード者への自動配分
+   - Eloレーティング: K係数32/24/16での動的調整
+
+4. **パフォーマンス最適化**
+   - GameResultScreen: 低スコア時の軽量モード実装
+   - SessionDetailsScreen: 大距離時のマップ表示最適化
+   - 写真データのメモリ効率的な管理
+
+### ビルドエラーの修正
+- **問題**: `Error: ENOENT: no such file or directory, open './src/assets/app_icon.png'`
+- **原因**: app.jsonで指定された画像パスと実際のファイル位置の不一致
+- **修正内容**:
+  1. app_icon.pngをassets/icon.pngにコピー
+  2. AndroidのstatusBarHidden/navigationBarHidden設定を削除（非推奨）
+  3. 必要なアイコンファイルを適切な場所に配置
+- **注意**: `npx expo install --check`で依存関係の更新も推奨
+
+### EASビルドの設定
+- **依存関係の競合解決**: `npm install --legacy-peer-deps`を使用
+- **eas.jsonの修正**: 開発プロファイルにiOSシミュレータービルドを設定
+  ```json
+  "development": {
+    "developmentClient": true,
+    "distribution": "internal",
+    "ios": {
+      "simulator": true
+    }
+  }
+  ```
+- **ビルド開始**: `eas build --platform ios --profile development`でシミュレータービルド実行
+- **メリット**: Appleの署名証明書不要でローカル開発可能
+
+### App Storeバリデーションエラーの修正 (2025-06-30)
+- **問題**: Missing Info.plist value: CFBundleIconName + 必要なアイコンサイズの欠如
+- **修正内容**:
+  1. app.jsonのアイコンパスを標準的な "./assets/icon.png" に変更
+  2. iOS設定にCFBundleIconNameを追加:
+     ```json
+     "infoPlist": {
+       "CFBundleIconName": "AppIcon",
+       ...
+     }
+     ```
+  3. buildNumberを"3"に設定（EASが自動的に4にインクリメント）
+  4. `npx expo prebuild --clean`でネイティブプロジェクトを再生成
+- **ビルドコマンド**: `eas build --platform ios --profile production`
+- **注意**: アイコンファイルは1024x1024のPNG（透明背景なし）が必要
+- **追記**: アイコンパスを間違えて`./assets/icon.png`に変更してしまったが、正しくは`./src/assets/app_icon.png`
+
+### アイコン設定の完全整理 (2025-06-30)
+- **問題**: TestFlight提出時にCFBundleIconNameとアイコンサイズ不足のエラー
+- **整理内容**:
+  1. アイコンを標準的な`assets/app_icon.png`に配置
+  2. `app.json`のアイコンパスを`"./assets/app_icon.png"`に統一
+  3. `icon.png`と`app_icon.png`を同一にして混乱を防ぐ
+  4. buildNumberを5に更新
+  5. `rm -rf ios android && npx expo prebuild --clean`で完全再生成
+- **確認事項**:
+  - CFBundleIconNameがInfo.plistに存在 ✓
+  - 1024x1024のPNGアイコンが正しい場所に配置 ✓
+  - EASビルド時に自動的にすべてのアイコンサイズが生成される
+
+### TestFlightエラーの根本解決 (2025-07-01)
+- **問題**: ローカルprebuildで生成されたアイコンセットが不完全（1024x1024のみ）
+- **原因**: EASビルドがローカルのiosフォルダをそのまま使用し、必要なアイコンサイズが含まれない
+- **解決策**:
+  1. `rm -rf ios android` でネイティブフォルダを削除
+  2. `.gitignore`に`ios/`と`android/`を追加
+  3. buildNumberを8に更新
+  4. EASビルドにネイティブコードの生成を完全に任せる
+- **結果**: EASがリモートで正しいprebuildを実行し、すべての必要なアイコンサイズを生成
+- **コマンド**: `eas build --platform ios --profile production`
+
+### EASビルドエラーの解決 (2025-07-01)
+- **問題**: EASビルドで`ENOENT: no such file or directory, open './assets/app_icon.png'`エラー
+- **原因**: ルートの`.gitignore`に`*.png`があり、アイコンファイルがgitに含まれていなかった
+- **解決策**:
+  1. ルート`.gitignore`の`*.png`ルールをコメントアウト
+  2. `git add assets/app_icon.png`でアイコンファイルを追加
+  3. 関連するPNGファイルもすべてgitに追加
+- **教訓**: EASビルドはgitリポジトリの内容を使用するため、必要なファイルはすべてコミットする必要がある
+
 ## Recent Updates (2025-06-27) - アプリ名とアイコンの変更
 
 ### アプリ名を「SpotQuest」に変更
