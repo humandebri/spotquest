@@ -101,7 +101,7 @@ module {
                 timestamp = Time.now();
                 state = sessionId; // Use sessionId as state
                 nonce = sessionId; // Use sessionId as nonce
-                redirectUri = "spotquest://callback";
+                redirectUri = "https://auth.expo.io/@hude/spotquest";
                 status = #Open;
                 publicKey = ?publicKey;
                 delegation = null;
@@ -111,10 +111,16 @@ module {
             
             sessions.put(sessionId, sessionData);
             
-            // Build authorize URL for II
+            // Build authorize URL for II with proper URL encoding
+            // Note: Motoko doesn't have built-in URL encoding, so we'll encode critical characters manually
+            let encodedRedirectUri = Text.replace(
+                Text.replace(sessionData.redirectUri, "@", "%40"),
+                "/", "%2F"
+            );
+            
             let authorizeUrl = "https://identity.ic0.app/#authorize?" #
                 "client_id=" # canisterOrigin # "&" #
-                "redirect_uri=" # sessionData.redirectUri # "&" #
+                "redirect_uri=" # encodedRedirectUri # "&" #
                 "state=" # sessionId # "&" #
                 "response_type=id_token&" #
                 "scope=openid&" #

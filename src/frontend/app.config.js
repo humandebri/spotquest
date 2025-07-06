@@ -18,17 +18,12 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.spotquest.app",
-      buildNumber: "17",
+      buildNumber: "18",
       config: {
         googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY
       },
       infoPlist: {
         CFBundleIconName: "AppIcon",
-        CFBundleURLTypes: [
-          {
-            CFBundleURLSchemes: ["spotquest"]
-          }
-        ],
         NSCameraUsageDescription: "This app needs access to camera to take photos for the game.",
         NSPhotoLibraryUsageDescription: "This app needs access to photo library to select photos for the game.",
         NSLocationWhenInUseUsageDescription: "This app needs location access to tag photos with GPS coordinates.",
@@ -62,12 +57,10 @@ export default {
     web: {
       favicon: "./assets/favicon.png"
     },
-    scheme: "spotquest",
     linking: {
       prefixes: [
-        "spotquest://",
-        "https://spotquest.app",
-        "https://auth.expo.io/@hude/spotquest"
+        "https://auth.expo.io/@hude/spotquest",
+        "https://spotquest.app"
       ],
       config: {
         screens: {

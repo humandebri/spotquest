@@ -2,6 +2,7 @@ import React, { ReactNode } from 'react';
 import { Platform, View, Text } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
+import * as AuthSession from 'expo-auth-session';
 import Constants from 'expo-constants';
 import { 
   IIIntegrationProvider, 
@@ -21,6 +22,7 @@ import { createPatchedStorage, cleanupIIIntegrationStorage } from '../utils/stor
 import { FixedSecureStorage, FixedRegularStorage, checkAndFixAppKey } from '../utils/iiIntegrationStorageFix';
 import { clearAllIIData } from '../utils/clearAllIIData';
 import { DEBUG_CONFIG, debugLog } from '../utils/debugConfig';
+import { useIIAuthSession } from '../utils/authSessionII';
 
 // ★ ② Safari/WebBrowserが閉じるように必須の1行
 WebBrowser.maybeCompleteAuthSession();
@@ -56,13 +58,17 @@ function IIAuthProviderInner({ children }: IIAuthProviderProps) {
   // Check if running in Expo Go for debugging
   const isExpoGo = Constants.executionEnvironment === 'storeClient';
 
-  // ③ deepLinkにcallbackパスを明示的に指定
-  // For Expo Go, we need to use the auth path for proper redirect
-  const deepLink = isExpoGo ? Linking.createURL('auth') : Linking.createURL('callback');
+  // ③ AuthSessionを使用してExpoプロキシ経由でリダイレクト
+  // カスタムURLスキーム（spotquest://）は不要
+  const deepLink = AuthSession.makeRedirectUri({
+    useProxy: true, // https://auth.expo.io/@hude/spotquest を使用
+    projectNameForProxy: '@hude/spotquest'
+  });
   
   // For debugging: log the actual deep link
-  debugLog('DEEP_LINKS', '🔗 Deep link for II redirect:', deepLink);
+  debugLog('DEEP_LINKS', '🔗 Deep link for II redirect (AuthSession):', deepLink);
   debugLog('DEEP_LINKS', '🔗 Is Expo Go:', isExpoGo);
+  debugLog('DEEP_LINKS', '🔗 Using Expo Proxy:', true);
 
   // ① buildAppConnectionURLでII Integration canisterのURLを生成
   // Unified canisterをII Integration Canisterとして使用
@@ -72,25 +78,29 @@ function IIAuthProviderInner({ children }: IIAuthProviderProps) {
   // Use .raw.icp0.io for uncertified responses
   const iiIntegrationUrl = new URL(`https://${canisterId}.raw.icp0.io`);
 
-  // getDeepLinkTypeで適切なdeep link typeを自動判定
-  let deepLinkType;
+  // AuthSessionを使用する場合、deepLinkTypeは固定
+  // Expoプロキシ（https://auth.expo.io/...）を使用するため
+  let deepLinkType = 'universal-link'; // HTTPSベースなので universal-link として扱う
+  
+  // 互換性のためにgetDeepLinkTypeも試みるが、エラーは無視
   try {
-    deepLinkType = getDeepLinkType({
+    // 既存のexpo-ii-integrationとの互換性のため
+    const detectedType = getDeepLinkType({
       deepLink,
       frontendCanisterId: CANISTER_ID_FRONTEND,
       easDeepLinkType: process.env.EXPO_PUBLIC_EAS_DEEP_LINK_TYPE as any,
     });
-  } catch (error) {
-    console.warn('⚠️ getDeepLinkType error:', error);
-    console.warn('⚠️ Using fallback deepLinkType for:', deepLink);
     
-    // Fallback: spotquest://をカスタムスキームとして扱う
-    if (deepLink.includes('spotquest://')) {
-      deepLinkType = 'custom-scheme';
-    } else {
+    // AuthSessionのプロキシURLの場合、universal-linkとして扱う
+    if (deepLink.includes('auth.expo.io')) {
       deepLinkType = 'universal-link';
+    } else {
+      deepLinkType = detectedType;
     }
-    debugLog('II_INTEGRATION', '⚠️ Using fallback deepLinkType:', deepLinkType);
+  } catch (error) {
+    // AuthSessionを使用しているので、エラーは想定内
+    debugLog('II_INTEGRATION', '📱 Using AuthSession with Expo Proxy');
+    debugLog('II_INTEGRATION', '📱 DeepLinkType set to:', deepLinkType);
   }
 
   debugLog('II_INTEGRATION', 'IIAuthProvider Configuration:', {
