@@ -4,6 +4,12 @@
       "eas": {
         "projectId": "9678017a-a501-4056-b9b1-731058b792b1"
       }
+    },
+    "ios": {
+      "bundleIdentifier": "com.hude.spotquest",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     }
   }
 }

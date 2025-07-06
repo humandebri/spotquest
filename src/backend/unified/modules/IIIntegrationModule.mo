@@ -101,7 +101,7 @@ module {
                 timestamp = Time.now();
                 state = sessionId; // Use sessionId as state
                 nonce = sessionId; // Use sessionId as nonce
-                redirectUri = canisterOrigin # "/callback";
+                redirectUri = "spotquest://callback";
                 status = #Open;
                 publicKey = ?publicKey;
                 delegation = null;

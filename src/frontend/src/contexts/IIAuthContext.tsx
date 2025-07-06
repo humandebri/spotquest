@@ -56,9 +56,9 @@ function IIAuthProviderInner({ children }: IIAuthProviderProps) {
   // Check if running in Expo Go for debugging
   const isExpoGo = Constants.executionEnvironment === 'storeClient';
 
-  // ③ deepLinkはルートに統一（パスなし）
+  // ③ deepLinkにcallbackパスを明示的に指定
   // For Expo Go, we need to use the auth path for proper redirect
-  const deepLink = isExpoGo ? Linking.createURL('auth') : Linking.createURL('/');
+  const deepLink = isExpoGo ? Linking.createURL('auth') : Linking.createURL('callback');
   
   // For debugging: log the actual deep link
   debugLog('DEEP_LINKS', '🔗 Deep link for II redirect:', deepLink);
@@ -84,12 +84,13 @@ function IIAuthProviderInner({ children }: IIAuthProviderProps) {
     console.warn('⚠️ getDeepLinkType error:', error);
     console.warn('⚠️ Using fallback deepLinkType for:', deepLink);
     
-    // Fallback: spotquest:/// をルートとして扱う
+    // Fallback: spotquest://をカスタムスキームとして扱う
     if (deepLink.includes('spotquest://')) {
-      deepLinkType = 'custom-scheme'; // または 'url-scheme'
+      deepLinkType = 'custom-scheme';
     } else {
       deepLinkType = 'universal-link';
     }
+    debugLog('II_INTEGRATION', '⚠️ Using fallback deepLinkType:', deepLinkType);
   }
 
   debugLog('II_INTEGRATION', 'IIAuthProvider Configuration:', {
