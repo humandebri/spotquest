@@ -22,7 +22,6 @@ import { createPatchedStorage, cleanupIIIntegrationStorage } from '../utils/stor
 import { FixedSecureStorage, FixedRegularStorage, checkAndFixAppKey } from '../utils/iiIntegrationStorageFix';
 import { clearAllIIData } from '../utils/clearAllIIData';
 import { DEBUG_CONFIG, debugLog } from '../utils/debugConfig';
-import { useIIAuthSession } from '../utils/authSessionII';
 
 // ★ ② Safari/WebBrowserが閉じるように必須の1行
 WebBrowser.maybeCompleteAuthSession();

@@ -174,7 +174,7 @@ export const useIIAuthSession = () => {
       }
       
       debugLog('AUTH_SESSION', 'Extracted params:', {
-        hasДelegation: !!result.delegation,
+        hasDelegation: !!result.delegation,
         hasDelegationPubkey: !!result.delegationPubkey,
         hasUserPublicKey: !!result.userPublicKey,
         hasState: !!result.state,

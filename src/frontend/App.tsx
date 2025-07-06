@@ -120,9 +120,8 @@ function AppContent() {
   const linking = {
     prefixes: [
       Linking.createURL('/'),
-      'spotquest://',
       'https://spotquest.app',
-      'https://auth.expo.io',
+      'https://auth.expo.io/@hude/spotquest',
     ],
     config: {
       screens: {
