@@ -73,11 +73,24 @@ function IIAuthProviderInner({ children }: IIAuthProviderProps) {
   const iiIntegrationUrl = new URL(`https://${canisterId}.raw.icp0.io`);
 
   // getDeepLinkTypeで適切なdeep link typeを自動判定
-  const deepLinkType = getDeepLinkType({
-    deepLink,
-    frontendCanisterId: CANISTER_ID_FRONTEND,
-    easDeepLinkType: process.env.EXPO_PUBLIC_EAS_DEEP_LINK_TYPE as any,
-  });
+  let deepLinkType;
+  try {
+    deepLinkType = getDeepLinkType({
+      deepLink,
+      frontendCanisterId: CANISTER_ID_FRONTEND,
+      easDeepLinkType: process.env.EXPO_PUBLIC_EAS_DEEP_LINK_TYPE as any,
+    });
+  } catch (error) {
+    console.warn('⚠️ getDeepLinkType error:', error);
+    console.warn('⚠️ Using fallback deepLinkType for:', deepLink);
+    
+    // Fallback: spotquest:/// をルートとして扱う
+    if (deepLink.includes('spotquest://')) {
+      deepLinkType = 'custom-scheme'; // または 'url-scheme'
+    } else {
+      deepLinkType = 'universal-link';
+    }
+  }
 
   debugLog('II_INTEGRATION', 'IIAuthProvider Configuration:', {
     iiIntegrationUrl: iiIntegrationUrl.toString(),
