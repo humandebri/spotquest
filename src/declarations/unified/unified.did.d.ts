@@ -699,6 +699,7 @@ export interface _SERVICE {
   'purchaseProMembership' : ActorMethod<[], Result_3>,
   'rebuildPhotoStats' : ActorMethod<[], Result_1>,
   'rebuildPlayerStats' : ActorMethod<[], string>,
+  'reinitCertifiedAssets' : ActorMethod<[], Result>,
   'saveDelegate' : ActorMethod<
     [string, string, string, string],
     DelegateResponse

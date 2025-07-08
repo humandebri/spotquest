@@ -787,3 +787,26 @@ Internet IdentityのResponse Verification Errorを解決するため、Certified
 - IC仕様書に完全準拠したCBORエンコーディングの実装
 - 証明書検証アルゴリズムのデバッグツールの開発
 - Internet Identityの検証ロジックとの整合性確認
+
+## 作業記録 (2025-07-08)
+
+### Certified Assetsのデバッグ機能追加
+1. **デバッグエンドポイントの実装**
+   - `/debug/cert`: 証明書とアセットの状態を確認
+   - `/debug/cert-test`: ルートパスの証明書テスト
+   - `CertifiedAssets.mo`に`hasAsset`と`getAllAssetPaths`メソッドを追加
+
+2. **調査結果**
+   - ルートパス（""）のアセットは正しく保存されている
+   - 証明書（1480バイト）も正しく生成されている
+   - raw.icp0.ioエンドポイントは200 OKで"spotquest-ready"を返す
+   - icp0.io（認証済み）エンドポイントは503エラーを返す
+
+3. **503エラーの考察**
+   - IC HTTP Gatewayが証明書の検証に失敗している可能性
+   - 証明書自体は生成されているが、何らかの理由で検証が通らない
+   - raw エンドポイントは正常に動作しているため、アセット自体の問題ではない
+
+4. **今後の対応**
+   - 証明書の構造をさらに詳しく調査する必要がある
+   - IC HTTP Gatewayのドキュメントを確認し、証明書検証の要件を確認する

@@ -875,6 +875,7 @@ export const idlFactory = ({ IDL }) => {
     'purchaseProMembership' : IDL.Func([], [Result_3], []),
     'rebuildPhotoStats' : IDL.Func([], [Result_1], []),
     'rebuildPlayerStats' : IDL.Func([], [IDL.Text], []),
+    'reinitCertifiedAssets' : IDL.Func([], [Result], []),
     'saveDelegate' : IDL.Func(
         [IDL.Text, IDL.Text, IDL.Text, IDL.Text],
         [DelegateResponse],

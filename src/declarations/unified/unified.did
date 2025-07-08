@@ -861,6 +861,7 @@ service : {
   purchaseProMembership: () -> (Result_3);
   rebuildPhotoStats: () -> (Result_1);
   rebuildPlayerStats: () -> (text);
+  reinitCertifiedAssets: () -> (Result);
   saveDelegate: (sessionId: text, delegation: text, userPublicKey: text,
    delegationPubkey: text) -> (DelegateResponse);
   /// 写真を検索
