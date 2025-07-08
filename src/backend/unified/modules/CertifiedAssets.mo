@@ -13,6 +13,7 @@ import Nat16 "mo:base/Nat16";
 import Debug "mo:base/Debug";
 import Iter "mo:base/Iter";
 import Option "mo:base/Option";
+import Order "mo:base/Order";
 
 module {
     public type HttpRequest = {
@@ -29,10 +30,10 @@ module {
     };
 
     // Hash tree type for certification
-    type Hash = Blob;
-    type Key = Blob;
-    type Value = Blob;
-    type HashTree = {
+    public type Hash = Blob;
+    public type Key = Blob;
+    public type Value = Blob;
+    public type HashTree = {
         #empty;
         #pruned : Hash;
         #fork : (HashTree, HashTree);
@@ -72,7 +73,7 @@ module {
         ];
         
         // SHA256 implementation
-        private func sha256(data: Blob) : Blob {
+        public func sha256(data: Blob) : Blob {
             let bytes = Blob.toArray(data);
             let msgLen = bytes.size();
             
@@ -330,51 +331,57 @@ module {
             }
         };
         
-        // Create HTTP response representation string for hashing
-        private func encodeHttpResponse(status: Nat16, headers: [(Text, Text)], body: Blob) : Blob {
-            // Format: "HTTP/1.1 <status>\r\n<headers>\r\n\r\n<body>"
-            var responseText = "HTTP/1.1 " # Nat16.toText(status) # "\r\n";
-            
-            // Add headers
-            for ((key, value) in headers.vals()) {
-                responseText #= key # ": " # value # "\r\n";
-            };
-            responseText #= "\r\n"; // Empty line before body
-            
-            // Combine header text with body
-            let headerBlob = Text.encodeUtf8(responseText);
-            let combined = Buffer.Buffer<Nat8>(headerBlob.size() + body.size());
-            for (b in Blob.toArray(headerBlob).vals()) { combined.add(b) };
-            for (b in Blob.toArray(body).vals()) { combined.add(b) };
-            
-            Blob.fromArray(Buffer.toArray(combined))
-        };
 
         // Update certified data
         private func updateCertifiedData() : () {
-            // Create a tree for all assets
-            var tree : HashTree = #empty;
+            Debug.print("🔐 Updating certified data...");
+            Debug.print("  Total paths in responseHashes: " # Nat.toText(responseHashes.size()));
             
-            // Build tree structure: http_assets/<path>/<response_hash>
-            for ((path, hash) in responseHashes.entries()) {
-                if (path == "") {
-                    // For root path, use empty string
-                    tree := #labeled(
+            // We only store one path (""), so build a simple tree with 3 branches
+            switch (responseHashes.get("")) {
+                case null {
+                    Debug.print("  ⚠️ No hash for root path \"\"");
+                    let tree : HashTree = #empty;
+                    let treeRootHash = hashOfTree(tree);
+                    CertifiedData.set(treeRootHash);
+                };
+                case (?hash) {
+                    // Build tree with 3 branches as per v1 HTTP-cert spec
+                    // Order matters: content-encoding, content-type, sha256 (alphabetical)
+                    let assetNode : HashTree = #fork(
+                        #fork(
+                            #labeled(Text.encodeUtf8("content-encoding"), #leaf(Text.encodeUtf8("identity"))),
+                            #labeled(Text.encodeUtf8("content-type"), #leaf(Text.encodeUtf8("text/html; charset=UTF-8")))
+                        ),
+                        #labeled(Text.encodeUtf8("sha256"), #leaf(hash))
+                    );
+                    
+                    let tree : HashTree = #labeled(
                         Text.encodeUtf8("http_assets"),
                         #labeled(
-                            Text.encodeUtf8(""),  // Empty string for root!
-                            #labeled(
-                                hash,  // The hash of the full HTTP response
-                                #empty
-                            )
+                            Text.encodeUtf8(""),
+                            assetNode
                         )
                     );
+                    
+                    let treeRootHash = hashOfTree(tree);
+                    CertifiedData.set(treeRootHash);
+                    Debug.print("🔐 Updated certified data with tree root hash for single path: " # debug_show(Blob.toArray(treeRootHash)));
+                    Debug.print("🔐 Tree structure: http_assets -> \"\" -> {sha256, content-type, content-encoding}");
                 };
             };
-            
-            let treeRootHash = hashOfTree(tree);
-            CertifiedData.set(treeRootHash);
-            Debug.print("🔐 Updated certified data with tree root hash: " # debug_show(Blob.toArray(treeRootHash)));
+        };
+        
+        // Merge two hash trees into a fork
+        private func mergeHashTrees(tree1: HashTree, tree2: HashTree) : HashTree {
+            switch (tree1, tree2) {
+                case (#empty, _) { tree2 };
+                case (_, #empty) { tree1 };
+                case _ {
+                    // Create a fork with both trees
+                    #fork(tree1, tree2)
+                };
+            };
         };
         
         // Store text content
@@ -393,13 +400,20 @@ module {
             // Store the response
             assets.put(path, response);
             
-            // Create and hash the full HTTP response
-            let responseBlob = encodeHttpResponse(200, headers, content);
-            let responseHash = sha256(responseBlob);
+            // According to the IC v2 spec: hash only the response body
+            let responseHash = sha256(response.body);
             responseHashes.put(path, responseHash);
             
-            Debug.print("🔐 Stored asset at path: " # path # " with response hash: " # debug_show(Blob.toArray(responseHash)));
+            Debug.print("🔐 Stored text asset:");
+            Debug.print("  Path: '" # path # "'");
+            Debug.print("  Content size: " # Nat.toText(content.size()) # " bytes");
+            Debug.print("  Body hash: " # debug_show(Blob.toArray(responseHash)));
             updateCertifiedData();
+        };
+        
+        // Expose CBOR encoding for testing
+        public func encodeCborTree(tree: HashTree) : Blob {
+            encodeHashTree(tree)
         };
         
         // Store with content type
@@ -418,10 +432,15 @@ module {
             // Store the response
             assets.put(path, response);
             
-            // Create and hash the full HTTP response
-            let responseBlob = encodeHttpResponse(200, headers, content);
-            let responseHash = sha256(responseBlob);
+            // According to the IC v2 spec: hash only the response body
+            let responseHash = sha256(response.body);
             responseHashes.put(path, responseHash);
+            
+            Debug.print("🔐 Stored asset with content type:");
+            Debug.print("  Path: '" # path # "'");
+            Debug.print("  Content type: " # contentType);
+            Debug.print("  Body size: " # Nat.toText(content.size()) # " bytes");
+            Debug.print("  Body hash: " # debug_show(Blob.toArray(responseHash)));
             
             updateCertifiedData();
         };
@@ -436,14 +455,21 @@ module {
             Iter.toArray(assets.keys())
         };
         
+        // Get response hash for a path (for debugging)
+        public func getResponseHash(path: Text) : ?Blob {
+            responseHashes.get(path)
+        };
+        
         // Serve content
         public func serve(path: Text, req: HttpRequest) : HttpResponse {
             // Map root path "/" to empty string "" for asset lookup
             let lookupPath = if (path == "/") { "" } else { path };
-            Debug.print("🔐 Serving request for path: " # path # " (lookup: " # lookupPath # ")");
+            Debug.print("🔐 Serving request for path: '" # path # "' (lookup: '" # lookupPath # "')");
+            Debug.print("  Available assets: " # debug_show(Iter.toArray(assets.keys())));
             
             switch (assets.get(lookupPath)) {
                 case null {
+                    Debug.print("  ❌ Asset not found for path: '" # lookupPath # "'");
                     // Not found
                     {
                         body = Text.encodeUtf8("Not found");
@@ -452,10 +478,12 @@ module {
                     }
                 };
                 case (?storedResponse) {
-                    // Get the response hash for this path
-                    let responseHash = switch(responseHashes.get(lookupPath)) {
-                        case null { Blob.fromArray([]) };
-                        case (?h) { h };
+                    Debug.print("  ✅ Found asset for path: '" # lookupPath # "'");
+                    
+                    // Verify we only have the expected paths
+                    Debug.print("  All paths in responseHashes:");
+                    for (p in responseHashes.keys()) {
+                        Debug.print("    - \"" # p # "\"");
                     };
                     
                     // Build headers including IC-Certificate
@@ -468,27 +496,53 @@ module {
                     
                     // Add IC-Certificate header
                     switch (CertifiedData.getCertificate()) {
-                        case null { };
+                        case null { 
+                            Debug.print("  ⚠️ No certificate available from CertifiedData");
+                        };
                         case (?cert) {
-                            Debug.print("🔐 Serving path: " # lookupPath # " with response hash: " # debug_show(Blob.toArray(responseHash)));
+                            Debug.print("  📜 Certificate available, size: " # Nat.toText(cert.size()) # " bytes");
                             
-                            // Create the tree structure: http_assets/<path>/<response_hash>
-                            let tree : HashTree = #labeled(
-                                Text.encodeUtf8("http_assets"),
-                                #labeled(
-                                    Text.encodeUtf8(lookupPath),  // Use lookupPath (empty string for root)
-                                    #labeled(
-                                        responseHash,  // The hash of the full HTTP response
-                                        #empty
-                                    )
-                                )
-                            );
-                            let encodedTree = encodeHashTree(tree);
-                            
-                            headers.add(("ic-certificate", 
-                                "certificate=:" # base64UrlEncode(cert) # ":, " #
-                                "tree=:" # base64UrlEncode(encodedTree) # ":"));
-                            headers.add(("access-control-expose-headers", "ic-certificate"));
+                            // Generate tree for this specific path only
+                            switch (responseHashes.get(lookupPath)) {
+                                case null {
+                                    Debug.print("  ⚠️ No response hash for path: '" # lookupPath # "'");
+                                };
+                                case (?hash) {
+                                    // Build tree with 3 branches as per v1 HTTP-cert spec
+                                    // Order matters: content-encoding, content-type, sha256 (alphabetical)
+                                    let assetNode : HashTree = #fork(
+                                        #fork(
+                                            #labeled(Text.encodeUtf8("content-encoding"), #leaf(Text.encodeUtf8("identity"))),
+                                            #labeled(Text.encodeUtf8("content-type"), #leaf(Text.encodeUtf8("text/html; charset=UTF-8")))
+                                        ),
+                                        #labeled(Text.encodeUtf8("sha256"), #leaf(hash))
+                                    );
+                                    
+                                    let tree : HashTree = #labeled(
+                                        Text.encodeUtf8("http_assets"),
+                                        #labeled(
+                                            Text.encodeUtf8(lookupPath),
+                                            assetNode
+                                        )
+                                    );
+                                    
+                                    let encodedTree = encodeHashTree(tree);
+                                    Debug.print("  ✅ Generated tree with 3 branches, size: " # Nat.toText(encodedTree.size()) # " bytes");
+                                    
+                                    // Verify witness tree hash
+                                    let witnessHash = hashOfTree(tree);
+                                    Debug.print("  Witness tree hash: " # debug_show(Blob.toArray(witnessHash)));
+                                    Debug.print("  This hash should match the certified data hash from updateCertifiedData");
+                                    
+                                    let certHeader = "certificate=:" # base64UrlEncode(cert) # ":, " #
+                                        "tree=:" # base64UrlEncode(encodedTree) # ":";
+                                    Debug.print("  IC-Certificate header length: " # Nat.toText(certHeader.size()));
+                                    Debug.print("  Total headers before adding IC-Certificate: " # Nat.toText(headers.size()));
+                                    
+                                    headers.add(("IC-Certificate", certHeader));
+                                    headers.add(("Access-Control-Expose-Headers", "IC-Certificate"));
+                                };
+                            };
                         };
                     };
                     

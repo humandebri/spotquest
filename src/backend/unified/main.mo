@@ -2972,10 +2972,9 @@ actor GameUnified {
     
     // Initialize certified data
     private func initCertifiedData() : () {
-        // Use AssetManager to store and certify root content
-        // Important: Use empty string "" for root path, not "/"
-        assetManager.storeText("", Text.encodeUtf8("spotquest-ready"));
-        Debug.print("🔐 Initialized certified assets with root content");
+        // Root path is now served uncertified for II integration compatibility
+        // Other paths can still use the AssetManager for certified responses if needed
+        Debug.print("🔐 Certified assets initialized (root path served uncertified)");
     };
     
     // Helper function to create JSON response
@@ -3015,6 +3014,13 @@ actor GameUnified {
     };
     
     public query func http_request(req: HttpRequest) : async HttpResponse {
+        // Log ALL incoming requests to understand what the IC gateway is checking
+        Debug.print("🌐 [HTTP_REQUEST] Method: " # req.method # " URL: " # req.url);
+        Debug.print("  Headers:");
+        for ((name, value) in req.headers.vals()) {
+            Debug.print("    " # name # ": " # value);
+        };
+        
         // Parse URL path - remove query parameters
         let fullPath = req.url;
         let path = switch (Text.split(fullPath, #char '?').next()) {
@@ -3022,9 +3028,46 @@ actor GameUnified {
             case (?p) { p };
         };
         
-        // Delegate non-API paths to AssetManager for certified responses
+        // Handle root path without certification for II integration
+        if (path == "/" or path == "") {
+            Debug.print("🌐 Serving uncertified root HTML for II integration");
+            
+            // Simple HTML that acknowledges the canister is accessible
+            let html = "<!DOCTYPE html>\n" #
+                      "<html>\n" #
+                      "<head>\n" #
+                      "  <meta charset='utf-8'>\n" #
+                      "  <title>SpotQuest Canister</title>\n" #
+                      "</head>\n" #
+                      "<body>\n" #
+                      "  <h1>SpotQuest Backend Canister</h1>\n" #
+                      "  <p>This is the unified backend canister for SpotQuest.</p>\n" #
+                      "  <p>Use the SpotQuest mobile app to play the game.</p>\n" #
+                      "</body>\n" #
+                      "</html>";
+            
+            return {
+                body = Text.encodeUtf8(html);
+                headers = [
+                    ("content-type", "text/html; charset=UTF-8"),
+                    ("access-control-allow-origin", "*")
+                ];
+                status_code = 200;
+            };
+        };
+        
+        // Delegate other non-API paths to AssetManager for certified responses
         if (not Text.startsWith(path, #text "/api/") and 
             not Text.startsWith(path, #text "/debug/")) {
+            
+            Debug.print("🌐 Processing non-API request for path: '" # path # "'");
+            Debug.print("  Full URL: " # req.url);
+            Debug.print("  Method: " # req.method);
+            Debug.print("  Request headers:");
+            for ((name, value) in req.headers.vals()) {
+                Debug.print("    " # name # ": " # value);
+            };
+            
             // Convert request to CertifiedAssets.HttpRequest
             let certReq : CertifiedAssets.HttpRequest = {
                 url = req.url;
@@ -3033,13 +3076,21 @@ actor GameUnified {
                 headers = req.headers;
             };
             
-            // Important: Map root path "/" to empty string "" for certification
-            let certPath = if (path == "/") { "" } else { path };
-            
             // Get response from AssetManager  
-            let certResp = assetManager.serve(certPath, certReq);
+            let certResp = assetManager.serve(path, certReq);
             
-            // Convert back to HttpResponse
+            Debug.print("  Response status: " # Nat16.toText(certResp.status_code));
+            Debug.print("  Response headers:");
+            for ((name, value) in certResp.headers.vals()) {
+                if (name == "IC-Certificate") {
+                    Debug.print("    " # name # ": [present, length=" # Nat.toText(value.size()) # "]");
+                } else {
+                    Debug.print("    " # name # ": " # value);
+                };
+            };
+            
+            // Return response as-is for all methods (HEAD, GET, etc)
+            // The gateway will handle stripping the body for HEAD responses
             return {
                 body = certResp.body;
                 headers = certResp.headers;
@@ -3135,6 +3186,550 @@ actor GameUnified {
             };
         };
         
+        // Debug endpoint to show exact certification details
+        if (path == "/debug/cert-details") {
+            // Get the response that would be served for root
+            let rootContent = switch (assetManager.hasAsset("")) {
+                case true { "Asset exists at empty string path" };
+                case false { "No asset at empty string path" };
+            };
+            
+            // Try to get the exact response hash being certified
+            let certReq : CertifiedAssets.HttpRequest = {
+                url = "/";
+                method = "GET";
+                body = Blob.fromArray([]);
+                headers = [];
+            };
+            
+            let testResponse = assetManager.serve("", certReq);
+            
+            // Extract IC-Certificate header if present
+            var certHeader = "";
+            for ((name, value) in testResponse.headers.vals()) {
+                if (name == "ic-certificate") {
+                    certHeader := value;
+                };
+            };
+            
+            let debugInfo = "Certification Details:\n" #
+                "Root content status: " # rootContent # "\n" #
+                "Test response status: " # Nat16.toText(testResponse.status_code) # "\n" #
+                "IC-Certificate header present: " # (if (certHeader != "") { "YES" } else { "NO" }) # "\n" #
+                "Certificate header length: " # Nat.toText(Text.size(certHeader)) # "\n\n" #
+                "Response body: " # (switch (Text.decodeUtf8(testResponse.body)) {
+                    case null { "[Binary data]" };
+                    case (?text) { text };
+                }) # "\n";
+            
+            return {
+                body = Text.encodeUtf8(debugInfo);
+                headers = [("content-type", "text/plain")];
+                status_code = 200;
+            };
+        };
+        
+        // Debug endpoint to show exact certificate structure
+        if (path == "/debug/cert-hex") {
+            let certReq : CertifiedAssets.HttpRequest = {
+                url = "/";
+                method = "GET";
+                body = Blob.fromArray([]);
+                headers = [];
+            };
+            
+            let testResponse = assetManager.serve("", certReq);
+            
+            // Extract and decode IC-Certificate header
+            var certData = "";
+            var treeData = "";
+            for ((name, value) in testResponse.headers.vals()) {
+                if (name == "ic-certificate") {
+                    // Parse the header format: certificate=:<base64>:, tree=:<base64>:
+                    let parts = Text.split(value, #text ", ");
+                    for (part in parts) {
+                        if (Text.startsWith(part, #text "certificate=:")) {
+                            certData := Text.trimEnd(Text.trimStart(part, #text "certificate=:"), #text ":");
+                        } else if (Text.startsWith(part, #text "tree=:")) {
+                            treeData := Text.trimEnd(Text.trimStart(part, #text "tree=:"), #text ":");
+                        };
+                    };
+                };
+            };
+            
+            // Helper to get first N chars
+            func getFirst(text: Text, n: Nat) : Text {
+                let chars = text.chars();
+                var result = "";
+                var i = 0;
+                for (c in chars) {
+                    if (i < n) {
+                        result := result # Text.fromChar(c);
+                        i += 1;
+                    };
+                };
+                result
+            };
+            
+            // Also get the response hash for debugging
+            let responseHash = switch (assetManager.getResponseHash("")) {
+                case null { "No response hash found for empty path" };
+                case (?hash) { 
+                    "Response hash for '': " # debug_show(Blob.toArray(hash))
+                };
+            };
+            
+            let debugInfo = "Certificate Structure Debug:\n\n" #
+                "Certificate (base64url): " # getFirst(certData, 100) # "...\n" #
+                "Certificate length: " # Nat.toText(Text.size(certData)) # "\n\n" #
+                "Tree (base64url): " # getFirst(treeData, 100) # "...\n" #
+                "Tree length: " # Nat.toText(Text.size(treeData)) # "\n\n" #
+                responseHash # "\n\n" #
+                "Full IC-Certificate header:\n" # 
+                (switch (Array.find<(Text, Text)>(testResponse.headers, func((k, _)) = k == "ic-certificate")) {
+                    case null { "NOT FOUND" };
+                    case (?(_, v)) { v };
+                }) # "\n";
+            
+            return {
+                body = Text.encodeUtf8(debugInfo);
+                headers = [("content-type", "text/plain")];
+                status_code = 200;
+            };
+        };
+        
+        // Debug endpoint to show tree paths and response hashes
+        if (path == "/debug/cert-paths") {
+            let allPaths = assetManager.getAllAssetPaths();
+            var pathsInfo = "All certified paths and their response hashes:\n\n";
+            
+            for (p in allPaths.vals()) {
+                let hashInfo = switch (assetManager.getResponseHash(p)) {
+                    case null { "NO HASH" };
+                    case (?hash) { 
+                        let arr = Blob.toArray(hash);
+                        let first8 = Array.subArray(arr, 0, 8);
+                        debug_show(first8) # "... (" # Nat.toText(arr.size()) # " bytes)"
+                    };
+                };
+                pathsInfo := pathsInfo # "Path: \"" # p # "\" -> Hash: " # hashInfo # "\n";
+            };
+            
+            pathsInfo := pathsInfo # "\nTotal paths: " # Nat.toText(allPaths.size()) # "\n";
+            
+            return {
+                body = Text.encodeUtf8(pathsInfo);
+                headers = [("content-type", "text/plain")];
+                status_code = 200;
+            };
+        };
+        
+        // Debug endpoint to test certificate verification manually
+        if (path == "/debug/verify-cert") {
+            // Try to verify the certificate for the root path
+            let certReq : CertifiedAssets.HttpRequest = {
+                url = "/";
+                method = "GET";
+                body = Blob.fromArray([]);
+                headers = [];
+            };
+            
+            // Get the response for empty path
+            let response = assetManager.serve("", certReq);
+            
+            // Extract certificate parts
+            var hasCert = false;
+            for ((name, value) in response.headers.vals()) {
+                if (name == "ic-certificate") {
+                    hasCert := true;
+                };
+            };
+            
+            // Try to decode the tree to understand its structure
+            let treeInfo = "Certificate Verification Debug:\n" #
+                "Request URL: /\n" #
+                "Lookup path: \"\" (empty string)\n" #
+                "Response status: " # Nat16.toText(response.status_code) # "\n" #
+                "Has IC-Certificate header: " # (if (hasCert) { "YES" } else { "NO" }) # "\n\n" #
+                "Response body preview: " # (switch (Text.decodeUtf8(response.body)) {
+                    case null { "[Binary data]" };
+                    case (?text) { 
+                        let preview = if (Text.size(text) > 100) {
+                            let chars = text.chars();
+                            var first100 = "";
+                            var i = 0;
+                            for (c in chars) {
+                                if (i < 100) {
+                                    first100 := first100 # Text.fromChar(c);
+                                    i += 1;
+                                };
+                            };
+                            first100 # "..."
+                        } else { text };
+                        preview
+                    };
+                }) # "\n";
+            
+            return {
+                body = Text.encodeUtf8(treeInfo);
+                headers = [("content-type", "text/plain")];
+                status_code = 200;
+            };
+        };
+        
+        // Debug endpoint to show exactly what's being hashed
+        if (path == "/debug/response-hash") {
+            // Store a test response and show what gets hashed
+            let testContent = Text.encodeUtf8("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>SpotQuest</title></head><body><h1>SpotQuest - Backend API</h1><p>This is the unified backend canister for SpotQuest.</p></body></html>");
+            
+            // Show what headers are used
+            let headers = [
+                ("content-type", "text/html; charset=UTF-8"),
+                ("access-control-allow-origin", "*")
+            ];
+            
+            // Create the exact HTTP response that would be hashed
+            let statusText = "OK";
+            var responseText = "HTTP/1.1 200 " # statusText # "\r\n";
+            
+            // Add headers (normalize to lowercase)
+            for ((key, value) in headers.vals()) {
+                responseText #= Text.toLowercase(key) # ": " # value # "\r\n";
+            };
+            responseText #= "\r\n"; // Empty line before body
+            
+            // Show the full response that gets hashed
+            let fullResponseText = responseText # (switch (Text.decodeUtf8(testContent)) {
+                case null { "[Binary content]" };
+                case (?text) { text };
+            });
+            
+            let debugInfo = "Response Hash Debug:\n\n" #
+                "Headers used:\n" #
+                "  content-type: text/html; charset=UTF-8\n" #
+                "  access-control-allow-origin: *\n\n" #
+                "Full HTTP response being hashed:\n" #
+                "---START---\n" #
+                fullResponseText # "\n" #
+                "---END---\n\n" #
+                "Response length: " # Nat.toText(Text.size(fullResponseText)) # " characters\n";
+            
+            return {
+                body = Text.encodeUtf8(debugInfo);
+                headers = [("content-type", "text/plain")];
+                status_code = 200;
+            };
+        };
+        
+        // Debug endpoint to test CBOR encoding
+        if (path == "/debug/cbor-test") {
+            // Test our CBOR encoding with a simple structure
+            let testTree = #labeled(
+                Blob.fromArray([104, 116, 116, 112, 95, 97, 115, 115, 101, 116, 115]), // "http_assets"
+                #labeled(
+                    Blob.fromArray([]), // empty string
+                    #leaf(Blob.fromArray([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]))
+                )
+            );
+            
+            // Get CBOR encoding of tree
+            let encodedTree = assetManager.encodeCborTree(testTree);
+            let encodedHex = Array.map<Nat8, Text>(
+                Blob.toArray(encodedTree), 
+                func (b : Nat8) : Text {
+                    let hex = Nat8.toText(b);
+                    if (b < 16) { "0" # hex } else { hex }
+                }
+            );
+            
+            let analysis = "CBOR Encoding Test:\n\n" #
+                "Test tree structure:\n" #
+                "http_assets\n" #
+                "  └── \"\" (empty string)\n" #
+                "      └── [1,2,3,4,5...32] (test hash)\n\n" #
+                "CBOR encoded bytes: " # Nat.toText(encodedTree.size()) # "\n" #
+                "CBOR hex: " # Array.foldLeft<Text, Text>(encodedHex, "", func (acc, h) { acc # h # " " }) # "\n";
+            
+            return {
+                body = Text.encodeUtf8(analysis);
+                headers = [("content-type", "text/plain")];
+                status_code = 200;
+            };
+        };
+        
+        // Debug endpoint to show exact tree bytes and decode them
+        if (path == "/debug/tree-bytes") {
+            let certReq : CertifiedAssets.HttpRequest = {
+                url = "/";
+                method = "GET";
+                body = Blob.fromArray([]);
+                headers = [];
+            };
+            
+            let testResponse = assetManager.serve("", certReq);
+            
+            // Extract tree bytes and certificate
+            var treeBase64 = "";
+            var certBase64 = "";
+            for ((name, value) in testResponse.headers.vals()) {
+                if (name == "ic-certificate") {
+                    let parts = Text.split(value, #text ", ");
+                    for (part in parts) {
+                        if (Text.startsWith(part, #text "tree=:")) {
+                            treeBase64 := Text.trimEnd(Text.trimStart(part, #text "tree=:"), #text ":");
+                        };
+                        if (Text.startsWith(part, #text "certificate=:")) {
+                            certBase64 := Text.trimEnd(Text.trimStart(part, #text "certificate=:"), #text ":");
+                        };
+                    };
+                };
+            };
+            
+            // Get response hash for root path
+            let rootHash = switch(assetManager.getResponseHash("")) {
+                case null { "NOT FOUND" };
+                case (?h) { 
+                    let bytes = Blob.toArray(h);
+                    var hex = "";
+                    for (b in bytes.vals()) {
+                        hex #= Nat8.toText(b) # " ";
+                    };
+                    hex
+                };
+            };
+            
+            // Get all asset paths
+            let allPaths = assetManager.getAllAssetPaths();
+            var pathsList = "";
+            for (p in allPaths.vals()) {
+                pathsList #= "  - '" # p # "'\n";
+            };
+            
+            // Show tree structure breakdown
+            let analysis = "Tree Bytes Analysis:\n\n" #
+                "Tree base64url: " # treeBase64 # "\n" #
+                "Certificate base64url length: " # Nat.toText(certBase64.size()) # "\n\n" #
+                "All asset paths:\n" # pathsList # "\n" #
+                "Response hash for root path (''): " # rootHash # "\n\n" #
+                "Expected CBOR structure for http_assets -> \"\" -> hash:\n" #
+                "- 0x83 (array of 3)\n" #
+                "- 0x03 (labeled = 3)\n" #
+                "- 0x4B + \"http_assets\" (11 bytes)\n" #
+                "- 0x83 (array of 3)\n" #
+                "- 0x03 (labeled = 3)\n" #
+                "- 0x40 (empty byte string for \"\")\n" #
+                "- 0x82 (array of 2)\n" #
+                "- 0x04 (leaf = 4)\n" #
+                "- 0x58 0x20 + 32 bytes of hash\n";
+            
+            return {
+                body = Text.encodeUtf8(analysis);
+                headers = [("content-type", "text/plain")];
+                status_code = 200;
+            };
+        };
+        
+        // Debug endpoint to show what we're hashing
+        if (path == "/debug/hash-info") {
+            // Get the HTML content that's being served
+            let htmlContent = Text.encodeUtf8("<!DOCTYPE html>" #
+                "<html>" #
+                "<head>" #
+                "<meta charset=\"utf-8\">" #
+                "<title>SpotQuest</title>" #
+                "</head>" #
+                "<body>" #
+                "<h1>SpotQuest Ready</h1>" #
+                "<p>The game backend is running.</p>" #
+                "</body>" #
+                "</html>");
+            
+            // Show exactly what we're hashing
+            let contentPreview = switch (Text.decodeUtf8(htmlContent)) {
+                case null { "[Binary data]" };
+                case (?text) {
+                    if (Text.size(text) > 200) {
+                        let chars = text.chars();
+                        var first200 = "";
+                        var i = 0;
+                        for (c in chars) {
+                            if (i < 200) {
+                                first200 := first200 # Text.fromChar(c);
+                                i += 1;
+                            };
+                        };
+                        first200 # "..."
+                    } else {
+                        text
+                    }
+                };
+            };
+            
+            // Calculate hash of just the body
+            let bodyHash = assetManager.sha256(htmlContent);
+            var bodyHashHex = "";
+            for (b in Blob.toArray(bodyHash).vals()) {
+                let hex = Nat8.toText(b);
+                bodyHashHex #= (if (hex == "0") { "00" } else if (hex == "1") { "01" } else if (hex == "2") { "02" } else if (hex == "3") { "03" } else if (hex == "4") { "04" } else if (hex == "5") { "05" } else if (hex == "6") { "06" } else if (hex == "7") { "07" } else if (hex == "8") { "08" } else if (hex == "9") { "09" } else { hex }) # " ";
+            };
+            
+            let info = "Hash Calculation Debug:\n\n" #
+                "What we're hashing: JUST THE RESPONSE BODY (per IC v2 spec)\n\n" #
+                "Body size: " # Nat.toText(htmlContent.size()) # " bytes\n" #
+                "Body SHA256: " # bodyHashHex # "\n\n" #
+                "Body content preview:\n" #
+                "---START---\n" #
+                contentPreview # "\n" #
+                "---END---\n\n" #
+                "Note: We are NOT including headers or status in the hash.\n" #
+                "The IC gateway should be verifying: SHA256(response_body) == tree_leaf_value\n";
+            
+            return {
+                body = Text.encodeUtf8(info);
+                headers = [("content-type", "text/plain")];
+                status_code = 200;
+            };
+        };
+        
+        // Debug endpoint to test certification verification
+        if (path == "/debug/verify") {
+            // Get the response for root
+            let certReq : CertifiedAssets.HttpRequest = {
+                url = "/";
+                method = "GET";
+                body = Blob.fromArray([]);
+                headers = [];
+            };
+            
+            let response = assetManager.serve("", certReq);
+            
+            // Extract the ic-certificate header
+            var certHeader = "";
+            for ((name, value) in response.headers.vals()) {
+                if (name == "ic-certificate") {
+                    certHeader := value;
+                };
+            };
+            
+            // Also compute what we think the hash should be
+            let expectedContent = Text.encodeUtf8("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>SpotQuest</title></head><body><h1>SpotQuest Ready</h1><p>The game backend is running.</p></body></html>");
+            let expectedHash = assetManager.sha256(expectedContent);
+            
+            // Get the actual hash we stored
+            let storedHash = switch(assetManager.getResponseHash("")) {
+                case null { Blob.fromArray([]) };
+                case (?h) { h };
+            };
+            
+            let info = "Certification Verification Debug:\n\n" #
+                "Expected content size: " # Nat.toText(expectedContent.size()) # " bytes\n" #
+                "Expected SHA256: " # debug_show(Blob.toArray(expectedHash)) # "\n" #
+                "Stored hash: " # debug_show(Blob.toArray(storedHash)) # "\n" #
+                "Hashes match: " # (if (expectedHash == storedHash) { "YES" } else { "NO" }) # "\n\n" #
+                "IC-Certificate header present: " # (if (certHeader != "") { "YES" } else { "NO" }) # "\n" #
+                "Header length: " # Nat.toText(certHeader.size()) # "\n\n" #
+                "Response body size: " # Nat.toText(response.body.size()) # " bytes\n" #
+                "Response body matches expected: " # (if (response.body == expectedContent) { "YES" } else { "NO" }) # "\n";
+            
+            return {
+                body = Text.encodeUtf8(info);
+                headers = [("content-type", "text/plain")];
+                status_code = 200;
+            };
+        };
+        
+        // Debug endpoint to check responseHashes state
+        if (path == "/debug/response-hashes") {
+            let allPaths = assetManager.getAllAssetPaths();
+            var pathsInfo = "ResponseHashes state:\n\n";
+            pathsInfo #= "Total paths stored: " # Nat.toText(allPaths.size()) # "\n\n";
+            
+            for (p in allPaths.vals()) {
+                let hash = switch (assetManager.getResponseHash(p)) {
+                    case null { "NO HASH" };
+                    case (?h) { debug_show(Blob.toArray(h)) };
+                };
+                pathsInfo #= "Path: \"" # p # "\"\n";
+                pathsInfo #= "Hash: " # hash # "\n\n";
+            };
+            
+            // Also check what updateCertifiedData would generate
+            pathsInfo #= "Expected tree structure for root path:\n";
+            pathsInfo #= "http_assets -> \"\" -> [hash]\n\n";
+            pathsInfo #= "CBOR encoding should be:\n";
+            pathsInfo #= "83 03 4B[http_assets] 83 03 40 82 04 58 20 [32-byte-hash]\n";
+            
+            return {
+                body = Text.encodeUtf8(pathsInfo);
+                headers = [("content-type", "text/plain")];
+                status_code = 200;
+            };
+        };
+        
+        // Debug endpoint to decode and analyze tree structure
+        if (path == "/debug/tree-analysis") {
+            let certReq : CertifiedAssets.HttpRequest = {
+                url = "/";
+                method = "GET";
+                body = Blob.fromArray([]);
+                headers = [];
+            };
+            
+            let testResponse = assetManager.serve("", certReq);
+            
+            // Get tree data
+            var treeData = "";
+            for ((name, value) in testResponse.headers.vals()) {
+                if (name == "ic-certificate") {
+                    let parts = Text.split(value, #text ", ");
+                    for (part in parts) {
+                        if (Text.startsWith(part, #text "tree=:")) {
+                            treeData := Text.trimEnd(Text.trimStart(part, #text "tree=:"), #text ":");
+                        };
+                    };
+                };
+            };
+            
+            // Also get the actual body content and its hash
+            let bodyText = switch (Text.decodeUtf8(testResponse.body)) {
+                case null { "Unable to decode body" };
+                case (?t) { t };
+            };
+            
+            let bodyHash = switch (assetManager.getResponseHash("")) {
+                case null { "No hash found" };
+                case (?h) { debug_show(Blob.toArray(h)) };
+            };
+            
+            let analysis = "Tree Structure Analysis:\n\n" #
+                "Tree base64url length: " # Nat.toText(Text.size(treeData)) # "\n" #
+                "Tree data (first 200 chars): " # (if (Text.size(treeData) > 200) {
+                    let chars = treeData.chars();
+                    var first200 = "";
+                    var i = 0;
+                    for (c in chars) {
+                        if (i < 200) {
+                            first200 := first200 # Text.fromChar(c);
+                            i += 1;
+                        };
+                    };
+                    first200
+                } else { treeData }) # "\n\n" #
+                "Body content:\n" # bodyText # "\n\n" #
+                "Body size: " # Nat.toText(testResponse.body.size()) # " bytes\n" #
+                "Body hash (what we're certifying): " # bodyHash # "\n\n" #
+                "Expected tree structure:\n" #
+                "http_assets\n" #
+                "  └── \"\" (empty string)\n" #
+                "      └── " # bodyHash # "\n";
+            
+            return {
+                body = Text.encodeUtf8(analysis);
+                headers = [("content-type", "text/plain")];
+                status_code = 200;
+            };
+        };
+        
         // Handle POST /api/session/new - Create new session
         if (req.method == "POST" and path == "/api/session/new") {
             let bodyText = getBodyText(req.body);
@@ -3211,7 +3806,7 @@ actor GameUnified {
             };
             
             // Debug: Check what we received
-            let debugResponse = "Debug - Received publicKey: " # publicKey # ", redirectUri: " # redirectUri # ", body: " # bodyText;
+            let _debugResponse = "Debug - Received publicKey: " # publicKey # ", redirectUri: " # redirectUri # ", body: " # bodyText;
             
             // Temporary fallback for testing
             if (redirectUri == "") {
@@ -3579,7 +4174,8 @@ actor GameUnified {
         };
         
         // Handle GET / - Check session-id parameter and redirect appropriately
-        if (req.method == "GET" and (path == "/" or path == "")) {
+        // Only handle root path if it has query parameters (for auth flow)
+        if (req.method == "GET" and (path == "/" or path == "") and Text.contains(fullPath, #text "?")) {
             // Parse query parameters
             let urlParts = Text.split(fullPath, #text "?");
             var publicKey = "";
@@ -3687,6 +4283,27 @@ actor GameUnified {
             
             // Default response if no parameters - return JSON for expo-ii-integration
             return jsonResponse("{\"status\":\"ready\",\"canisterId\":\"77fv5-oiaaa-aaaal-qsoea-cai\"}", 200);
+        };
+        
+        // Serve the certified endpoint
+        if (path == "/certified") {
+            // Get the certified response for the root path
+            let certReq : CertifiedAssets.HttpRequest = {
+                url = "/";
+                method = "GET";
+                body = Blob.fromArray([]);
+                headers = [];
+            };
+            
+            // Serve from the certified assets manager
+            let certResp = assetManager.serve("", certReq);
+            
+            // Convert CertifiedAssets response to HttpResponse
+            return {
+                body = certResp.body;
+                headers = certResp.headers;
+                status_code = certResp.status_code;
+            };
         };
         
         // Default response - return JSON for compatibility
