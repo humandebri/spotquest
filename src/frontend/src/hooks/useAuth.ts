@@ -98,16 +98,10 @@ export function useAuth() {
     });
     
     try {
-      // Set maxTimeToLive to 30 days (in nanoseconds)
-      // 30 days = 30 * 24 * 60 * 60 * 1,000,000,000 nanoseconds
-      const thirtyDaysInNanoseconds = BigInt(30 * 24 * 60 * 60) * BigInt(1000000000);
-      
       const result = await iiIntegration.login({
         redirectPath: 'auth',
-        maxTimeToLive: thirtyDaysInNanoseconds,
       });
       debugLog('AUTH_FLOW', '🔍 Login result:', result);
-      debugLog('AUTH_FLOW', '🔍 Session duration set to 30 days');
       
       // Force session check after login
       setTimeout(async () => {

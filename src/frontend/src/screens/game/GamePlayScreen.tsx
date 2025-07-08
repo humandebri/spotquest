@@ -1561,7 +1561,7 @@ const HintModal = ({ visible, hints, onPurchase, onClose, costMultiplier }: Hint
           <Text style={styles.modalTitle}>ヒントショップ</Text>
           
           <View style={styles.modalTokenBalance}>
-            <MaterialCommunityIcons name="coin" size={20} color="#FFD700" />
+            <MaterialCommunityIcons name="currency-usd" size={20} color="#FFD700" />
             <Text style={styles.modalTokenText}>
               残高: {(Number(tokenBalance) / 100).toFixed(2)} SPOT
             </Text>

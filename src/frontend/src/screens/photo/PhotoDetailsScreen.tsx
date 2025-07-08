@@ -54,6 +54,9 @@ export default function PhotoDetailsScreen() {
   
   // Can rate if: not own photo
   const canRatePhoto = !isOwnPhoto;
+  
+  // Developer mode disabled per CLAUDE.md instructions
+  const isDeveloper = false;
 
   useEffect(() => {
     if (photoId && identity) {

@@ -36,6 +36,12 @@ type SessionSummary =
    status: SessionStatus;
    totalScore: nat;
  };
+type SessionStatus__1 = 
+ variant {
+   Closed;
+   HasDelegation;
+   Open;
+ };
 type SessionStatus = 
  variant {
    Abandoned;
@@ -68,6 +74,20 @@ type SessionInfo =
    status: SessionStatus;
  };
 type SessionId = text;
+type SessionData = 
+ record {
+   delegation: opt text;
+   delegationPubkey: opt text;
+   nonce: text;
+   "principal": opt principal;
+   publicKey: opt text;
+   redirectUri: text;
+   sessionId: text;
+   state: text;
+   status: SessionStatus__1;
+   timestamp: Time;
+   userPublicKey: opt text;
+ };
 type SearchResult = 
  record {
    cursor: opt nat;
@@ -346,6 +366,11 @@ type OverallPhotoStats =
    totalPhotos: nat;
    totalSize: nat;
  };
+type NewSessionResponse = 
+ record {
+   authorizeUrl: text;
+   sessionId: text;
+ };
 type MetadataValue = 
  variant {
    Blob: blob;
@@ -436,6 +461,11 @@ type GameSession =
    totalScoreNorm: nat;
    userId: principal;
  };
+type DelegateResponse = 
+ record {
+   error: opt text;
+   success: bool;
+ };
 type CreatePhotoRequest = 
  record {
    azimuth: opt float64;
@@ -499,6 +529,7 @@ service : {
   canRatePhoto: (sessionId: text, photoId: nat) -> (bool) query;
   /// 🗑️ 移行完了後にLegacyデータを削除（管理者専用）
   clearLegacyPhotoData: () -> (Result_16);
+  closeSession: (sessionId: text) -> (bool);
   /// 写真のメタデータを作成（チャンクアップロード開始）
   createPhotoV2: (request: CreatePhotoRequest) -> (Result_15);
   createSession: () -> (Result_14);
@@ -591,6 +622,12 @@ service : {
   finalizePhotoUploadV2: (photoId: nat) -> (Result);
   finalizeSession: (sessionId: text) -> (Result_13);
   generateHeatmap: (photoId: nat) -> (Result_12) query;
+  getDelegation: (sessionId: text) ->
+   (opt record {
+          delegation: text;
+          delegationPubkey: text;
+          userPublicKey: text;
+        }) query;
   getEloLeaderboard: (limit: nat) -> (vec record {
                                             principal;
                                             int;
@@ -722,6 +759,7 @@ service : {
           float64;
         }) query;
   getSession: (sessionId: text) -> (Result_8) query;
+  getSessionStatus: (sessionId: text) -> (opt SessionData) query;
   getSinkHistory: (limit: opt nat) -> (vec record {
                                              Time;
                                              text;
@@ -818,10 +856,13 @@ service : {
   init: () -> (Result);
   /// 🔄 Legacy TrieMapからStableTrieMapにデータを移行（管理者専用）
   migrateLegacyPhotoData: () -> (Result_5);
+  newSession: (publicKey: text) -> (NewSessionResponse);
   purchaseHint: (sessionId: text, hintType: HintType) -> (Result_4);
   purchaseProMembership: () -> (Result_3);
   rebuildPhotoStats: () -> (Result_1);
   rebuildPlayerStats: () -> (text);
+  saveDelegate: (sessionId: text, delegation: text, userPublicKey: text,
+   delegationPubkey: text) -> (DelegateResponse);
   /// 写真を検索
   searchPhotosV2: (filter: SearchFilter, cursor: opt nat, limit: nat) ->
    (SearchResult) query;

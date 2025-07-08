@@ -103,10 +103,11 @@ function AppContent() {
     
     return () => {
       try {
-        // より安全なチェック - subscriptionがオブジェクトであることを確認
-        if (subscription && typeof subscription === 'object' && 'remove' in subscription) {
-          if (typeof subscription.remove === 'function') {
-            subscription.remove();
+        // Expo's addEventListener returns an object with remove method
+        if (subscription && typeof subscription === 'object') {
+          const sub = subscription as { remove?: () => void };
+          if (typeof sub.remove === 'function') {
+            sub.remove();
             debugLog('DEEP_LINKS', '✅ Linking event listener removed successfully');
           }
         }

@@ -246,7 +246,7 @@ export default function PhotoUploadScreenV2() {
           imageData: imageData, // Uint8Arrayを直接渡す
           metadata: photoRequest,
         },
-        identity
+        identity || undefined
       );
       
       // プログレスバーを100%に設定
@@ -261,7 +261,7 @@ export default function PhotoUploadScreenV2() {
       // 投稿成功後、実際にICP上に保存されたかを確認
       if (photoId) {
         try {
-          const savedPhotoMetadata = await photoServiceV2.getPhotoMetadata(photoId, identity);
+          const savedPhotoMetadata = await photoServiceV2.getPhotoMetadata(photoId, identity || undefined);
           
           if (savedPhotoMetadata) {
             const compressionInfo = compressionResult && compressionResult.compressed 

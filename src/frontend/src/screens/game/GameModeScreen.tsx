@@ -92,9 +92,7 @@ export default function GameModeScreen() {
             firstPhoto: result.photos[0] ? {
               id: result.photos[0].id?.toString(),
               uploadTime: result.photos[0].uploadTime?.toString(),
-              createdAt: result.photos[0].createdAt?.toString(),
-              hasUploadTime: 'uploadTime' in result.photos[0],
-              hasCreatedAt: 'createdAt' in result.photos[0]
+              hasUploadTime: 'uploadTime' in result.photos[0]
             } : null
           });
           
@@ -104,8 +102,7 @@ export default function GameModeScreen() {
           // Calculate weekly photos (photos uploaded in the last 7 days)
           const oneWeekAgo = BigInt(Date.now() * 1000000) - BigInt(7 * 24 * 60 * 60 * 1000000000); // nanoseconds
           const weeklyPhotos = result.photos.filter(photo => {
-            // Use uploadTime if createdAt is not available
-            const timestamp = photo.uploadTime || photo.createdAt;
+            const timestamp = photo.uploadTime;
             return timestamp && timestamp >= oneWeekAgo;
           });
           
@@ -113,7 +110,7 @@ export default function GameModeScreen() {
             currentTime: Date.now() * 1000000,
             oneWeekAgo: oneWeekAgo.toString(),
             photoTimestamps: result.photos.map(p => {
-              const timestamp = p.uploadTime || p.createdAt;
+              const timestamp = p.uploadTime;
               return timestamp ? timestamp.toString() : 'no-timestamp';
             }),
             weeklyCount: weeklyPhotos.length

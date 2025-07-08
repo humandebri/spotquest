@@ -15,6 +15,7 @@ export const DEBUG_CONFIG = {
   ED25519_FIX: false,     // Ed25519 key identity fixing
   GAME_FLOW: false,       // Game flow debugging
   API_CALLS: false,       // API call debugging
+  AUTH_SESSION_V6: false, // AuthSession V6 debugging
 };
 
 // Helper function for conditional logging

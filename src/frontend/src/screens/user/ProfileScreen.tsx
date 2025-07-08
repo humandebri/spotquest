@@ -266,7 +266,11 @@ export default function ProfileScreen() {
           totalRewardsEarned: Number(playerStats.totalRewardsEarned),
           bestScore: Number(playerStats.bestScore),
           averageScore: Number(playerStats.averageScore),
-          averageScore30Days: playerStats.averageScore30Days?.[0] ? Number(playerStats.averageScore30Days[0]) : undefined,
+          averageScore30Days: Array.isArray(playerStats.averageScore30Days) && playerStats.averageScore30Days[0] 
+            ? Number(playerStats.averageScore30Days[0]) 
+            : playerStats.averageScore30Days 
+            ? Number(playerStats.averageScore30Days) 
+            : undefined,
           rank: playerStats.rank !== null && playerStats.rank !== undefined ? Number(playerStats.rank) : undefined,
           winRate: playerStats.winRate,
           currentStreak: Number(playerStats.currentStreak),

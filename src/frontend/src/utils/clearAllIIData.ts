@@ -26,10 +26,12 @@ export async function clearAllIIData(secureStorage: Storage, regularStorage: Sto
     // Clear from secure storage
     for (const key of iiKeys) {
       try {
-        const value = await secureStorage.getItem(key);
-        if (value !== null) {
-          debugLog('II_INTEGRATION', `🧹 Removing ${key} from secure storage`);
-          await secureStorage.removeItem(key);
+        if (secureStorage.getItem) {
+          const value = await secureStorage.getItem(key);
+          if (value !== null && secureStorage.removeItem) {
+            debugLog('II_INTEGRATION', `🧹 Removing ${key} from secure storage`);
+            await secureStorage.removeItem(key);
+          }
         }
       } catch (e) {
         debugLog('II_INTEGRATION', `🧹 Error checking/removing ${key}:`, e);
@@ -39,10 +41,12 @@ export async function clearAllIIData(secureStorage: Storage, regularStorage: Sto
     // Clear from regular storage
     for (const key of iiKeys) {
       try {
-        const value = await regularStorage.getItem(key);
-        if (value !== null) {
-          debugLog('II_INTEGRATION', `🧹 Removing ${key} from regular storage`);
-          await regularStorage.removeItem(key);
+        if (regularStorage.getItem) {
+          const value = await regularStorage.getItem(key);
+          if (value !== null && regularStorage.removeItem) {
+            debugLog('II_INTEGRATION', `🧹 Removing ${key} from regular storage`);
+            await regularStorage.removeItem(key);
+          }
         }
       } catch (e) {
         debugLog('II_INTEGRATION', `🧹 Error checking/removing ${key}:`, e);
@@ -51,20 +55,28 @@ export async function clearAllIIData(secureStorage: Storage, regularStorage: Sto
     
     // Also clear any keys found by prefix search
     try {
-      const secureKeys = await secureStorage.find('expo-ii-integration');
-      for (const key of secureKeys) {
-        debugLog('II_INTEGRATION', `🧹 Removing found key: ${key} from secure storage`);
-        await secureStorage.removeItem(key);
+      if (secureStorage.find) {
+        const secureKeys = await secureStorage.find('expo-ii-integration');
+        for (const key of secureKeys) {
+          if (secureStorage.removeItem) {
+            debugLog('II_INTEGRATION', `🧹 Removing found key: ${key} from secure storage`);
+            await secureStorage.removeItem(key);
+          }
+        }
       }
     } catch (e) {
       debugLog('II_INTEGRATION', '🧹 Error during secure storage prefix search:', e);
     }
     
     try {
-      const regularKeys = await regularStorage.find('expo-ii-integration');
-      for (const key of regularKeys) {
-        debugLog('II_INTEGRATION', `🧹 Removing found key: ${key} from regular storage`);
-        await regularStorage.removeItem(key);
+      if (regularStorage.find) {
+        const regularKeys = await regularStorage.find('expo-ii-integration');
+        for (const key of regularKeys) {
+          if (regularStorage.removeItem) {
+            debugLog('II_INTEGRATION', `🧹 Removing found key: ${key} from regular storage`);
+            await regularStorage.removeItem(key);
+          }
+        }
       }
     } catch (e) {
       debugLog('II_INTEGRATION', '🧹 Error during regular storage prefix search:', e);

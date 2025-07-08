@@ -35,6 +35,10 @@ export interface CreatePhotoRequest {
   'sceneKind' : SceneKind,
   'expectedChunks' : bigint,
 }
+export interface DelegateResponse {
+  'error' : [] | [string],
+  'success' : boolean,
+}
 export interface GameSession {
   'id' : SessionId,
   'startTime' : Time,
@@ -99,6 +103,10 @@ export type MetadataValue = { 'Int' : bigint } |
   { 'Nat' : bigint } |
   { 'Blob' : Uint8Array | number[] } |
   { 'Text' : string };
+export interface NewSessionResponse {
+  'authorizeUrl' : string,
+  'sessionId' : string,
+}
 export interface OverallPhotoStats {
   'photosByRegion' : Array<[RegionCode, bigint]>,
   'photosBySceneKind' : Array<[SceneKind, bigint]>,
@@ -275,6 +283,19 @@ export interface SearchResult {
   'totalCount' : bigint,
   'photos' : Array<PhotoMetaV2>,
 }
+export interface SessionData {
+  'status' : SessionStatus__1,
+  'principal' : [] | [Principal],
+  'delegation' : [] | [string],
+  'publicKey' : [] | [string],
+  'redirectUri' : string,
+  'delegationPubkey' : [] | [string],
+  'state' : string,
+  'nonce' : string,
+  'timestamp' : Time,
+  'sessionId' : string,
+  'userPublicKey' : [] | [string],
+}
 export type SessionId = string;
 export interface SessionInfo {
   'id' : SessionId,
@@ -299,6 +320,9 @@ export interface SessionResult {
 export type SessionStatus = { 'Abandoned' : null } |
   { 'Active' : null } |
   { 'Completed' : null };
+export type SessionStatus__1 = { 'Open' : null } |
+  { 'Closed' : null } |
+  { 'HasDelegation' : null };
 export interface SessionSummary {
   'id' : SessionId,
   'status' : SessionStatus,
@@ -339,6 +363,7 @@ export interface _SERVICE {
   'burnTokens' : ActorMethod<[bigint], Result_15>,
   'canRatePhoto' : ActorMethod<[string, bigint], boolean>,
   'clearLegacyPhotoData' : ActorMethod<[], Result_16>,
+  'closeSession' : ActorMethod<[string], boolean>,
   'createPhotoV2' : ActorMethod<[CreatePhotoRequest], Result_15>,
   'createSession' : ActorMethod<[], Result_14>,
   'debugCalculatePlayerReward' : ActorMethod<
@@ -439,6 +464,16 @@ export interface _SERVICE {
   'finalizePhotoUploadV2' : ActorMethod<[bigint], Result>,
   'finalizeSession' : ActorMethod<[string], Result_13>,
   'generateHeatmap' : ActorMethod<[bigint], Result_12>,
+  'getDelegation' : ActorMethod<
+    [string],
+    [] | [
+      {
+        'delegation' : string,
+        'delegationPubkey' : string,
+        'userPublicKey' : string,
+      }
+    ]
+  >,
   'getEloLeaderboard' : ActorMethod<[bigint], Array<[Principal, bigint]>>,
   'getLeaderboard' : ActorMethod<[bigint], Array<[Principal, bigint]>>,
   'getLeaderboardByRewards' : ActorMethod<
@@ -567,6 +602,7 @@ export interface _SERVICE {
     Array<[Principal, number]>
   >,
   'getSession' : ActorMethod<[string], Result_8>,
+  'getSessionStatus' : ActorMethod<[string], [] | [SessionData]>,
   'getSinkHistory' : ActorMethod<
     [[] | [bigint]],
     Array<[Time, string, bigint]>
@@ -658,10 +694,15 @@ export interface _SERVICE {
   'icrc1_transfer' : ActorMethod<[TransferArgs], Result_6>,
   'init' : ActorMethod<[], Result>,
   'migrateLegacyPhotoData' : ActorMethod<[], Result_5>,
+  'newSession' : ActorMethod<[string], NewSessionResponse>,
   'purchaseHint' : ActorMethod<[string, HintType], Result_4>,
   'purchaseProMembership' : ActorMethod<[], Result_3>,
   'rebuildPhotoStats' : ActorMethod<[], Result_1>,
   'rebuildPlayerStats' : ActorMethod<[], string>,
+  'saveDelegate' : ActorMethod<
+    [string, string, string, string],
+    DelegateResponse
+  >,
   'searchPhotosV2' : ActorMethod<
     [SearchFilter, [] | [bigint], bigint],
     SearchResult

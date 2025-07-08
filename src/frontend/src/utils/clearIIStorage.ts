@@ -10,8 +10,8 @@ export async function clearIIStorage(secureStorage: Storage, regularStorage: Sto
   
   try {
     // Find all expo-ii-integration keys
-    const secureKeys = await secureStorage.find('expo-ii-integration');
-    const regularKeys = await regularStorage.find('expo-ii-integration');
+    const secureKeys = secureStorage.find ? await secureStorage.find('expo-ii-integration') : [];
+    const regularKeys = regularStorage.find ? await regularStorage.find('expo-ii-integration') : [];
     
     console.log('🧹 Found secure keys:', secureKeys);
     console.log('🧹 Found regular keys:', regularKeys);
@@ -19,8 +19,10 @@ export async function clearIIStorage(secureStorage: Storage, regularStorage: Sto
     // Clear secure storage
     for (const key of secureKeys) {
       try {
-        await secureStorage.removeItem(key);
-        console.log('🧹 Removed secure key:', key);
+        if (secureStorage.removeItem) {
+          await secureStorage.removeItem(key);
+          console.log('🧹 Removed secure key:', key);
+        }
       } catch (e) {
         console.error('🧹 Failed to remove secure key:', key, e);
       }
@@ -29,8 +31,10 @@ export async function clearIIStorage(secureStorage: Storage, regularStorage: Sto
     // Clear regular storage
     for (const key of regularKeys) {
       try {
-        await regularStorage.removeItem(key);
-        console.log('🧹 Removed regular key:', key);
+        if (regularStorage.removeItem) {
+          await regularStorage.removeItem(key);
+          console.log('🧹 Removed regular key:', key);
+        }
       } catch (e) {
         console.error('🧹 Failed to remove regular key:', key, e);
       }

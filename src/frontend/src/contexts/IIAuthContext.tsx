@@ -59,10 +59,7 @@ function IIAuthProviderInner({ children }: IIAuthProviderProps) {
 
   // ③ AuthSessionを使用してExpoプロキシ経由でリダイレクト
   // カスタムURLスキーム（spotquest://）は不要
-  const deepLink = AuthSession.makeRedirectUri({
-    useProxy: true, // https://auth.expo.io/@hude/spotquest を使用
-    projectNameForProxy: '@hude/spotquest'
-  });
+  const deepLink = AuthSession.makeRedirectUri();
   
   // For debugging: log the actual deep link
   debugLog('DEEP_LINKS', '🔗 Deep link for II redirect (AuthSession):', deepLink);
@@ -120,7 +117,7 @@ function IIAuthProviderInner({ children }: IIAuthProviderProps) {
   // Use the II integration hook
   const iiIntegration = useIIIntegration({
     iiIntegrationUrl,
-    deepLinkType,
+    deepLinkType: deepLinkType as any,
     secureStorage: secureStorage as any,
     regularStorage: regularStorage as any,
     cryptoModule,

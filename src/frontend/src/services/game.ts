@@ -358,7 +358,59 @@ class GameService {
         err: IDL.Text,
       });
 
+      // II Integration types
+      const NewSessionRequest = IDL.Record({
+        publicKey: IDL.Text,
+      });
+      
+      const NewSessionResponse = IDL.Record({
+        sessionId: IDL.Text,
+        authorizeUrl: IDL.Text,
+      });
+      
+      const DelegateRequest = IDL.Record({
+        delegation: IDL.Text,
+        userPublicKey: IDL.Text,
+        delegationPubkey: IDL.Text,
+      });
+      
+      const DelegateResponse = IDL.Record({
+        success: IDL.Bool,
+        error: IDL.Opt(IDL.Text),
+      });
+
+      const IISessionStatus = IDL.Variant({
+        Open: IDL.Null,
+        HasDelegation: IDL.Null,
+        Closed: IDL.Null,
+      });
+
+      const SessionData = IDL.Record({
+        sessionId: IDL.Text,
+        principal: IDL.Opt(IDL.Principal),
+        timestamp: IDL.Int,
+        state: IDL.Text,
+        nonce: IDL.Text,
+        redirectUri: IDL.Text,
+        status: IISessionStatus,
+        publicKey: IDL.Opt(IDL.Text),
+        delegation: IDL.Opt(IDL.Text),
+        userPublicKey: IDL.Opt(IDL.Text),
+        delegationPubkey: IDL.Opt(IDL.Text),
+      });
+
       return IDL.Service({
+        // II Integration functions
+        newSession: IDL.Func([IDL.Text], [NewSessionResponse], []),
+        saveDelegate: IDL.Func([IDL.Text, IDL.Text, IDL.Text, IDL.Text], [DelegateResponse], []),
+        closeSession: IDL.Func([IDL.Text], [IDL.Bool], []),
+        getSessionStatus: IDL.Func([IDL.Text], [IDL.Opt(SessionData)], ['query']),
+        getDelegation: IDL.Func([IDL.Text], [IDL.Opt(IDL.Record({
+          delegation: IDL.Text,
+          userPublicKey: IDL.Text,
+          delegationPubkey: IDL.Text,
+        }))], ['query']),
+        
         // Game Engine functions
         createSession: IDL.Func([], [Result_Text], []),
         getNextRound: IDL.Func([IDL.Text, IDL.Opt(IDL.Text)], [Result_RoundState], []),
@@ -1360,8 +1412,8 @@ class GameService {
     }
     
     try {
-      // Convert the principal string to CustomPrincipal
-      const toPrincipal = CustomPrincipal.fromText(to);
+      // Convert the principal string to Principal
+      const toPrincipal = Principal.fromText(to);
       const transferFee = BigInt(1); // 1 unit transfer fee
       
       const transferArgs = {
@@ -1499,6 +1551,94 @@ class GameService {
     } catch (error) {
       console.error('Failed to get photo stats:', error);
       return null;
+    }
+  }
+
+  // II Integration API methods
+  async newSession(publicKey: string): Promise<{ sessionId: string; authorizeUrl: string }> {
+    if (!this.initialized || !this.actor) {
+      throw new Error('Service not initialized');
+    }
+    
+    try {
+      console.log('🔐 Creating new II session with publicKey:', publicKey);
+      const result = await this.actor.newSession(publicKey);
+      console.log('🔐 New session result:', result);
+      return result;
+    } catch (error) {
+      console.error('Failed to create new II session:', error);
+      throw error;
+    }
+  }
+
+  async saveDelegate(
+    sessionId: string,
+    delegation: string,
+    userPublicKey: string,
+    delegationPubkey: string
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!this.initialized || !this.actor) {
+      throw new Error('Service not initialized');
+    }
+    
+    try {
+      console.log('🔐 Saving delegation for session:', sessionId);
+      const result = await this.actor.saveDelegate(sessionId, delegation, userPublicKey, delegationPubkey);
+      console.log('🔐 Save delegate result:', result);
+      return result;
+    } catch (error) {
+      console.error('Failed to save delegation:', error);
+      throw error;
+    }
+  }
+
+  async closeSession(sessionId: string): Promise<boolean> {
+    if (!this.initialized || !this.actor) {
+      throw new Error('Service not initialized');
+    }
+    
+    try {
+      console.log('🔐 Closing II session:', sessionId);
+      const result = await this.actor.closeSession(sessionId);
+      console.log('🔐 Close session result:', result);
+      return result;
+    } catch (error) {
+      console.error('Failed to close session:', error);
+      throw error;
+    }
+  }
+
+  async getSessionStatus(sessionId: string): Promise<any> {
+    if (!this.initialized || !this.actor) {
+      throw new Error('Service not initialized');
+    }
+    
+    try {
+      const result = await this.actor.getSessionStatus(sessionId);
+      return result.length > 0 ? result[0] : null;
+    } catch (error) {
+      console.error('Failed to get session status:', error);
+      throw error;
+    }
+  }
+
+  async getDelegation(sessionId: string): Promise<{
+    delegation: string;
+    userPublicKey: string;
+    delegationPubkey: string;
+  } | null> {
+    if (!this.initialized || !this.actor) {
+      throw new Error('Service not initialized');
+    }
+    
+    try {
+      console.log('🔐 Getting delegation for session:', sessionId);
+      const result = await this.actor.getDelegation(sessionId);
+      console.log('🔐 Get delegation result:', result);
+      return result.length > 0 ? result[0] : null;
+    } catch (error) {
+      console.error('Failed to get delegation:', error);
+      throw error;
     }
   }
 

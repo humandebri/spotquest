@@ -13,6 +13,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import { useAuth } from '../../hooks/useAuth';
+import { useIIAuthSessionV6 } from '../../hooks/useIIAuthSessionV6';
 import { getSecureStorage, getRegularStorage } from '../../storage';
 import { clearAllIIData } from '../../utils/clearAllIIData';
 import { AuthPoller } from '../../utils/authPoller';
@@ -26,6 +27,7 @@ import { useIIAuthStore } from '../../store/iiAuthStore';
 export default function LoginScreen() {
   const { login, isLoading, error, clearError, isAuthenticated } = useAuth();
   const { loginAsDev, isDevMode } = useDevAuth();
+  const { authenticate: authenticateWithAuthSession, isLoading: isAuthSessionLoading, response } = useIIAuthSessionV6();
   const [isConnecting, setIsConnecting] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [isDevLogin, setIsDevLogin] = useState(false);
@@ -44,6 +46,27 @@ export default function LoginScreen() {
       }
     }
   }, [isAuthenticated]);
+  
+  // Monitor auth session response
+  React.useEffect(() => {
+    if (!response) return;
+    
+    debugLog('AUTH_FLOW', '🔍 Auth session response:', response);
+    
+    if (response.type === 'success') {
+      debugLog('AUTH_FLOW', '✅ Auth session successful, checking auth state...');
+      // Force a re-check of auth state
+      login().then(authCheckResult => {
+        debugLog('AUTH_FLOW', '🔍 Auth check after AuthSession:', authCheckResult);
+      });
+    } else if (response.type === 'cancel') {
+      debugLog('AUTH_FLOW', '❌ Auth session cancelled');
+      setIsConnecting(false);
+    } else if (response.type === 'dismiss') {
+      debugLog('AUTH_FLOW', '❌ Auth session dismissed');
+      setIsConnecting(false);
+    }
+  }, [response, login]);
   
   // Cleanup poller on unmount
   React.useEffect(() => {
@@ -79,39 +102,24 @@ export default function LoginScreen() {
     if (clearError) clearError(); // Clear any previous errors
     
     try {
-      debugLog('AUTH_FLOW', '🔍 Starting login on physical device...');
-      const result = await login();
-      debugLog('AUTH_FLOW', '🔍 Login result:', result);
+      debugLog('AUTH_FLOW', '🔍 Starting AuthSession-based login...');
       
-      // For physical devices, the browser will open
-      if (Platform.OS !== 'web') {
-        debugLog('AUTH_FLOW', '🔍 Browser opened for II authentication');
-        debugLog('AUTH_FLOW', '🔍 Waiting for user to complete authentication in browser...');
-        
-        // Start auth polling with delegation fix
-        const poller = new AuthPoller(
-          async () => {
-            // Check if delegation exists in storage
-            const regularStorage = getRegularStorage();
-            
-            // First try to fix missing delegation
-            const fixed = await checkAndFixDelegation(regularStorage);
-            if (fixed) {
-              debugLog('AUTH_FLOW', '✅ Delegation fixed!');
-            }
-            
-            const delegation = regularStorage.getItem ? await regularStorage.getItem('expo-ii-integration.delegation') : null;
-            return delegation !== null;
-          },
-          () => {
-            debugLog('AUTH_FLOW', '✅ Authentication detected by poller!');
-            // Force a re-render to check auth state
-            setIsConnecting(false);
-          }
+      // Use the new AuthSession flow
+      const result = await authenticateWithAuthSession();
+      
+      if (result.success) {
+        debugLog('AUTH_FLOW', '✅ AuthSession login successful!');
+        // The authentication is complete, expo-ii-integration should now have the delegation
+        // Force a re-check of auth state
+        const authCheckResult = await login();
+        debugLog('AUTH_FLOW', '🔍 Auth check after AuthSession:', authCheckResult);
+      } else {
+        debugLog('AUTH_FLOW', '❌ AuthSession login failed:', result.error);
+        Alert.alert(
+          'Authentication Failed',
+          result.error || 'Failed to authenticate. Please try again.',
+          [{ text: 'OK' }]
         );
-        
-        authPollerRef.current = poller;
-        poller.start();
       }
     } catch (err) {
       debugError('AUTH_FLOW', 'Login error:', err);
@@ -196,11 +204,11 @@ export default function LoginScreen() {
             )}
 
             <TouchableOpacity
-              style={[styles.loginButton, isConnecting && styles.loginButtonDisabled]}
+              style={[styles.loginButton, (isConnecting || isAuthSessionLoading) && styles.loginButtonDisabled]}
               onPress={handleLogin}
-              disabled={isConnecting || isLoading}
+              disabled={isConnecting || isLoading || isAuthSessionLoading}
             >
-              {isConnecting ? (
+              {(isConnecting || isAuthSessionLoading) ? (
                 <ActivityIndicator color="#ffffff" />
               ) : (
                 <>

@@ -4,6 +4,7 @@ export default {
   expo: {
     name: "SpotQuest",
     slug: "spotquest",
+    scheme: "", // Empty string to suppress warnings while not using custom URL schemes
     owner: "hude",
     version: "1.0.0",
     orientation: "portrait",

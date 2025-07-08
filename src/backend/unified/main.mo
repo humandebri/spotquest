@@ -39,6 +39,10 @@ import GameLimitsModule "modules/GameLimitsModule";
 // HTTP types
 import Blob "mo:base/Blob";
 import Map "mo:base/HashMap";
+import CertifiedData "mo:base/CertifiedData";
+import Nat32 "mo:base/Nat32";
+import Nat64 "mo:base/Nat64";
+import Char "mo:base/Char";
 
 actor GameUnified {
     // ======================================
@@ -251,7 +255,10 @@ actor GameUnified {
         };
         
         // Start cleanup timer
-        cleanupTimer := ?Timer.recurringTimer(#seconds(60), cleanupExpiredSessions);
+        cleanupTimer := ?Timer.recurringTimer<system>(#seconds(60), cleanupExpiredSessions);
+        
+        // Initialize certified data for HTTP responses
+        initCertifiedData();
         
         initialized := true;
         #ok()
@@ -2631,6 +2638,36 @@ actor GameUnified {
     };
     
     // ======================================
+    // II INTEGRATION PUBLIC FUNCTIONS
+    // ======================================
+    
+    // Create new II integration session
+    public func newSession(publicKey: Text) : async IIIntegrationModule.NewSessionResponse {
+        let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io";
+        iiIntegrationManager.newSession(publicKey, canisterOrigin)
+    };
+    
+    // Save delegation for a session
+    public func saveDelegate(sessionId: Text, delegation: Text, userPublicKey: Text, delegationPubkey: Text) : async IIIntegrationModule.DelegateResponse {
+        iiIntegrationManager.saveDelegate(sessionId, delegation, userPublicKey, delegationPubkey)
+    };
+    
+    // Close a session
+    public func closeSession(sessionId: Text) : async Bool {
+        iiIntegrationManager.closeSession(sessionId)
+    };
+    
+    // Get session status
+    public query func getSessionStatus(sessionId: Text) : async ?IIIntegrationModule.SessionData {
+        iiIntegrationManager.getSessionStatus(sessionId)
+    };
+    
+    // Get delegation for closed session
+    public query func getDelegation(sessionId: Text) : async ?{delegation: Text; userPublicKey: Text; delegationPubkey: Text} {
+        iiIntegrationManager.getDelegation(sessionId)
+    };
+    
+    // ======================================
     // STATS AND METRICS
     // ======================================
     public query func getSystemStats() : async {
@@ -2916,6 +2953,357 @@ actor GameUnified {
     // ======================================
     // II INTEGRATION HTTP ENDPOINTS
     // ======================================
+    
+    // Hash tree type for certification
+    type Hash = Blob;
+    type Key = Blob;
+    type Value = Blob;
+    type HashTree = {
+        #empty;
+        #pruned : Hash;
+        #fork : (HashTree, HashTree);
+        #labeled : (Key, HashTree);
+        #leaf : Value;
+    };
+    
+    // Certified data for root path
+    private stable var certifiedRootHash : Blob = Blob.fromArray([]);
+    
+    // SHA256 constants
+    private let K : [Nat32] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+        0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+        0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+        0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+        0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+        0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+        0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+        0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+    ];
+    
+    // SHA256 implementation
+    private func sha256(data: Blob) : Blob {
+        let bytes = Blob.toArray(data);
+        let msgLen = bytes.size();
+        
+        // Initialize hash values
+        var H : [var Nat32] = [var
+            0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+            0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+        ];
+        
+        // Pre-processing: adding a single 1 bit
+        let paddingLen = if ((msgLen + 9) % 64 == 0) { 9 } else { 64 - ((msgLen + 9) % 64) + 9 };
+        let totalLen = msgLen + paddingLen;
+        var paddedMsg = Buffer.Buffer<Nat8>(totalLen);
+        
+        for (b in bytes.vals()) {
+            paddedMsg.add(b);
+        };
+        paddedMsg.add(0x80);
+        
+        for (i in Iter.range(1, paddingLen - 9)) {
+            paddedMsg.add(0x00);
+        };
+        
+        // Append length in bits as 64-bit big-endian
+        let lenBits : Nat64 = Nat64.fromNat(msgLen * 8);
+        for (i in Iter.range(0, 7)) {
+            let shift = 8 * (7 - i);
+            paddedMsg.add(Nat8.fromNat(Nat64.toNat((lenBits >> Nat64.fromNat(shift)) & 0xFF)));
+        };
+        
+        let paddedArray = Buffer.toArray(paddedMsg);
+        
+        // Process message in 512-bit chunks
+        let chunks = totalLen / 64;
+        for (chunk in Iter.range(0, chunks - 1)) {
+            let offset = chunk * 64;
+            var W = Buffer.Buffer<Nat32>(64);
+            
+            // Copy chunk into first 16 words W[0..15]
+            for (i in Iter.range(0, 15)) {
+                let idx = offset + i * 4;
+                let word = (Nat32.fromNat(Nat8.toNat(paddedArray[idx])) << 24) |
+                           (Nat32.fromNat(Nat8.toNat(paddedArray[idx + 1])) << 16) |
+                           (Nat32.fromNat(Nat8.toNat(paddedArray[idx + 2])) << 8) |
+                           Nat32.fromNat(Nat8.toNat(paddedArray[idx + 3]));
+                W.add(word);
+            };
+            
+            // Extend the first 16 words into the remaining 48 words W[16..63]
+            for (i in Iter.range(16, 63)) {
+                let s0 = ((W.get(i-15) >> 7) | (W.get(i-15) << 25)) ^
+                         ((W.get(i-15) >> 18) | (W.get(i-15) << 14)) ^
+                         (W.get(i-15) >> 3);
+                let s1 = ((W.get(i-2) >> 17) | (W.get(i-2) << 15)) ^
+                         ((W.get(i-2) >> 19) | (W.get(i-2) << 13)) ^
+                         (W.get(i-2) >> 10);
+                W.add(W.get(i-16) +% s0 +% W.get(i-7) +% s1);
+            };
+            
+            // Initialize working variables
+            var a = H[0];
+            var b = H[1];
+            var c = H[2];
+            var d = H[3];
+            var e = H[4];
+            var f = H[5];
+            var g = H[6];
+            var h = H[7];
+            
+            // Main loop
+            for (i in Iter.range(0, 63)) {
+                let S1 = ((e >> 6) | (e << 26)) ^ ((e >> 11) | (e << 21)) ^ ((e >> 25) | (e << 7));
+                let ch = (e & f) ^ ((^e) & g);
+                let temp1 = h +% S1 +% ch +% K[i] +% W.get(i);
+                let S0 = ((a >> 2) | (a << 30)) ^ ((a >> 13) | (a << 19)) ^ ((a >> 22) | (a << 10));
+                let maj = (a & b) ^ (a & c) ^ (b & c);
+                let temp2 = S0 +% maj;
+                
+                h := g;
+                g := f;
+                f := e;
+                e := d +% temp1;
+                d := c;
+                c := b;
+                b := a;
+                a := temp1 +% temp2;
+            };
+            
+            // Add the compressed chunk to the current hash value
+            H[0] := H[0] +% a;
+            H[1] := H[1] +% b;
+            H[2] := H[2] +% c;
+            H[3] := H[3] +% d;
+            H[4] := H[4] +% e;
+            H[5] := H[5] +% f;
+            H[6] := H[6] +% g;
+            H[7] := H[7] +% h;
+        };
+        
+        // Produce the final hash value as a 32-byte Blob
+        let result = Buffer.Buffer<Nat8>(32);
+        for (i in Iter.range(0, 7)) {
+            let h = H[i];
+            result.add(Nat8.fromNat(Nat32.toNat((h >> 24) & 0xFF)));
+            result.add(Nat8.fromNat(Nat32.toNat((h >> 16) & 0xFF)));
+            result.add(Nat8.fromNat(Nat32.toNat((h >> 8) & 0xFF)));
+            result.add(Nat8.fromNat(Nat32.toNat(h & 0xFF)));
+        };
+        
+        Blob.fromArray(Buffer.toArray(result))
+    };
+    
+    // Base64 encoding for certificate header
+    private func base64Encode(data: Blob) : Text {
+        let base64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let bytes = Blob.toArray(data);
+        var result = "";
+        var i = 0;
+        
+        while (i < bytes.size()) {
+            let b1 = bytes[i];
+            let b2 : Nat8 = if (i + 1 < bytes.size()) { bytes[i + 1] } else { 0 : Nat8 };
+            let b3 : Nat8 = if (i + 2 < bytes.size()) { bytes[i + 2] } else { 0 : Nat8 };
+            
+            let n = (Nat32.fromNat(Nat8.toNat(b1)) << 16) | 
+                    (Nat32.fromNat(Nat8.toNat(b2)) << 8) | 
+                    Nat32.fromNat(Nat8.toNat(b3));
+            
+            result #= Text.fromChar(Text.toArray(base64Chars)[Nat32.toNat((n >> 18) & 0x3F)]);
+            result #= Text.fromChar(Text.toArray(base64Chars)[Nat32.toNat((n >> 12) & 0x3F)]);
+            result #= if (i + 1 < bytes.size()) {
+                Text.fromChar(Text.toArray(base64Chars)[Nat32.toNat((n >> 6) & 0x3F)])
+            } else { "=" };
+            result #= if (i + 2 < bytes.size()) {
+                Text.fromChar(Text.toArray(base64Chars)[Nat32.toNat(n & 0x3F)])
+            } else { "=" };
+            
+            i += 3;
+        };
+        
+        result
+    };
+    
+    // Base64URL encoding for certificate header (no padding, URL-safe)
+    private func base64UrlEncode(data: Blob) : Text {
+        let base64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        let bytes = Blob.toArray(data);
+        var result = "";
+        var i = 0;
+        
+        while (i < bytes.size()) {
+            let b1 = bytes[i];
+            let b2 : Nat8 = if (i + 1 < bytes.size()) { bytes[i + 1] } else { 0 : Nat8 };
+            let b3 : Nat8 = if (i + 2 < bytes.size()) { bytes[i + 2] } else { 0 : Nat8 };
+            
+            let n = (Nat32.fromNat(Nat8.toNat(b1)) << 16) | 
+                    (Nat32.fromNat(Nat8.toNat(b2)) << 8) | 
+                    Nat32.fromNat(Nat8.toNat(b3));
+            
+            result #= Text.fromChar(Text.toArray(base64Chars)[Nat32.toNat((n >> 18) & 0x3F)]);
+            result #= Text.fromChar(Text.toArray(base64Chars)[Nat32.toNat((n >> 12) & 0x3F)]);
+            
+            // No padding for Base64URL
+            if (i + 1 < bytes.size()) {
+                result #= Text.fromChar(Text.toArray(base64Chars)[Nat32.toNat((n >> 6) & 0x3F)]);
+                if (i + 2 < bytes.size()) {
+                    result #= Text.fromChar(Text.toArray(base64Chars)[Nat32.toNat(n & 0x3F)]);
+                };
+            };
+            
+            i += 3;
+        };
+        
+        result
+    };
+    
+    // CBOR encoding helpers
+    private func cborEncodeBytes(data: Blob) : Blob {
+        let bytes = Blob.toArray(data);
+        let size = bytes.size();
+        
+        if (size < 24) {
+            // Major type 2 (byte string) with length in lower 5 bits
+            Blob.fromArray(Array.append([0x40 + Nat8.fromNat(size)], bytes))
+        } else if (size < 256) {
+            // Major type 2 with 1-byte length
+            Blob.fromArray(Array.append([0x58 : Nat8, Nat8.fromNat(size)], bytes))
+        } else {
+            // For simplicity, limit to 255 bytes
+            Blob.fromArray(Array.append([0x58 : Nat8, 0xFF : Nat8], bytes))
+        }
+    };
+    
+    // Encode hash tree for certificate
+    private func encodeHashTree(tree: HashTree) : Blob {
+        switch (tree) {
+            case (#empty) {
+                // CBOR array with 0 (empty)
+                Blob.fromArray([0x81, 0x00]) // Array of 1 element: 0
+            };
+            case (#pruned(hash)) {
+                // CBOR array with 1 (pruned) and hash
+                let encodedHash = cborEncodeBytes(hash);
+                Blob.fromArray(Array.append([0x82 : Nat8, 0x01 : Nat8], Blob.toArray(encodedHash))) // Array of 2 elements
+            };
+            case (#fork(left, right)) {
+                // CBOR array with 2 (fork) and two subtrees
+                let leftEncoded = encodeHashTree(left);
+                let rightEncoded = encodeHashTree(right);
+                var result = Buffer.Buffer<Nat8>(10);
+                result.add(0x83); // Array of 3 elements
+                result.add(0x02); // 2 for fork
+                for (b in Blob.toArray(leftEncoded).vals()) { result.add(b) };
+                for (b in Blob.toArray(rightEncoded).vals()) { result.add(b) };
+                Blob.fromArray(Buffer.toArray(result))
+            };
+            case (#labeled(key, subtree)) {
+                // CBOR array with 3 (labeled), key, and subtree
+                let encodedKey = cborEncodeBytes(key);
+                let encodedSubtree = encodeHashTree(subtree);
+                var result = Buffer.Buffer<Nat8>(10);
+                result.add(0x83); // Array of 3 elements
+                result.add(0x03); // 3 for labeled
+                for (b in Blob.toArray(encodedKey).vals()) { result.add(b) };
+                for (b in Blob.toArray(encodedSubtree).vals()) { result.add(b) };
+                Blob.fromArray(Buffer.toArray(result))
+            };
+            case (#leaf(value)) {
+                // CBOR array with 4 (leaf) and value
+                let encodedValue = cborEncodeBytes(value);
+                Blob.fromArray(Array.append([0x82 : Nat8, 0x04 : Nat8], Blob.toArray(encodedValue))) // Array of 2 elements
+            };
+        }
+    };
+    
+    // Set certified data for root path
+    private stable var certifiedRootData : Text = "spotquest-ready";
+    
+    // Calculate hash of tree for certification
+    private func hashOfTree(tree: HashTree) : Blob {
+        switch (tree) {
+            case (#empty) {
+                // Hash of domain separator "ic-hashtree-empty" with length prefix
+                let prefixByte = Blob.fromArray([0x10]); // Length prefix: 16
+                let labelText = Text.encodeUtf8("ic-hashtree-empty");
+                let combined = Blob.fromArray(Array.append(Blob.toArray(prefixByte), Blob.toArray(labelText)));
+                sha256(combined)
+            };
+            case (#pruned(hash)) {
+                hash // Already a hash
+            };
+            case (#fork(left, right)) {
+                let leftHash = hashOfTree(left);
+                let rightHash = hashOfTree(right);
+                // Hash of domain separator "ic-hashtree-fork" + left hash + right hash
+                let prefixByte = Blob.fromArray([0x10]); // Length prefix: 16
+                let labelText = Text.encodeUtf8("ic-hashtree-fork");
+                let prefixBlob = Blob.fromArray(Array.append(Blob.toArray(prefixByte), Blob.toArray(labelText)));
+                let combined = Buffer.Buffer<Nat8>(prefixBlob.size() + leftHash.size() + rightHash.size());
+                for (b in Blob.toArray(prefixBlob).vals()) { combined.add(b) };
+                for (b in Blob.toArray(leftHash).vals()) { combined.add(b) };
+                for (b in Blob.toArray(rightHash).vals()) { combined.add(b) };
+                sha256(Blob.fromArray(Buffer.toArray(combined)))
+            };
+            case (#labeled(key, subtree)) {
+                let subtreeHash = hashOfTree(subtree);
+                // Hash of domain separator "ic-hashtree-labeled" + key + subtree hash
+                let prefixByte = Blob.fromArray([0x13]); // Length prefix: 19
+                let labelText = Text.encodeUtf8("ic-hashtree-labeled");
+                let prefixBlob = Blob.fromArray(Array.append(Blob.toArray(prefixByte), Blob.toArray(labelText)));
+                let combined = Buffer.Buffer<Nat8>(prefixBlob.size() + key.size() + subtreeHash.size());
+                for (b in Blob.toArray(prefixBlob).vals()) { combined.add(b) };
+                for (b in Blob.toArray(key).vals()) { combined.add(b) };
+                for (b in Blob.toArray(subtreeHash).vals()) { combined.add(b) };
+                sha256(Blob.fromArray(Buffer.toArray(combined)))
+            };
+            case (#leaf(value)) {
+                // Hash of domain separator "ic-hashtree-leaf" + value
+                let prefixByte = Blob.fromArray([0x10]); // Length prefix: 16
+                let labelText = Text.encodeUtf8("ic-hashtree-leaf");
+                let prefixBlob = Blob.fromArray(Array.append(Blob.toArray(prefixByte), Blob.toArray(labelText)));
+                let combined = Buffer.Buffer<Nat8>(prefixBlob.size() + value.size());
+                for (b in Blob.toArray(prefixBlob).vals()) { combined.add(b) };
+                for (b in Blob.toArray(value).vals()) { combined.add(b) };
+                sha256(Blob.fromArray(Buffer.toArray(combined)))
+            };
+        }
+    };
+    
+    // Initialize certified data
+    private func initCertifiedData() : () {
+        // Hash the actual response body that will be served at root path
+        let bodyBlob = Text.encodeUtf8(certifiedRootData);
+        certifiedRootHash := sha256(bodyBlob);
+        
+        // Debug: Log the hash
+        Debug.print("🔐 Certified data hash: " # debug_show(Blob.toArray(certifiedRootHash)));
+        
+        // Create the full 3-layer tree and calculate its root hash
+        let tree : HashTree = #labeled(
+            Text.encodeUtf8("http_assets"),
+            #labeled(
+                Text.encodeUtf8("/"),
+                #leaf(certifiedRootHash)
+            )
+        );
+        
+        // Set the root hash of the tree as certified data
+        let treeRootHash = hashOfTree(tree);
+        Debug.print("🌳 Tree root hash: " # debug_show(Blob.toArray(treeRootHash)));
+        CertifiedData.set(treeRootHash);
+    };
+    
     // Helper function to create JSON response
     private func jsonResponse(json: Text, statusCode: Nat16) : HttpResponse {
         {
@@ -2971,6 +3359,75 @@ actor GameUnified {
                 ];
                 status_code = 204;
             };
+        };
+        
+        // Handle root path "/" with certified response for Internet Identity
+        if (path == "/" and (req.method == "GET" or req.method == "HEAD")) {
+            let bodyBlob = Text.encodeUtf8(certifiedRootData);
+            
+            // Check if we have a certificate
+            switch (CertifiedData.getCertificate()) {
+                case null {
+                    // No certificate available, return regular response
+                    return {
+                        body = bodyBlob;
+                        headers = [
+                            ("Content-Type", "text/plain"),
+                            ("Access-Control-Allow-Origin", "*"),
+                            ("Access-Control-Allow-Methods", "GET, POST, OPTIONS"),
+                            ("Access-Control-Allow-Headers", "Content-Type")
+                        ];
+                        status_code = 200;
+                    };
+                };
+                case (?cert) {
+                    // Create 3-layer hash tree for the response
+                    let tree : HashTree = #labeled(
+                        Text.encodeUtf8("http_assets"),
+                        #labeled(
+                            Text.encodeUtf8("/"),
+                            #leaf(certifiedRootHash)
+                        )
+                    );
+                    let encodedTree = encodeHashTree(tree);
+                    
+                    // Return certified response with IC-Certificate header
+                    return {
+                        body = bodyBlob;
+                        headers = [
+                            ("Content-Type", "text/plain"),
+                            ("IC-Certificate", 
+                                "certificate=:" # base64UrlEncode(cert) # ":, " #
+                                "tree=:" # base64UrlEncode(encodedTree) # ":"),
+                            ("Access-Control-Allow-Origin", "*"),
+                            ("Access-Control-Allow-Methods", "GET, POST, OPTIONS"),
+                            ("Access-Control-Allow-Headers", "Content-Type"),
+                            ("Access-Control-Expose-Headers", "IC-Certificate")
+                        ];
+                        status_code = 200;
+                    };
+                };
+            };
+        };
+        
+        // Add debug endpoint
+        if (path == "/debug/cert" and req.method == "GET") {
+            // Create the tree for debugging
+            let debugTree : HashTree = #labeled(
+                Text.encodeUtf8("http_assets"),
+                #labeled(
+                    Text.encodeUtf8("/"),
+                    #leaf(certifiedRootHash)
+                )
+            );
+            let debugTreeRoot = hashOfTree(debugTree);
+            
+            return jsonResponse("{
+                \"certifiedData\": \"" # certifiedRootData # "\",
+                \"certifiedHash\": \"" # debug_show(Blob.toArray(certifiedRootHash)) # "\",
+                \"treeRootHash\": \"" # debug_show(Blob.toArray(debugTreeRoot)) # "\",
+                \"hasher\": \"SHA256\" 
+            }", 200);
         };
         
         // Handle POST /api/session/new - Create new session
@@ -3765,7 +4222,13 @@ actor GameUnified {
         
         // Restart cleanup timer if initialized
         if (initialized) {
-            cleanupTimer := ?Timer.recurringTimer(#seconds(60), cleanupExpiredSessions);
+            cleanupTimer := ?Timer.recurringTimer<system>(#seconds(60), cleanupExpiredSessions);
         };
+        
+        // Update certified data for testing
+        certifiedRootData := "spotquest-ready";
+        
+        // Initialize certified data for HTTP responses
+        initCertifiedData();
     };
 }

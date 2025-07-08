@@ -114,8 +114,8 @@ module {
             // Build authorize URL for II with proper URL encoding
             // Note: Motoko doesn't have built-in URL encoding, so we'll encode critical characters manually
             let encodedRedirectUri = Text.replace(
-                Text.replace(sessionData.redirectUri, "@", "%40"),
-                "/", "%2F"
+                Text.replace(sessionData.redirectUri, #char '@', "%40"),
+                #char '/', "%2F"
             );
             
             let authorizeUrl = "https://identity.ic0.app/#authorize?" #

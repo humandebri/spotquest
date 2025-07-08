@@ -18,4 +18,7 @@ config.resolver = {
   },
 };
 
+// watcherの設定を追加
+config.watchFolders = [path.resolve(__dirname)];
+
 module.exports = withNativeWind(config, { input: './src/global.css' });

@@ -254,6 +254,24 @@ export const idlFactory = ({ IDL }) => {
     'rounds' : IDL.Vec(RoundState),
   });
   const Result_8 = IDL.Variant({ 'ok' : GameSession, 'err' : IDL.Text });
+  const SessionStatus__1 = IDL.Variant({
+    'Open' : IDL.Null,
+    'Closed' : IDL.Null,
+    'HasDelegation' : IDL.Null,
+  });
+  const SessionData = IDL.Record({
+    'status' : SessionStatus__1,
+    'principal' : IDL.Opt(IDL.Principal),
+    'delegation' : IDL.Opt(IDL.Text),
+    'publicKey' : IDL.Opt(IDL.Text),
+    'redirectUri' : IDL.Text,
+    'delegationPubkey' : IDL.Opt(IDL.Text),
+    'state' : IDL.Text,
+    'nonce' : IDL.Text,
+    'timestamp' : Time,
+    'sessionId' : IDL.Text,
+    'userPublicKey' : IDL.Opt(IDL.Text),
+  });
   const SearchResult = IDL.Record({
     'hasMore' : IDL.Bool,
     'cursor' : IDL.Opt(IDL.Nat),
@@ -324,6 +342,10 @@ export const idlFactory = ({ IDL }) => {
     }),
     'err' : IDL.Text,
   });
+  const NewSessionResponse = IDL.Record({
+    'authorizeUrl' : IDL.Text,
+    'sessionId' : IDL.Text,
+  });
   const HintInfo = IDL.Variant({
     'RadiusHint' : IDL.Nat,
     'DirectionHint' : IDL.Text,
@@ -334,6 +356,10 @@ export const idlFactory = ({ IDL }) => {
     'err' : IDL.Text,
   });
   const Result_1 = IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text });
+  const DelegateResponse = IDL.Record({
+    'error' : IDL.Opt(IDL.Text),
+    'success' : IDL.Bool,
+  });
   const SearchFilter = IDL.Record({
     'region' : IDL.Opt(RegionCode),
     'status' : IDL.Opt(
@@ -384,6 +410,7 @@ export const idlFactory = ({ IDL }) => {
     'burnTokens' : IDL.Func([IDL.Nat], [Result_15], []),
     'canRatePhoto' : IDL.Func([IDL.Text, IDL.Nat], [IDL.Bool], ['query']),
     'clearLegacyPhotoData' : IDL.Func([], [Result_16], []),
+    'closeSession' : IDL.Func([IDL.Text], [IDL.Bool], []),
     'createPhotoV2' : IDL.Func([CreatePhotoRequest], [Result_15], []),
     'createSession' : IDL.Func([], [Result_14], []),
     'debugCalculatePlayerReward' : IDL.Func(
@@ -505,6 +532,19 @@ export const idlFactory = ({ IDL }) => {
     'finalizePhotoUploadV2' : IDL.Func([IDL.Nat], [Result], []),
     'finalizeSession' : IDL.Func([IDL.Text], [Result_13], []),
     'generateHeatmap' : IDL.Func([IDL.Nat], [Result_12], ['query']),
+    'getDelegation' : IDL.Func(
+        [IDL.Text],
+        [
+          IDL.Opt(
+            IDL.Record({
+              'delegation' : IDL.Text,
+              'delegationPubkey' : IDL.Text,
+              'userPublicKey' : IDL.Text,
+            })
+          ),
+        ],
+        ['query'],
+      ),
     'getEloLeaderboard' : IDL.Func(
         [IDL.Nat],
         [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Int))],
@@ -700,6 +740,11 @@ export const idlFactory = ({ IDL }) => {
         ['query'],
       ),
     'getSession' : IDL.Func([IDL.Text], [Result_8], ['query']),
+    'getSessionStatus' : IDL.Func(
+        [IDL.Text],
+        [IDL.Opt(SessionData)],
+        ['query'],
+      ),
     'getSinkHistory' : IDL.Func(
         [IDL.Opt(IDL.Nat)],
         [IDL.Vec(IDL.Tuple(Time, IDL.Text, IDL.Nat))],
@@ -825,10 +870,16 @@ export const idlFactory = ({ IDL }) => {
     'icrc1_transfer' : IDL.Func([TransferArgs], [Result_6], []),
     'init' : IDL.Func([], [Result], []),
     'migrateLegacyPhotoData' : IDL.Func([], [Result_5], []),
+    'newSession' : IDL.Func([IDL.Text], [NewSessionResponse], []),
     'purchaseHint' : IDL.Func([IDL.Text, HintType], [Result_4], []),
     'purchaseProMembership' : IDL.Func([], [Result_3], []),
     'rebuildPhotoStats' : IDL.Func([], [Result_1], []),
     'rebuildPlayerStats' : IDL.Func([], [IDL.Text], []),
+    'saveDelegate' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+        [DelegateResponse],
+        [],
+      ),
     'searchPhotosV2' : IDL.Func(
         [SearchFilter, IDL.Opt(IDL.Nat), IDL.Nat],
         [SearchResult],
