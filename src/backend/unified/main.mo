@@ -36,11 +36,12 @@ import RatingModule "modules/RatingModule";
 import EloRatingModule "modules/EloRatingModule";
 import PlayerStatsModule "modules/PlayerStatsModule";
 import GameLimitsModule "modules/GameLimitsModule";
-import CertifiedAssets "modules/CertifiedAssets";
+import CertifiedAssets "mo:certified-assets";
 
 // HTTP types
 import Blob "mo:base/Blob";
 import CertifiedData "mo:base/CertifiedData";
+import HttpTypes "mo:http-types";
 
 actor GameUnified {
     // ======================================
@@ -71,19 +72,9 @@ actor GameUnified {
         #DirectionHint: Text; // Cardinal direction
     };
     
-    // HTTP types for II Integration
-    public type HttpRequest = {
-        url: Text;
-        method: Text;
-        body: Blob;
-        headers: [(Text, Text)];
-    };
-    
-    public type HttpResponse = {
-        body: Blob;
-        headers: [(Text, Text)];
-        status_code: Nat16;
-    };
+    // HTTP types for II Integration - using HttpTypes module for compatibility
+    public type HttpRequest = HttpTypes.Request;
+    public type HttpResponse = HttpTypes.Response;
     
     // ======================================
     // SYSTEM CONFIGURATION
@@ -105,7 +96,9 @@ actor GameUnified {
     private var eloRatingManager = EloRatingModule.EloRatingManager(photoManagerV2); // Eloレーティング管理
     private var playerStatsManager = PlayerStatsModule.PlayerStatsManager(); // プレイヤー統計管理
     private var gameLimitsManager = GameLimitsModule.GameLimitsManager(); // プレイ回数制限管理
-    private var assetManager = CertifiedAssets.AssetManager(); // Certified assets manager
+    // Certified assets store and manager
+    stable let certifiedAssetsStore = CertifiedAssets.init_stable_store();
+    let certifiedAssets = CertifiedAssets.CertifiedAssets(certifiedAssetsStore);
     
     // Random number generator for photo selection (unique seed to avoid duplicates)
     private var photoSelectionPrng = Random.Finite(
@@ -249,7 +242,8 @@ actor GameUnified {
         };
         
         // Clear old assets and reinitialize with empty string path
-        assetManager := CertifiedAssets.AssetManager();
+        // Re-certify assets after upgrade
+        certifyRootAssets();
         initCertifiedData();
         Debug.print("🔁 Reinitialized certified assets");
         #ok()
@@ -2655,7 +2649,7 @@ actor GameUnified {
     
     // Create new II integration session
     public func newSession(publicKey: Text) : async IIIntegrationModule.NewSessionResponse {
-        let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io";
+        let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.icp0.io";
         iiIntegrationManager.newSession(publicKey, canisterOrigin)
     };
     
@@ -2972,9 +2966,65 @@ actor GameUnified {
     
     // Initialize certified data
     private func initCertifiedData() : () {
-        // Root path is now served uncertified for II integration compatibility
-        // Other paths can still use the AssetManager for certified responses if needed
-        Debug.print("🔐 Certified assets initialized (root path served uncertified)");
+        certifyRootAssets();
+        Debug.print("🔐 Certified assets initialized");
+    };
+    
+    // Certify root assets for II integration
+    private func certifyRootAssets() : () {
+        let html = "<!DOCTYPE html>\n" #
+                   "<html>\n" #
+                   "<head>\n" #
+                   "  <meta charset='utf-8'>\n" #
+                   "  <title>SpotQuest Canister</title>\n" #
+                   "</head>\n" #
+                   "<body>\n" #
+                   "  <h1>SpotQuest Backend Canister</h1>\n" #
+                   "  <p>This is the unified backend canister for SpotQuest.</p>\n" #
+                   "  <p>Use the SpotQuest mobile app to play the game.</p>\n" #
+                   "</body>\n" #
+                   "</html>";
+        
+        // Certify root path
+        let rootEndpoint = CertifiedAssets.Endpoint("/", ?Text.encodeUtf8(html))
+            .no_request_certification()
+            .response_header("Content-Type", "text/html; charset=UTF-8")
+            .response_header("Access-Control-Allow-Origin", "*")
+            .response_header("Access-Control-Expose-Headers", "IC-Certificate")
+            .status(200);
+        certifiedAssets.certify(rootEndpoint);
+        
+        // Also certify empty path with same content
+        let emptyEndpoint = CertifiedAssets.Endpoint("", ?Text.encodeUtf8(html))
+            .no_request_certification()
+            .response_header("Content-Type", "text/html; charset=UTF-8")
+            .response_header("Access-Control-Allow-Origin", "*")
+            .response_header("Access-Control-Expose-Headers", "IC-Certificate")
+            .status(200);
+        certifiedAssets.certify(emptyEndpoint);
+        
+        // Certify .well-known/ic-domains
+        let domains = "77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io\n" #
+                      "77fv5-oiaaa-aaaal-qsoea-cai.icp0.io";
+        
+        let domainsEndpoint = CertifiedAssets.Endpoint("/.well-known/ic-domains", ?Text.encodeUtf8(domains))
+            .no_request_certification()
+            .response_header("Content-Type", "text/plain")
+            .response_header("Access-Control-Allow-Origin", "*")
+            .response_header("Access-Control-Expose-Headers", "IC-Certificate")
+            .status(200);
+        certifiedAssets.certify(domainsEndpoint);
+    };
+    
+    // Debug function to check certified endpoints
+    public query func debug_certified_endpoints() : async Text {
+        var result = "Certified endpoints:\n";
+        var count = 0;
+        for (endpoint in certifiedAssets.endpoints()) {
+            result := result # "URL: " # endpoint.url # "\n";
+            count += 1;
+        };
+        result # "Total: " # Nat.toText(count) # " endpoints"
     };
     
     // Helper function to create JSON response
@@ -2988,6 +3038,8 @@ actor GameUnified {
                 ("Access-Control-Allow-Headers", "Content-Type")
             ];
             status_code = statusCode;
+            streaming_strategy = null;
+            upgrade = null;
         }
     };
     
@@ -3002,6 +3054,8 @@ actor GameUnified {
                 ("Access-Control-Allow-Headers", "Content-Type")
             ];
             status_code = statusCode;
+            streaming_strategy = null;
+            upgrade = null;
         }
     };
     
@@ -3021,6 +3075,18 @@ actor GameUnified {
             Debug.print("    " # name # ": " # value);
         };
         
+        // Special logging for Internet Identity requests
+        var isIIRequest = false;
+        for ((name, value) in req.headers.vals()) {
+            if (name == "user-agent" and Text.contains(value, #text "Internet Identity")) {
+                isIIRequest := true;
+            };
+        };
+        
+        if (isIIRequest or Text.contains(req.url, #text "client_id")) {
+            Debug.print("🔐 [II_REQUEST_DETECTED] This appears to be an Internet Identity verification request");
+        };
+        
         // Parse URL path - remove query parameters
         let fullPath = req.url;
         let path = switch (Text.split(fullPath, #char '?').next()) {
@@ -3028,73 +3094,135 @@ actor GameUnified {
             case (?p) { p };
         };
         
-        // Handle root path without certification for II integration
-        if (path == "/" or path == "") {
-            Debug.print("🌐 Serving uncertified root HTML for II integration");
-            
-            // Simple HTML that acknowledges the canister is accessible
-            let html = "<!DOCTYPE html>\n" #
-                      "<html>\n" #
-                      "<head>\n" #
-                      "  <meta charset='utf-8'>\n" #
-                      "  <title>SpotQuest Canister</title>\n" #
-                      "</head>\n" #
-                      "<body>\n" #
-                      "  <h1>SpotQuest Backend Canister</h1>\n" #
-                      "  <p>This is the unified backend canister for SpotQuest.</p>\n" #
-                      "  <p>Use the SpotQuest mobile app to play the game.</p>\n" #
-                      "</body>\n" #
-                      "</html>";
-            
-            return {
-                body = Text.encodeUtf8(html);
-                headers = [
-                    ("content-type", "text/html; charset=UTF-8"),
-                    ("access-control-allow-origin", "*")
-                ];
-                status_code = 200;
-            };
-        };
-        
-        // Delegate other non-API paths to AssetManager for certified responses
+        // Handle non-API paths with certified responses
         if (not Text.startsWith(path, #text "/api/") and 
             not Text.startsWith(path, #text "/debug/")) {
             
             Debug.print("🌐 Processing non-API request for path: '" # path # "'");
-            Debug.print("  Full URL: " # req.url);
-            Debug.print("  Method: " # req.method);
-            Debug.print("  Request headers:");
-            for ((name, value) in req.headers.vals()) {
-                Debug.print("    " # name # ": " # value);
+            
+            // Create basic response first
+            let basicResponse : HttpTypes.Response = if (path == "/" or path == "") {
+                // Root path
+                let html = "<!DOCTYPE html>\n" #
+                          "<html>\n" #
+                          "<head>\n" #
+                          "  <meta charset='utf-8'>\n" #
+                          "  <title>SpotQuest Canister</title>\n" #
+                          "</head>\n" #
+                          "<body>\n" #
+                          "  <h1>SpotQuest Backend Canister</h1>\n" #
+                          "  <p>This is the unified backend canister for SpotQuest.</p>\n" #
+                          "  <p>Use the SpotQuest mobile app to play the game.</p>\n" #
+                          "</body>\n" #
+                          "</html>";
+                {
+                    status_code = 200;
+                    body = Text.encodeUtf8(html);
+                    headers = [
+                        ("Content-Type", "text/html; charset=UTF-8"),
+                        ("Access-Control-Allow-Origin", "*"),
+                        ("Access-Control-Expose-Headers", "IC-Certificate")
+                    ];
+                    streaming_strategy = null;
+                    upgrade = null;
+                }
+            } else if (path == "/.well-known/ic-domains") {
+                // IC domains file
+                let domains = "77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io\n" #
+                              "77fv5-oiaaa-aaaal-qsoea-cai.icp0.io";
+                {
+                    status_code = 200;
+                    body = Text.encodeUtf8(domains);
+                    headers = [
+                        ("Content-Type", "text/plain"),
+                        ("Access-Control-Allow-Origin", "*"),
+                        ("Access-Control-Expose-Headers", "IC-Certificate")
+                    ];
+                    streaming_strategy = null;
+                    upgrade = null;
+                }
+            } else {
+                // 404 for other paths
+                {
+                    status_code = 404;
+                    body = Text.encodeUtf8("Not found");
+                    headers = [("Content-Type", "text/plain")];
+                    streaming_strategy = null;
+                    upgrade = null;
+                }
             };
             
-            // Convert request to CertifiedAssets.HttpRequest
-            let certReq : CertifiedAssets.HttpRequest = {
-                url = req.url;
-                method = req.method;
-                body = req.body;
-                headers = req.headers;
-            };
+            // Get certified response
+            Debug.print("🔍 Attempting to get certified response for path: " # path);
+            Debug.print("  Request method: " # req.method);
+            Debug.print("  BasicResponse body size: " # Nat.toText(basicResponse.body.size()));
             
-            // Get response from AssetManager  
-            let certResp = assetManager.serve(path, certReq);
+            let result = certifiedAssets.get_certified_response(req, basicResponse, null);
             
-            Debug.print("  Response status: " # Nat16.toText(certResp.status_code));
-            Debug.print("  Response headers:");
-            for ((name, value) in certResp.headers.vals()) {
-                if (name == "IC-Certificate") {
-                    Debug.print("    " # name # ": [present, length=" # Nat.toText(value.size()) # "]");
-                } else {
-                    Debug.print("    " # name # ": " # value);
+            switch (result) {
+                case (#ok(certifiedResponse)) {
+                    Debug.print("✅ Got certified response");
+                    Debug.print("  Response body size: " # Nat.toText(certifiedResponse.body.size()));
+                    Debug.print("  Response headers count: " # Nat.toText(certifiedResponse.headers.size()));
+                    
+                    // Check if IC-Certificate header is present
+                    var hasCert = false;
+                    var certValue = "";
+                    for ((name, value) in certifiedResponse.headers.vals()) {
+                        if (name == "IC-Certificate" or name == "ic-certificate") {
+                            hasCert := true;
+                            certValue := value;
+                        };
+                    };
+                    Debug.print("🌐 Returning certified response (has IC-Certificate: " # (if (hasCert) "YES" else "NO") # ")");
+                    if (hasCert) {
+                        // Parse certificate parts
+                        if (Text.contains(certValue, #text "certificate=") and 
+                            Text.contains(certValue, #text "tree=") and
+                            Text.contains(certValue, #text "version=") and
+                            Text.contains(certValue, #text "expr_path=")) {
+                            Debug.print("📜 IC-Certificate has all required parts: certificate, tree, version, expr_path");
+                        } else {
+                            Debug.print("⚠️ IC-Certificate might be missing parts!");
+                        };
+                        
+                        let len = if (certValue.size() > 100) { 100 } else { certValue.size() };
+                        let chars = certValue.chars();
+                        var first100 = "";
+                        var i = 0;
+                        for (c in chars) {
+                            if (i < len) {
+                                first100 := first100 # Text.fromChar(c);
+                                i += 1;
+                            };
+                        };
+                        Debug.print("📜 IC-Certificate value (first 100 chars): " # first100);
+                    };
+                    
+                    if (isIIRequest) {
+                        Debug.print("🔐 [II_RESPONSE] Sending certified response to Internet Identity");
+                    };
+                    
+                    return {
+                        body = certifiedResponse.body;
+                        headers = certifiedResponse.headers;
+                        status_code = certifiedResponse.status_code;
+                        streaming_strategy = certifiedResponse.streaming_strategy;
+                        upgrade = certifiedResponse.upgrade;
+                    };
                 };
-            };
-            
-            // Return response as-is for all methods (HEAD, GET, etc)
-            // The gateway will handle stripping the body for HEAD responses
-            return {
-                body = certResp.body;
-                headers = certResp.headers;
-                status_code = certResp.status_code;
+                case (#err(errorMsg)) {
+                    Debug.print("⚠️ Certification error: " # errorMsg);
+                    Debug.print("🔄 Returning basic response without certification");
+                    // Return basic response without certification
+                    return {
+                        body = basicResponse.body;
+                        headers = basicResponse.headers;
+                        status_code = basicResponse.status_code;
+                        streaming_strategy = basicResponse.streaming_strategy;
+                        upgrade = basicResponse.upgrade;
+                    };
+                };
             };
         };
         
@@ -3108,9 +3236,84 @@ actor GameUnified {
                     ("Access-Control-Allow-Headers", "Content-Type")
                 ];
                 status_code = 204;
+                streaming_strategy = null;
+                upgrade = null;
             };
         };
         
+        // Debug endpoint to check certification
+        if (path == "/debug/cert-check") {
+            let debugInfo = "Certificate Debug Information:\n" #
+                "Request certificate_version: " # (switch (req.certificate_version) {
+                    case null { "null" };
+                    case (?v) { Nat16.toText(v) };
+                }) # "\n" #
+                "CertifiedData.getCertificate(): " # (switch (CertifiedData.getCertificate()) {
+                    case null { "null (this is the problem!)" };
+                    case (?cert) { "Available (" # Nat.toText(cert.size()) # " bytes)" };
+                }) # "\n";
+            
+            return jsonResponse("{\"debug\": \"" # debugInfo # "\"}", 200);
+        };
+        
+        // Test certified response directly
+        if (path == "/debug/cert-test") {
+            // Test root path certification
+            let rootHtml = "<!DOCTYPE html>\n" #
+                           "<html>\n" #
+                           "<head>\n" #
+                           "  <meta charset='utf-8'>\n" #
+                           "  <title>SpotQuest Canister</title>\n" #
+                           "</head>\n" #
+                           "<body>\n" #
+                           "  <h1>SpotQuest Backend Canister</h1>\n" #
+                           "  <p>This is the unified backend canister for SpotQuest.</p>\n" #
+                           "  <p>Use the SpotQuest mobile app to play the game.</p>\n" #
+                           "</body>\n" #
+                           "</html>";
+            
+            let testResponse : HttpTypes.Response = {
+                status_code = 200;
+                body = Text.encodeUtf8(rootHtml);
+                headers = [
+                    ("Content-Type", "text/html; charset=UTF-8"),
+                    ("Access-Control-Allow-Origin", "*"),
+                    ("Access-Control-Expose-Headers", "IC-Certificate")
+                ];
+                streaming_strategy = null;
+                upgrade = null;
+            };
+            
+            // Create a request for root path
+            let rootReq : HttpTypes.Request = {
+                url = "/";
+                method = "GET";
+                body = Blob.fromArray([]);
+                headers = [];
+                certificate_version = req.certificate_version;
+            };
+            
+            let result = certifiedAssets.get_certified_response(rootReq, testResponse, null);
+            
+            switch (result) {
+                case (#ok(certifiedResponse)) {
+                    var certInfo = "Headers:\n";
+                    for ((name, value) in certifiedResponse.headers.vals()) {
+                        if (name == "IC-Certificate" or name == "ic-certificate") {
+                            certInfo := certInfo # name # ": [FOUND - " # Nat.toText(value.size()) # " bytes]\n";
+                        } else {
+                            certInfo := certInfo # name # ": " # value # "\n";
+                        };
+                    };
+                    return jsonResponse("{\"status\": \"ok\", \"info\": \"" # certInfo # "\"}", 200);
+                };
+                case (#err(errorMsg)) {
+                    return jsonResponse("{\"status\": \"error\", \"message\": \"" # errorMsg # "\"}", 200);
+                };
+            };
+        };
+        
+        /* Commented out debug endpoints - using certified-assets library now
         // Debug endpoint to check certified assets
         if (path == "/debug/cert") {
             // Get all stored paths from assetManager
@@ -3814,7 +4017,7 @@ actor GameUnified {
             };
             
             // Get canister origin
-            let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io";
+            let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.icp0.io";
             
             // Create new session
             let response = iiIntegrationManager.newSession(publicKey, canisterOrigin);
@@ -3844,6 +4047,7 @@ actor GameUnified {
             let json = "{\"sessionId\":\"" # response.sessionId # "\",\"authorizeUrl\":\"" # authorizeUrl # "\"}";
             return jsonResponse(json, 200);
         };
+        */
         
         // Handle POST /api/session/:id/delegate - Save delegation
         if (req.method == "POST" and Text.startsWith(path, #text "/api/session/") and Text.endsWith(path, #text "/delegate")) {
@@ -4220,7 +4424,7 @@ actor GameUnified {
             // If publicKey exists, this is the initial request - redirect to II
             if (publicKey != "") {
                 // Create a new session synchronously
-                let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io";
+                let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.icp0.io";
                 let response = iiIntegrationManager.newSession(publicKey, canisterOrigin);
                 
                 // Build callback URL with redirect-uri from original query if present
@@ -4287,22 +4491,38 @@ actor GameUnified {
         
         // Serve the certified endpoint
         if (path == "/certified") {
-            // Get the certified response for the root path
-            let certReq : CertifiedAssets.HttpRequest = {
-                url = "/";
-                method = "GET";
-                body = Blob.fromArray([]);
-                headers = [];
+            // Create a basic HTML response
+            let html = "<!DOCTYPE html><html><head><title>Certified</title></head><body><h1>Certified Response</h1></body></html>";
+            let basicResponse : HttpTypes.Response = {
+                status_code = 200;
+                body = Text.encodeUtf8(html);
+                headers = [("Content-Type", "text/html")];
+                streaming_strategy = null;
+                upgrade = null;
             };
             
-            // Serve from the certified assets manager
-            let certResp = assetManager.serve("", certReq);
+            // Get certified response
+            let result = certifiedAssets.get_certified_response(req, basicResponse, null);
             
-            // Convert CertifiedAssets response to HttpResponse
-            return {
-                body = certResp.body;
-                headers = certResp.headers;
-                status_code = certResp.status_code;
+            switch (result) {
+                case (#ok(certifiedResponse)) {
+                    return {
+                        body = certifiedResponse.body;
+                        headers = certifiedResponse.headers;
+                        status_code = certifiedResponse.status_code;
+                        streaming_strategy = certifiedResponse.streaming_strategy;
+                        upgrade = certifiedResponse.upgrade;
+                    };
+                };
+                case (#err(_)) {
+                    return {
+                        body = basicResponse.body;
+                        headers = basicResponse.headers;
+                        status_code = basicResponse.status_code;
+                        streaming_strategy = basicResponse.streaming_strategy;
+                        upgrade = basicResponse.upgrade;
+                    };
+                };
             };
         };
         

@@ -38,10 +38,13 @@ export const useIIAuthSessionV6 = () => {
   const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null);
   const iiIntegration = useIIIntegrationContext();
 
-  // Expoプロキシを使用したリダイレクトURI
-  const redirectUri = makeRedirectUri();
+  // プロキシを使用しないリダイレクトURI（直接ブラウザで開く）
+  const redirectUri = makeRedirectUri({
+    scheme: 'spotquest',  // カスタムスキーム
+    useProxy: false,      // Expoプロキシを使用しない
+  });
 
-  debugLog('AUTH_SESSION_V6', 'Redirect URI:', redirectUri);
+  debugLog('AUTH_SESSION_V6', 'Redirect URI (no proxy):', redirectUri);
 
   // 公開鍵を生成
   const generatePublicKey = async (): Promise<string> => {
@@ -80,7 +83,7 @@ export const useIIAuthSessionV6 = () => {
     
     // authorizeUrlからclient_idを抽出
     const urlParams = new URLSearchParams(authorizeUrl.split('?')[1] || '');
-    const clientId = urlParams.get('client_id') || `https://${CANISTER_ID_UNIFIED}.raw.icp0.io`;
+    const clientId = urlParams.get('client_id') || `https://${CANISTER_ID_UNIFIED}.icp0.io`;
     
     setSessionInfo({ sessionId, publicKey, clientId });
     return sessionId;
@@ -88,7 +91,7 @@ export const useIIAuthSessionV6 = () => {
 
   // useAuthRequestの設定（sessionInfo依存）
   const requestConfig: AuthRequestConfig = {
-    clientId: sessionInfo?.clientId || `https://${CANISTER_ID_UNIFIED}.raw.icp0.io`,
+    clientId: sessionInfo?.clientId || `https://${CANISTER_ID_UNIFIED}.icp0.io`,
     responseType: ResponseType.Token,  // JWT検証を回避するためTokenに変更
     scopes: ['openid'],
     redirectUri,
@@ -138,10 +141,21 @@ export const useIIAuthSessionV6 = () => {
         state: request.state,
         responseType: request.responseType,
       });
+      
+      // URLをログに出力
+      const authUrl = `https://identity.ic0.app/#authorize?` +
+        `client_id=${encodeURIComponent(request.clientId)}&` +
+        `redirect_uri=${encodeURIComponent(request.redirectUri)}&` +
+        `state=${request.state}&` +
+        `response_type=${request.responseType}&` +
+        `scope=${request.scopes?.join(' ') || 'openid'}&` +
+        `nonce=${(request.extraParams as any)?.nonce || ''}`;
+      
+      debugLog('AUTH_SESSION_V6', 'Full auth URL:', authUrl);
 
-      // ブラウザを開く（Expo Proxyを使用）
+      // ブラウザを開く（プロキシを使用せず直接開く）
       await promptAsync({ 
-        useProxy: true, 
+        useProxy: false,  // 直接ブラウザで開く
         redirectUri 
       } as any);
 
@@ -166,6 +180,20 @@ export const useIIAuthSessionV6 = () => {
       type: response.type,
       response,
     });
+    
+    // エラーレスポンスの詳細ログ
+    if (response.type === 'error') {
+      debugLog('AUTH_SESSION_V6', '❌ Error response:', {
+        error: (response as any).error,
+        errorCode: (response as any).errorCode,
+        url: (response as any).url,
+        params: (response as any).params,
+      });
+      Alert.alert(
+        'Authentication Error',
+        `${(response as any).error || 'Unknown error occurred'}\n\nError Code: ${(response as any).errorCode || 'N/A'}`
+      );
+    }
 
     if (response.type === 'success' && 'params' in response) {
       const params = (response as any).params || {};

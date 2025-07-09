@@ -3,7 +3,8 @@
   "canisters": {
     "unified": {
       "type": "motoko",
-      "main": "src/backend/unified/main.mo"
+      "main": "src/backend/unified/main.mo",
+      "packtool": "cd src/backend/unified && mops sources"
     },
     "frontend": {
       "type": "assets",
@@ -23,7 +24,7 @@
   },
   "defaults": {
     "build": {
-      "packtool": ""
+      "packtool": "mops sources"
     }
   }
 }

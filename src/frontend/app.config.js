@@ -4,7 +4,7 @@ export default {
   expo: {
     name: "SpotQuest",
     slug: "spotquest",
-    scheme: "", // Empty string to suppress warnings while not using custom URL schemes
+    scheme: "spotquest", // カスタムURLスキーム for Internet Identity callback
     owner: "hude",
     version: "1.0.0",
     orientation: "portrait",
@@ -60,6 +60,7 @@ export default {
     },
     linking: {
       prefixes: [
+        "spotquest://",  // カスタムスキームを追加
         "https://auth.expo.io/@hude/spotquest",
         "https://spotquest.app"
       ],

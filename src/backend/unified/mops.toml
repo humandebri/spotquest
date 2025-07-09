@@ -1,0 +1,6 @@
+[package]
+name = "unified"
+version = "0.1.0"
+
+[dependencies]
+certified-assets = "0.5.1"

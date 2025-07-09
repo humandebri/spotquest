@@ -101,7 +101,7 @@ module {
                 timestamp = Time.now();
                 state = sessionId; // Use sessionId as state
                 nonce = sessionId; // Use sessionId as nonce
-                redirectUri = "https://auth.expo.io/@hude/spotquest";
+                redirectUri = "https://auth.expo.io/@hude/spotquest"; // This will be overridden by frontend
                 status = #Open;
                 publicKey = ?publicKey;
                 delegation = null;

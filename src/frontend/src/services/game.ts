@@ -1567,6 +1567,25 @@ class GameService {
       return result;
     } catch (error) {
       console.error('Failed to create new II session:', error);
+      
+      // エラーの詳細を解析
+      if (error instanceof Error) {
+        console.error('🔐 Error details:', {
+          message: error.message,
+          stack: error.stack,
+          name: error.name,
+        });
+        
+        // Response verification errorの場合
+        if (error.message && error.message.toLowerCase().includes('response verification')) {
+          console.error('❌ Response verification error detected!');
+          console.error('This usually means the IC Certificate validation failed');
+          console.error('Check: 1) Canister is serving certified responses');
+          console.error('       2) IC-Certificate header is present');
+          console.error('       3) client_id matches the canister domain');
+        }
+      }
+      
       throw error;
     }
   }
