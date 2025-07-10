@@ -70,6 +70,7 @@ export interface GuessData {
   'confidenceRadius' : number,
   'submittedAt' : Time,
 }
+export type Header = [string, string];
 export interface Heatmap {
   'gridSize' : bigint,
   'bounds' : {
@@ -91,11 +92,14 @@ export interface HttpRequest {
   'url' : string,
   'method' : string,
   'body' : Uint8Array | number[],
-  'headers' : Array<[string, string]>,
+  'headers' : Array<Header>,
+  'certificate_version' : [] | [number],
 }
 export interface HttpResponse {
   'body' : Uint8Array | number[],
-  'headers' : Array<[string, string]>,
+  'headers' : Array<Header>,
+  'upgrade' : [] | [boolean],
+  'streaming_strategy' : [] | [StreamingStrategy],
   'status_code' : number,
 }
 export interface Metadata { 'key' : string, 'value' : MetadataValue }
@@ -103,6 +107,10 @@ export type MetadataValue = { 'Int' : bigint } |
   { 'Nat' : bigint } |
   { 'Blob' : Uint8Array | number[] } |
   { 'Text' : string };
+export interface NewSessionRequest {
+  'publicKey' : string,
+  'redirectUri' : [] | [string],
+}
 export interface NewSessionResponse {
   'authorizeUrl' : string,
   'sessionId' : string,
@@ -336,6 +344,18 @@ export interface SessionSummary {
   'eloRatingChange' : [] | [bigint],
   'roundCount' : bigint,
 }
+export type StreamingCallback = ActorMethod<
+  [StreamingToken],
+  [] | [StreamingCallbackResponse]
+>;
+export interface StreamingCallbackResponse {
+  'token' : [] | [StreamingToken],
+  'body' : Uint8Array | number[],
+}
+export type StreamingStrategy = {
+    'Callback' : { 'token' : StreamingToken, 'callback' : StreamingCallback }
+  };
+export type StreamingToken = Uint8Array | number[];
 export type Time = bigint;
 export interface TransferArgs {
   'to' : Account,
@@ -460,6 +480,7 @@ export interface _SERVICE {
       >,
     }
   >,
+  'debug_certified_endpoints' : ActorMethod<[], string>,
   'deletePhotoV2' : ActorMethod<[bigint], Result>,
   'finalizePhotoUploadV2' : ActorMethod<[bigint], Result>,
   'finalizeSession' : ActorMethod<[string], Result_13>,
@@ -694,7 +715,7 @@ export interface _SERVICE {
   'icrc1_transfer' : ActorMethod<[TransferArgs], Result_6>,
   'init' : ActorMethod<[], Result>,
   'migrateLegacyPhotoData' : ActorMethod<[], Result_5>,
-  'newSession' : ActorMethod<[string], NewSessionResponse>,
+  'newSession' : ActorMethod<[NewSessionRequest], NewSessionResponse>,
   'purchaseHint' : ActorMethod<[string, HintType], Result_4>,
   'purchaseProMembership' : ActorMethod<[], Result_3>,
   'rebuildPhotoStats' : ActorMethod<[], Result_1>,

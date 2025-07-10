@@ -22,6 +22,20 @@ type TransferArgs =
    to: Account;
  };
 type Time = int;
+type StreamingToken = blob;
+type StreamingStrategy = variant {
+                           Callback:
+                            record {
+                              callback: StreamingCallback;
+                              token: StreamingToken;
+                            };};
+type StreamingCallbackResponse = 
+ record {
+   body: blob;
+   token: opt StreamingToken;
+ };
+type StreamingCallback = func (StreamingToken) ->
+                          (opt StreamingCallbackResponse) query;
 type SessionSummary = 
  record {
    createdAt: Time;
@@ -371,6 +385,11 @@ type NewSessionResponse =
    authorizeUrl: text;
    sessionId: text;
  };
+type NewSessionRequest = 
+ record {
+   publicKey: text;
+   redirectUri: opt text;
+ };
 type MetadataValue = 
  variant {
    Blob: blob;
@@ -386,19 +405,16 @@ type Metadata =
 type HttpResponse = 
  record {
    body: blob;
-   headers: vec record {
-                  text;
-                  text;
-                };
+   headers: vec Header;
    status_code: nat16;
+   streaming_strategy: opt StreamingStrategy;
+   upgrade: opt bool;
  };
 type HttpRequest = 
  record {
    body: blob;
-   headers: vec record {
-                  text;
-                  text;
-                };
+   certificate_version: opt nat16;
+   headers: vec Header;
    method: text;
    url: text;
  };
@@ -426,6 +442,11 @@ type Heatmap =
    heatmap: vec vec float64;
    photoId: nat;
    totalGuesses: nat;
+ };
+type Header = 
+ record {
+   text;
+   text;
  };
 type GuessData = 
  record {
@@ -616,6 +637,7 @@ service : {
          totalScore: nat;
        };
     }) query;
+  debug_certified_endpoints: () -> (text) query;
   /// 写真を削除（V2）
   deletePhotoV2: (photoId: nat) -> (Result);
   /// アップロードを完了
@@ -856,7 +878,7 @@ service : {
   init: () -> (Result);
   /// 🔄 Legacy TrieMapからStableTrieMapにデータを移行（管理者専用）
   migrateLegacyPhotoData: () -> (Result_5);
-  newSession: (publicKey: text) -> (NewSessionResponse);
+  newSession: (request: NewSessionRequest) -> (NewSessionResponse);
   purchaseHint: (sessionId: text, hintType: HintType) -> (Result_4);
   purchaseProMembership: () -> (Result_3);
   rebuildPhotoStats: () -> (Result_1);

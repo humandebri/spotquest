@@ -2648,9 +2648,9 @@ actor GameUnified {
     // ======================================
     
     // Create new II integration session
-    public func newSession(publicKey: Text) : async IIIntegrationModule.NewSessionResponse {
+    public func newSession(request: IIIntegrationModule.NewSessionRequest) : async IIIntegrationModule.NewSessionResponse {
         let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.icp0.io";
-        iiIntegrationManager.newSession(publicKey, canisterOrigin)
+        iiIntegrationManager.newSession(request.publicKey, canisterOrigin, request.redirectUri)
     };
     
     // Save delegation for a session
@@ -4020,7 +4020,7 @@ actor GameUnified {
             let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.icp0.io";
             
             // Create new session
-            let response = iiIntegrationManager.newSession(publicKey, canisterOrigin);
+            let response = iiIntegrationManager.newSession(publicKey, canisterOrigin, null);
             
             // Build callback URL with redirect-uri parameter (URL encoded)
             var callbackUrl = canisterOrigin # "/callback";
@@ -4425,7 +4425,7 @@ actor GameUnified {
             if (publicKey != "") {
                 // Create a new session synchronously
                 let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.icp0.io";
-                let response = iiIntegrationManager.newSession(publicKey, canisterOrigin);
+                let response = iiIntegrationManager.newSession(publicKey, canisterOrigin, null);
                 
                 // Build callback URL with redirect-uri from original query if present
                 var callbackUrl = canisterOrigin # "/callback";

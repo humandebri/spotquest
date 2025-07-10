@@ -290,15 +290,35 @@ export const idlFactory = ({ IDL }) => {
     'ok' : IDL.Vec(SessionInfo),
     'err' : IDL.Text,
   });
+  const Header = IDL.Tuple(IDL.Text, IDL.Text);
   const HttpRequest = IDL.Record({
     'url' : IDL.Text,
     'method' : IDL.Text,
     'body' : IDL.Vec(IDL.Nat8),
-    'headers' : IDL.Vec(IDL.Tuple(IDL.Text, IDL.Text)),
+    'headers' : IDL.Vec(Header),
+    'certificate_version' : IDL.Opt(IDL.Nat16),
+  });
+  const StreamingToken = IDL.Vec(IDL.Nat8);
+  const StreamingCallbackResponse = IDL.Record({
+    'token' : IDL.Opt(StreamingToken),
+    'body' : IDL.Vec(IDL.Nat8),
+  });
+  const StreamingCallback = IDL.Func(
+      [StreamingToken],
+      [IDL.Opt(StreamingCallbackResponse)],
+      ['query'],
+    );
+  const StreamingStrategy = IDL.Variant({
+    'Callback' : IDL.Record({
+      'token' : StreamingToken,
+      'callback' : StreamingCallback,
+    }),
   });
   const HttpResponse = IDL.Record({
     'body' : IDL.Vec(IDL.Nat8),
-    'headers' : IDL.Vec(IDL.Tuple(IDL.Text, IDL.Text)),
+    'headers' : IDL.Vec(Header),
+    'upgrade' : IDL.Opt(IDL.Bool),
+    'streaming_strategy' : IDL.Opt(StreamingStrategy),
     'status_code' : IDL.Nat16,
   });
   const Account = IDL.Record({
@@ -341,6 +361,10 @@ export const idlFactory = ({ IDL }) => {
       'photosCount' : IDL.Nat,
     }),
     'err' : IDL.Text,
+  });
+  const NewSessionRequest = IDL.Record({
+    'publicKey' : IDL.Text,
+    'redirectUri' : IDL.Opt(IDL.Text),
   });
   const NewSessionResponse = IDL.Record({
     'authorizeUrl' : IDL.Text,
@@ -528,6 +552,7 @@ export const idlFactory = ({ IDL }) => {
         ],
         ['query'],
       ),
+    'debug_certified_endpoints' : IDL.Func([], [IDL.Text], ['query']),
     'deletePhotoV2' : IDL.Func([IDL.Nat], [Result], []),
     'finalizePhotoUploadV2' : IDL.Func([IDL.Nat], [Result], []),
     'finalizeSession' : IDL.Func([IDL.Text], [Result_13], []),
@@ -870,7 +895,7 @@ export const idlFactory = ({ IDL }) => {
     'icrc1_transfer' : IDL.Func([TransferArgs], [Result_6], []),
     'init' : IDL.Func([], [Result], []),
     'migrateLegacyPhotoData' : IDL.Func([], [Result_5], []),
-    'newSession' : IDL.Func([IDL.Text], [NewSessionResponse], []),
+    'newSession' : IDL.Func([NewSessionRequest], [NewSessionResponse], []),
     'purchaseHint' : IDL.Func([IDL.Text, HintType], [Result_4], []),
     'purchaseProMembership' : IDL.Func([], [Result_3], []),
     'rebuildPhotoStats' : IDL.Func([], [Result_1], []),

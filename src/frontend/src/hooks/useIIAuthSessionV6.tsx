@@ -77,6 +77,7 @@ export const useIIAuthSessionV6 = () => {
     
     const publicKey = await generatePublicKey();
     debugLog('AUTH_SESSION_V6', 'Generated public key:', publicKey);
+    debugLog('AUTH_SESSION_V6', 'Using redirect URI:', redirectUri);
     
     const { sessionId, authorizeUrl } = await gameService.newSession(publicKey);
     debugLog('AUTH_SESSION_V6', 'New session created:', { sessionId, authorizeUrl });

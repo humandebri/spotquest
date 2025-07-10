@@ -361,6 +361,7 @@ class GameService {
       // II Integration types
       const NewSessionRequest = IDL.Record({
         publicKey: IDL.Text,
+        redirectUri: IDL.Opt(IDL.Text),
       });
       
       const NewSessionResponse = IDL.Record({
@@ -401,7 +402,7 @@ class GameService {
 
       return IDL.Service({
         // II Integration functions
-        newSession: IDL.Func([IDL.Text], [NewSessionResponse], []),
+        newSession: IDL.Func([NewSessionRequest], [NewSessionResponse], []),
         saveDelegate: IDL.Func([IDL.Text, IDL.Text, IDL.Text, IDL.Text], [DelegateResponse], []),
         closeSession: IDL.Func([IDL.Text], [IDL.Bool], []),
         getSessionStatus: IDL.Func([IDL.Text], [IDL.Opt(SessionData)], ['query']),
@@ -1555,14 +1556,19 @@ class GameService {
   }
 
   // II Integration API methods
-  async newSession(publicKey: string): Promise<{ sessionId: string; authorizeUrl: string }> {
+  async newSession(publicKey: string, redirectUri?: string): Promise<{ sessionId: string; authorizeUrl: string }> {
     if (!this.initialized || !this.actor) {
       throw new Error('Service not initialized');
     }
     
     try {
-      console.log('🔐 Creating new II session with publicKey:', publicKey);
-      const result = await this.actor.newSession(publicKey);
+      console.log('🔐 Creating new II session with publicKey:', publicKey, 'redirectUri:', redirectUri);
+      // Backend expects NewSessionRequest object
+      const request = {
+        publicKey,
+        redirectUri: redirectUri ? [redirectUri] : [],  // Optional field
+      };
+      const result = await this.actor.newSession(request);
       console.log('🔐 New session result:', result);
       return result;
     } catch (error) {

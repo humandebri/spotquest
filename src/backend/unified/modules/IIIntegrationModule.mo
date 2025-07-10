@@ -36,6 +36,7 @@ module {
 
     public type NewSessionRequest = {
         publicKey: Text;
+        redirectUri: ?Text;
     };
     
     public type NewSessionResponse = {
@@ -88,12 +89,18 @@ module {
         private var sessionCounter : Nat = 0;
 
         // Create new session (POST /api/session/new)
-        public func newSession(publicKey: Text, canisterOrigin: Text) : NewSessionResponse {
+        public func newSession(publicKey: Text, canisterOrigin: Text, redirectUri: ?Text) : NewSessionResponse {
             sessionCounter += 1;
             let sessionId = Text.concat(
                 Text.concat("session_", Nat.toText(sessionCounter)),
                 Text.concat("_", Nat.toText(Int.abs(Time.now())))
             );
+            
+            // Use provided redirectUri or default
+            let finalRedirectUri = switch(redirectUri) {
+                case (?uri) { uri };
+                case null { "https://auth.expo.io/@hude/spotquest" };
+            };
             
             let sessionData : SessionData = {
                 sessionId = sessionId;
@@ -101,7 +108,7 @@ module {
                 timestamp = Time.now();
                 state = sessionId; // Use sessionId as state
                 nonce = sessionId; // Use sessionId as nonce
-                redirectUri = "https://auth.expo.io/@hude/spotquest"; // This will be overridden by frontend
+                redirectUri = finalRedirectUri;
                 status = #Open;
                 publicKey = ?publicKey;
                 delegation = null;

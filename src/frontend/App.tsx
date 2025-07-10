@@ -10,6 +10,15 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { View, Text, ActivityIndicator } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
+import * as Font from 'expo-font';
+import { 
+  Ionicons, 
+  MaterialIcons, 
+  FontAwesome, 
+  MaterialCommunityIcons, 
+  Feather,
+  FontAwesome5 
+} from '@expo/vector-icons';
 import { IIAuthProviderWithReset } from './src/contexts/IIAuthProviderWithReset';
 import { useIIIntegrationContext } from 'expo-ii-integration';
 import { DevAuthProvider } from './src/contexts/DevAuthContext';
@@ -52,6 +61,30 @@ try {
 // App content component - must be inside IIIntegrationProvider
 function AppContent() {
   const { isAuthReady, isAuthenticated } = useIIIntegrationContext();
+  const [fontsLoaded, setFontsLoaded] = React.useState(false);
+  
+  // Load icon fonts
+  React.useEffect(() => {
+    const loadFonts = async () => {
+      try {
+        await Font.loadAsync({
+          ...Ionicons.font,
+          ...MaterialIcons.font,
+          ...FontAwesome.font,
+          ...MaterialCommunityIcons.font,
+          ...Feather.font,
+          ...FontAwesome5.font,
+        });
+        setFontsLoaded(true);
+      } catch (error) {
+        console.error('Failed to load fonts:', error);
+        // Set fonts loaded anyway to prevent app from hanging
+        setFontsLoaded(true);
+      }
+    };
+    
+    loadFonts();
+  }, []);
   
   // Monitor deep linking events
   React.useEffect(() => {
@@ -135,7 +168,7 @@ function AppContent() {
     },
   };
 
-  if (!isAuthReady) {
+  if (!isAuthReady || !fontsLoaded) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1a1a2e' }}>
         <ActivityIndicator size="large" color="#3282b8" />
