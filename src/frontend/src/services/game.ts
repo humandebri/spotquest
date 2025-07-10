@@ -1570,6 +1570,7 @@ class GameService {
       };
       const result = await this.actor.newSession(request);
       console.log('🔐 New session result:', result);
+      console.log('🔐 [DEBUG] authorizeUrl =', result.authorizeUrl);
       return result;
     } catch (error) {
       console.error('Failed to create new II session:', error);

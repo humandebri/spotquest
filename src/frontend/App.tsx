@@ -11,6 +11,7 @@ import { View, Text, ActivityIndicator } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import * as Font from 'expo-font';
+import { makeRedirectUri } from 'expo-auth-session';
 import { 
   Ionicons, 
   MaterialIcons, 
@@ -94,20 +95,36 @@ function AppContent() {
     const handleUrl = (url: { url: string }) => {
       debugLog('DEEP_LINKS', '🔗 Deep link received:', url.url);
       
-      // Check if this is an auth callback
-      if (url.url.includes('auth') || url.url.includes('delegation') || url.url.includes('--/')) {
+      // Check if this is an auth callback (spotquest://callback pattern)
+      if (url.url.includes('callback') || url.url.includes('auth') || url.url.includes('delegation') || url.url.includes('--/')) {
         debugLog('DEEP_LINKS', '🔗 Auth callback detected!');
         debugLog('DEEP_LINKS', '🔗 Full URL:', url.url);
         
-        // Parse the URL to check for delegation data
+        // Parse the URL to check for token data
         try {
-          const urlObj = new URL(url.url);
-          const params = new URLSearchParams(urlObj.search);
+          // Parse URL and check both query params and fragment
+          const { fragment, queryParams } = Linking.parse(url.url);
+          debugLog('DEEP_LINKS', '🔗 Parsed URL fragment:', fragment);
+          debugLog('DEEP_LINKS', '🔗 Parsed URL query params:', queryParams);
           
-          debugLog('DEEP_LINKS', '🔗 URL params:', Object.fromEntries(params));
+          // Check fragment for access_token (II typically uses fragment)
+          if (fragment) {
+            const fragmentParams = new URLSearchParams(fragment);
+            const accessToken = fragmentParams.get('access_token');
+            const delegation = fragmentParams.get('delegation');
+            
+            if (accessToken) {
+              debugLog('DEEP_LINKS', '🔗 Access token found in fragment!');
+              // Token handling will be done by expo-ii-integration
+            }
+            if (delegation) {
+              debugLog('DEEP_LINKS', '🔗 Delegation found in fragment!');
+            }
+          }
           
-          if (params.has('delegation')) {
-            debugLog('DEEP_LINKS', '🔗 Delegation found in URL!');
+          // Also check query params
+          if (queryParams) {
+            debugLog('DEEP_LINKS', '🔗 Query params:', queryParams);
           }
         } catch (e) {
           debugLog('DEEP_LINKS', '🔗 Could not parse URL:', e);
@@ -196,19 +213,23 @@ function AppWithAuth() {
   const unifiedCanisterId = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || '';
   const frontendCanisterId = process.env.EXPO_PUBLIC_FRONTEND_CANISTER_ID || '';
   
-  // Build II integration URL
-  const deepLink = Linking.createURL('/');
+  // Build II integration URL and redirect URI
+  const redirectUri = makeRedirectUri({
+    scheme: 'spotquest',
+    path: 'callback'
+  });
+  
+  debugLog('AUTH_FLOW', '🔗 Redirect URI:', redirectUri);
+  console.log('🔗 [DEBUG] Generated redirectUri:', redirectUri);
+  
   const iiIntegrationUrl = buildInternetIdentityURL({
     dfxNetwork,
     localIPAddress: localIpAddress,
     targetCanisterId: unifiedCanisterId,
   });
   
-  const deepLinkType = getDeepLinkType({
-    deepLink,
-    frontendCanisterId,
-    easDeepLinkType: process.env.EXPO_PUBLIC_EAS_DEEP_LINK_TYPE,
-  });
+  // Use "custom-scheme" for dev builds
+  const deepLinkType = 'custom-scheme';
   
   const iiIntegration = useIIIntegration({
     iiIntegrationUrl,
@@ -216,6 +237,7 @@ function AppWithAuth() {
     secureStorage,
     regularStorage,
     cryptoModule,
+    redirectUri, // Add redirect URI
   });
   
   const { authError, isAuthReady } = iiIntegration;

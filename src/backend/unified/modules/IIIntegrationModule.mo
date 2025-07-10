@@ -8,7 +8,11 @@ import Option "mo:base/Option";
 import Buffer "mo:base/Buffer";
 import Iter "mo:base/Iter";
 import Nat "mo:base/Nat";
+import Nat8 "mo:base/Nat8";
+import Nat32 "mo:base/Nat32";
 import Int "mo:base/Int";
+import Char "mo:base/Char";
+import Array "mo:base/Array";
 
 module {
     // ======================================
@@ -88,6 +92,33 @@ module {
         private let SESSION_TIMEOUT : Int = 300_000_000_000; // 5 minutes in nanoseconds
         private var sessionCounter : Nat = 0;
 
+        // Hex digits for URL encoding
+        private let HEX_CHARS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'];
+        
+        // URL encoding function following RFC 3986 with proper hex encoding
+        private func utf8PercentEncode(t : Text) : Text {
+            let bytes = Blob.toArray(Text.encodeUtf8(t));
+            var result = "";
+            
+            for (b in bytes.vals()) {
+                if ((b >= 0x41 and b <= 0x5A) or   // A-Z
+                    (b >= 0x61 and b <= 0x7A) or   // a-z
+                    (b >= 0x30 and b <= 0x39) or   // 0-9
+                    b == 0x2D or b == 0x2E or      // - .
+                    b == 0x5F or b == 0x7E) {      // _ ~
+                    // Safe character - add as is
+                    result := result # Char.toText(Char.fromNat32(Nat32.fromNat(Nat8.toNat(b))));
+                } else {
+                    // Encode as %XX where XX is hex
+                    let hi = HEX_CHARS[Nat8.toNat(b / 16)];
+                    let lo = HEX_CHARS[Nat8.toNat(b % 16)];
+                    result := result # "%" # Char.toText(hi) # Char.toText(lo);
+                }
+            };
+            
+            result
+        };
+
         // Create new session (POST /api/session/new)
         public func newSession(publicKey: Text, canisterOrigin: Text, redirectUri: ?Text) : NewSessionResponse {
             sessionCounter += 1;
@@ -119,11 +150,7 @@ module {
             sessions.put(sessionId, sessionData);
             
             // Build authorize URL for II with proper URL encoding
-            // Note: Motoko doesn't have built-in URL encoding, so we'll encode critical characters manually
-            let encodedRedirectUri = Text.replace(
-                Text.replace(sessionData.redirectUri, #char '@', "%40"),
-                #char '/', "%2F"
-            );
+            let encodedRedirectUri = utf8PercentEncode(sessionData.redirectUri);
             
             let authorizeUrl = "https://identity.ic0.app/#authorize?" #
                 "client_id=" # canisterOrigin # "&" #
