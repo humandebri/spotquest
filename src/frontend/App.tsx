@@ -19,8 +19,9 @@ import {
   Feather,
   FontAwesome5 
 } from '@expo/vector-icons';
-import { IIAuthProviderWithReset } from './src/contexts/IIAuthProviderWithReset';
-import { useIIIntegrationContext } from 'expo-ii-integration';
+import { useIIIntegration, IIIntegrationProvider, useIIIntegrationContext } from 'expo-ii-integration';
+import { buildInternetIdentityURL } from 'expo-icp-app-connect-helpers';
+import { getDeepLinkType } from 'expo-icp-frontend-helpers';
 import { DevAuthProvider } from './src/contexts/DevAuthContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import { GlobalErrorBoundary } from './src/components/GlobalErrorBoundary';
@@ -31,6 +32,8 @@ import { debugStorage } from './src/utils/debugStorage';
 import { patchExpoIIIntegration } from './src/utils/expoIIIntegrationPatch';
 import { patchEd25519KeyIdentity } from './src/utils/ed25519Fix';
 import { DEBUG_CONFIG, debugLog } from './src/utils/debugConfig';
+import { secureStorage, regularStorage } from './src/storage';
+import { cryptoModule } from './src/crypto';
 
 // Apply critical patches - needed in both dev and production
 debugLog('AUTH_FLOW', '🚀 Applying patches...');
@@ -187,11 +190,56 @@ function AppContent() {
 
 // Wrapper component to handle the IIAuthProvider
 function AppWithAuth() {
+  // Get environment variables
+  const localIpAddress = process.env.EXPO_PUBLIC_LOCAL_IP_ADDRESS || 'localhost';
+  const dfxNetwork = process.env.EXPO_PUBLIC_DFX_NETWORK || 'local';
+  const unifiedCanisterId = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || '';
+  const frontendCanisterId = process.env.EXPO_PUBLIC_FRONTEND_CANISTER_ID || '';
+  
+  // Build II integration URL
+  const deepLink = Linking.createURL('/');
+  const iiIntegrationUrl = buildInternetIdentityURL({
+    dfxNetwork,
+    localIPAddress: localIpAddress,
+    targetCanisterId: unifiedCanisterId,
+  });
+  
+  const deepLinkType = getDeepLinkType({
+    deepLink,
+    frontendCanisterId,
+    easDeepLinkType: process.env.EXPO_PUBLIC_EAS_DEEP_LINK_TYPE,
+  });
+  
+  const iiIntegration = useIIIntegration({
+    iiIntegrationUrl,
+    deepLinkType,
+    secureStorage,
+    regularStorage,
+    cryptoModule,
+  });
+  
+  const { authError, isAuthReady } = iiIntegration;
+  
+  React.useEffect(() => {
+    if (authError) {
+      console.error('Auth error:', authError);
+    }
+  }, [authError]);
+  
+  if (!isAuthReady) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1a1a2e' }}>
+        <ActivityIndicator size="large" color="#3282b8" />
+        <Text style={{ color: '#3282b8', marginTop: 10 }}>Initializing...</Text>
+      </View>
+    );
+  }
+  
   return (
     <DevAuthProvider>
-      <IIAuthProviderWithReset>
+      <IIIntegrationProvider value={iiIntegration}>
         <AppContent />
-      </IIAuthProviderWithReset>
+      </IIIntegrationProvider>
     </DevAuthProvider>
   );
 }

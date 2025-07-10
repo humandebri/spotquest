@@ -246,3 +246,75 @@ After backend changes:
 **注意点**:
 - `DelegateRequest`タイプが未使用として警告が出ているが、II統合の一部なので削除しない方が良い
 - バックエンドの`newSession`関数シグネチャを変更する場合は、破壊的変更となるため注意が必要
+.icp0.ioを使用すること
+
+### 2025-07-10 - Response Verification Errorの調査と修正
+
+**実施内容**:
+1. **Response Verification Errorの対処**
+   - Internet Identityが「Response Verification Error」を表示する問題を調査
+   - 初期アプローチ: canisterOriginを`.raw.icp0.io`に変更（ユーザーが拒否）
+   - 最終的にCLAUDE.mdの指示に従い`.icp0.io`に戻した
+
+2. **expo-icpプロジェクトの分析**
+   - https://github.com/higayasuo/expo-icp を参照
+   - より単純なアーキテクチャ: 専用のii-integrationキャニスターとexpo-ii-integrationパッケージを使用
+   - 将来的な移行計画を作成
+
+3. **メインネットへのデプロイ**
+   - `dfx deploy unified --network ic`でバックエンドをデプロイ
+   - Canister ID: 77fv5-oiaaa-aaaal-qsoea-cai
+   - フロントエンドをポート8082で起動してテスト準備
+
+**変更ファイル**:
+- `/src/backend/unified/main.mo` - canisterOriginを`.icp0.io`に戻した
+- `/src/backend/unified/modules/IIIntegrationModule.mo` - response_typeを"token"に変更
+- `/src/frontend/src/hooks/useIIAuthSessionV6.tsx` - tokenEndpoint追加、useProxyフラグ追加
+
+**未解決の課題**:
+- Response Verification Errorの根本原因は証明書ヘッダーの問題の可能性
+- 将来的にexpo-icpアーキテクチャへの移行を検討
+
+### 2025-07-10 - expo-icpアーキテクチャの実装
+
+**実施内容**:
+1. **expo-ii-integrationへの完全移行**
+   - Storageモジュールをexpo-storage-universalに更新
+   - Cryptoモジュールをexpo-crypto-universalに更新
+   - App.tsxでIIIntegrationProviderを使用するよう更新
+   - LogInとLogOutコンポーネントを新規作成
+
+2. **canister-managerアプローチの実装**
+   - gameCanisterManager.tsを作成（canister-managerを使用した新しいサービス）
+   - IDLファクトリーを独立した関数として抽出
+   - Factory関数パターンでactorの作成を簡略化
+
+3. **古い認証コードのクリーンアップ**
+   - 削除したファイル:
+     - useIIAuthSessionV6.tsx（古いAuthSessionフック）
+     - IIAuthContext.tsx（古いコンテキスト）
+     - IIAuthProviderWithReset.tsx（ラッパーコンテキスト）
+     - authPoller.ts（ポーリングユーティリティ）
+     - clearAllIIData.ts（手動ストレージクリア）
+     - clearIIStorage.ts（重複ユーティリティ）
+     - delegationFix.ts（ワークアラウンド）
+     - IIErrorBoundary.tsx（古いエラー境界）
+     - App-ii.tsx（代替エントリポイント）
+     - AppNavigatorII.tsx（代替ナビゲーター）
+
+4. **依存関係の追加**
+   - expo-storage-universal-web
+   - expo-storage-universal-native
+   - expo-crypto-universal-web
+   - expo-crypto-universal-native
+
+**技術的な改善**:
+- 認証フローがexpo-ii-integrationで標準化された
+- canister-managerによりネットワーク設定が自動化
+- 型安全性が向上（IDLファクトリーの分離）
+- コードの重複が削減（古いワークアラウンドの削除）
+
+**注意事項**:
+- gameCanisterManager.tsは現在`UnifiedService`型を`any`として定義しているため、将来的に適切な型定義が必要
+- iiIntegrationPatch.tsはまだ使用中だが、将来的には不要になる可能性がある
+- 実際のII認証テストは、アプリを起動して確認する必要がある

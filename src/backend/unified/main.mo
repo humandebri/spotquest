@@ -2649,6 +2649,7 @@ actor GameUnified {
     
     // Create new II integration session
     public func newSession(request: IIIntegrationModule.NewSessionRequest) : async IIIntegrationModule.NewSessionResponse {
+        // client_idは証明書付きドメイン（.icp0.io）を使用する必要がある
         let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.icp0.io";
         iiIntegrationManager.newSession(request.publicKey, canisterOrigin, request.redirectUri)
     };

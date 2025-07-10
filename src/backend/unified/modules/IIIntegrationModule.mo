@@ -129,7 +129,7 @@ module {
                 "client_id=" # canisterOrigin # "&" #
                 "redirect_uri=" # encodedRedirectUri # "&" #
                 "state=" # sessionId # "&" #
-                "response_type=id_token&" #
+                "response_type=token&" #
                 "scope=openid&" #
                 "nonce=" # sessionId;
             
