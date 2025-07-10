@@ -3015,6 +3015,34 @@ actor GameUnified {
             .response_header("Access-Control-Expose-Headers", "IC-Certificate")
             .status(200);
         certifiedAssets.certify(domainsEndpoint);
+        
+        // Certify ii-callback.html for Internet Identity redirect
+        let iiCallbackHtml = "<!doctype html><meta charset=\"utf-8\">\n" #
+                            "<title>Internet Identity Callback</title>\n" #
+                            "<script>\n" #
+                            "  // II から受け取った #hash をそのまま付け替えて…\n" #
+                            "  const hash = location.hash; // #access_token=... or #delegation=...\n" #
+                            "  \n" #
+                            "  // アプリのスキームへリダイレクト\n" #
+                            "  if (hash) {\n" #
+                            "    location.replace(`spotquest://callback${hash}`);\n" #
+                            "  } else {\n" #
+                            "    // ハッシュがない場合のフォールバック\n" #
+                            "    location.replace('spotquest://callback?error=no_hash');\n" #
+                            "  }\n" #
+                            "</script>\n" #
+                            "<body style=\"font-family: system-ui, -apple-system, sans-serif; text-align: center; padding: 20px;\">\n" #
+                            "  <h1>Redirecting to SpotQuest...</h1>\n" #
+                            "  <p>If you are not redirected automatically, <a href=\"spotquest://callback\">click here</a>.</p>\n" #
+                            "</body>";
+        
+        let iiCallbackEndpoint = CertifiedAssets.Endpoint("/ii-callback.html", ?Text.encodeUtf8(iiCallbackHtml))
+            .no_request_certification()
+            .response_header("Content-Type", "text/html; charset=UTF-8")
+            .response_header("Access-Control-Allow-Origin", "*")
+            .response_header("Access-Control-Expose-Headers", "IC-Certificate")
+            .status(200);
+        certifiedAssets.certify(iiCallbackEndpoint);
     };
     
     // Debug function to check certified endpoints
@@ -3136,6 +3164,37 @@ actor GameUnified {
                     body = Text.encodeUtf8(domains);
                     headers = [
                         ("Content-Type", "text/plain"),
+                        ("Access-Control-Allow-Origin", "*"),
+                        ("Access-Control-Expose-Headers", "IC-Certificate")
+                    ];
+                    streaming_strategy = null;
+                    upgrade = null;
+                }
+            } else if (path == "/ii-callback.html") {
+                // II callback HTML page
+                let iiCallbackHtml = "<!doctype html><meta charset=\"utf-8\">\n" #
+                                    "<title>Internet Identity Callback</title>\n" #
+                                    "<script>\n" #
+                                    "  // II から受け取った #hash をそのまま付け替えて…\n" #
+                                    "  const hash = location.hash; // #access_token=... or #delegation=...\n" #
+                                    "  \n" #
+                                    "  // アプリのスキームへリダイレクト\n" #
+                                    "  if (hash) {\n" #
+                                    "    location.replace(`spotquest://callback${hash}`);\n" #
+                                    "  } else {\n" #
+                                    "    // ハッシュがない場合のフォールバック\n" #
+                                    "    location.replace('spotquest://callback?error=no_hash');\n" #
+                                    "  }\n" #
+                                    "</script>\n" #
+                                    "<body style=\"font-family: system-ui, -apple-system, sans-serif; text-align: center; padding: 20px;\">\n" #
+                                    "  <h1>Redirecting to SpotQuest...</h1>\n" #
+                                    "  <p>If you are not redirected automatically, <a href=\"spotquest://callback\">click here</a>.</p>\n" #
+                                    "</body>";
+                {
+                    status_code = 200;
+                    body = Text.encodeUtf8(iiCallbackHtml);
+                    headers = [
+                        ("Content-Type", "text/html; charset=UTF-8"),
                         ("Access-Control-Allow-Origin", "*"),
                         ("Access-Control-Expose-Headers", "IC-Certificate")
                     ];

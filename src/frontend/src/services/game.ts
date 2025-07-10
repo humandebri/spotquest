@@ -1597,12 +1597,7 @@ class GameService {
     }
   }
 
-  async saveDelegate(
-    sessionId: string,
-    delegation: string,
-    userPublicKey: string,
-    delegationPubkey: string
-  ): Promise<{ success: boolean; error?: string }> {
+  async saveDelegate(sessionId: string, delegation: string, userPublicKey: string, delegationPubkey: string): Promise<{ success: boolean; error?: string }> {
     if (!this.initialized || !this.actor) {
       throw new Error('Service not initialized');
     }
@@ -1613,7 +1608,7 @@ class GameService {
       console.log('🔐 Save delegate result:', result);
       return result;
     } catch (error) {
-      console.error('Failed to save delegation:', error);
+      console.error('Failed to save delegate:', error);
       throw error;
     }
   }
@@ -1624,46 +1619,12 @@ class GameService {
     }
     
     try {
-      console.log('🔐 Closing II session:', sessionId);
+      console.log('🔐 Closing session:', sessionId);
       const result = await this.actor.closeSession(sessionId);
       console.log('🔐 Close session result:', result);
       return result;
     } catch (error) {
       console.error('Failed to close session:', error);
-      throw error;
-    }
-  }
-
-  async getSessionStatus(sessionId: string): Promise<any> {
-    if (!this.initialized || !this.actor) {
-      throw new Error('Service not initialized');
-    }
-    
-    try {
-      const result = await this.actor.getSessionStatus(sessionId);
-      return result.length > 0 ? result[0] : null;
-    } catch (error) {
-      console.error('Failed to get session status:', error);
-      throw error;
-    }
-  }
-
-  async getDelegation(sessionId: string): Promise<{
-    delegation: string;
-    userPublicKey: string;
-    delegationPubkey: string;
-  } | null> {
-    if (!this.initialized || !this.actor) {
-      throw new Error('Service not initialized');
-    }
-    
-    try {
-      console.log('🔐 Getting delegation for session:', sessionId);
-      const result = await this.actor.getDelegation(sessionId);
-      console.log('🔐 Get delegation result:', result);
-      return result.length > 0 ? result[0] : null;
-    } catch (error) {
-      console.error('Failed to get delegation:', error);
       throw error;
     }
   }

@@ -214,10 +214,9 @@ function AppWithAuth() {
   const frontendCanisterId = process.env.EXPO_PUBLIC_FRONTEND_CANISTER_ID || '';
   
   // Build II integration URL and redirect URI
-  const redirectUri = makeRedirectUri({
-    scheme: 'spotquest',
-    path: 'callback'
-  });
+  // Use HTTPS redirect with HTML bridge for II authentication
+  // Use unified canister for origin matching with client_id
+  const redirectUri = 'https://77fv5-oiaaa-aaaal-qsoea-cai.icp0.io/ii-callback.html';
   
   debugLog('AUTH_FLOW', '🔗 Redirect URI:', redirectUri);
   console.log('🔗 [DEBUG] Generated redirectUri:', redirectUri);
