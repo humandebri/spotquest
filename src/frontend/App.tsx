@@ -21,7 +21,7 @@ import {
   FontAwesome5 
 } from '@expo/vector-icons';
 import { useIIIntegration, IIIntegrationProvider, useIIIntegrationContext } from 'expo-ii-integration';
-import { buildInternetIdentityURL } from 'expo-icp-app-connect-helpers';
+import { buildAppConnectionURL } from 'expo-icp-app-connect-helpers';
 import { getDeepLinkType } from 'expo-icp-frontend-helpers';
 import { DevAuthProvider } from './src/contexts/DevAuthContext';
 import AppNavigator from './src/navigation/AppNavigator';
@@ -210,25 +210,28 @@ function AppWithAuth() {
   // Get environment variables
   const localIpAddress = process.env.EXPO_PUBLIC_LOCAL_IP_ADDRESS || 'localhost';
   const dfxNetwork = process.env.EXPO_PUBLIC_DFX_NETWORK || 'local';
-  const unifiedCanisterId = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || '';
+  const iiIntegrationCanisterId = process.env.EXPO_PUBLIC_II_INTEGRATION_CANISTER_ID || '';
   const frontendCanisterId = process.env.EXPO_PUBLIC_FRONTEND_CANISTER_ID || '';
   
-  // Build II integration URL and redirect URI
-  // Use HTTPS redirect with HTML bridge for II authentication
-  // Use unified canister for origin matching with client_id
-  const redirectUri = 'https://77fv5-oiaaa-aaaal-qsoea-cai.icp0.io/ii-callback.html';
+  // Build deep link for II integration
+  const deepLink = Linking.createURL('/');
   
-  debugLog('AUTH_FLOW', '🔗 Redirect URI:', redirectUri);
-  console.log('🔗 [DEBUG] Generated redirectUri:', redirectUri);
-  
-  const iiIntegrationUrl = buildInternetIdentityURL({
+  // Build II integration URL using the correct helper
+  const iiIntegrationUrl = buildAppConnectionURL({
     dfxNetwork,
     localIPAddress: localIpAddress,
-    targetCanisterId: unifiedCanisterId,
+    targetCanisterId: iiIntegrationCanisterId,
   });
   
-  // Use "custom-scheme" for dev builds
-  const deepLinkType = 'custom-scheme';
+  // Determine deep link type based on environment
+  const deepLinkType = getDeepLinkType({
+    deepLink,
+    frontendCanisterId,
+    easDeepLinkType: process.env.EXPO_PUBLIC_EAS_DEEP_LINK_TYPE,
+  });
+  
+  debugLog('AUTH_FLOW', '🔗 II Integration URL:', iiIntegrationUrl);
+  debugLog('AUTH_FLOW', '🔗 Deep Link Type:', deepLinkType);
   
   const iiIntegration = useIIIntegration({
     iiIntegrationUrl,
@@ -236,7 +239,6 @@ function AppWithAuth() {
     secureStorage,
     regularStorage,
     cryptoModule,
-    redirectUri, // Add redirect URI
   });
   
   const { authError, isAuthReady } = iiIntegration;

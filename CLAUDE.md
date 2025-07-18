@@ -318,3 +318,42 @@ After backend changes:
 - gameCanisterManager.tsは現在`UnifiedService`型を`any`として定義しているため、将来的に適切な型定義が必要
 - iiIntegrationPatch.tsはまだ使用中だが、将来的には不要になる可能性がある
 - 実際のII認証テストは、アプリを起動して確認する必要がある
+
+### 2025-07-18 - expo-ii-integration標準実装への再移行
+
+**問題点**:
+- IIがpostMessage通信を使用しているため、WebViewベースのカスタム実装では動作しない
+- カスタムWebBrowserフローは複雑で、メンテナンスが困難
+- HTMLブリッジ方式も正常に動作しない
+
+**実施内容**:
+1. **App.tsxの修正**
+   - `buildInternetIdentityURL` → `buildAppConnectionURL`に変更
+   - `getDeepLinkType`を使用してディープリンクタイプを適切に判定
+   - II_INTEGRATION_CANISTER_IDを環境変数から使用
+   - redirectUriパラメータを削除（標準実装では不要）
+
+2. **LogIn.tsxの簡略化**
+   - カスタムWebBrowserフローを完全に削除
+   - expo-ii-integrationの標準`login`関数のみを使用
+   - 約260行のコード → 83行のシンプルな実装に
+   - エラーハンドリングをAlert.alertで統一
+
+3. **不要なコードの削除**
+   - gameService.tsからII関連メソッドを削除：
+     - newSession、saveDelegate、closeSession
+     - 関連するIDL型定義（NewSessionRequest、DelegateResponse等）
+   - バックエンドmain.moからii-callback.htmlエンドポイントを削除
+   - bytesToHexユーティリティは残す（将来使用する可能性があるため）
+
+**技術的な改善**:
+- postMessage通信はexpo-ii-integration内部で適切に処理される
+- 認証フローがライブラリに完全に委譲され、メンテナンスが容易に
+- コード量が大幅に削減され、可読性が向上
+- バグの可能性が減少
+
+**変更ファイル**:
+- `/src/frontend/App.tsx` - buildAppConnectionURLとgetDeepLinkTypeを使用
+- `/src/frontend/src/components/LogIn.tsx` - シンプルな実装に置き換え
+- `/src/frontend/src/services/game.ts` - II関連メソッドを削除
+- `/src/backend/unified/main.mo` - ii-callback.htmlエンドポイントを削除

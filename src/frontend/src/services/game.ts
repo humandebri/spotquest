@@ -358,59 +358,8 @@ class GameService {
         err: IDL.Text,
       });
 
-      // II Integration types
-      const NewSessionRequest = IDL.Record({
-        publicKey: IDL.Text,
-        redirectUri: IDL.Opt(IDL.Text),
-      });
-      
-      const NewSessionResponse = IDL.Record({
-        sessionId: IDL.Text,
-        authorizeUrl: IDL.Text,
-      });
-      
-      const DelegateRequest = IDL.Record({
-        delegation: IDL.Text,
-        userPublicKey: IDL.Text,
-        delegationPubkey: IDL.Text,
-      });
-      
-      const DelegateResponse = IDL.Record({
-        success: IDL.Bool,
-        error: IDL.Opt(IDL.Text),
-      });
-
-      const IISessionStatus = IDL.Variant({
-        Open: IDL.Null,
-        HasDelegation: IDL.Null,
-        Closed: IDL.Null,
-      });
-
-      const SessionData = IDL.Record({
-        sessionId: IDL.Text,
-        principal: IDL.Opt(IDL.Principal),
-        timestamp: IDL.Int,
-        state: IDL.Text,
-        nonce: IDL.Text,
-        redirectUri: IDL.Text,
-        status: IISessionStatus,
-        publicKey: IDL.Opt(IDL.Text),
-        delegation: IDL.Opt(IDL.Text),
-        userPublicKey: IDL.Opt(IDL.Text),
-        delegationPubkey: IDL.Opt(IDL.Text),
-      });
 
       return IDL.Service({
-        // II Integration functions
-        newSession: IDL.Func([NewSessionRequest], [NewSessionResponse], []),
-        saveDelegate: IDL.Func([IDL.Text, IDL.Text, IDL.Text, IDL.Text], [DelegateResponse], []),
-        closeSession: IDL.Func([IDL.Text], [IDL.Bool], []),
-        getSessionStatus: IDL.Func([IDL.Text], [IDL.Opt(SessionData)], ['query']),
-        getDelegation: IDL.Func([IDL.Text], [IDL.Opt(IDL.Record({
-          delegation: IDL.Text,
-          userPublicKey: IDL.Text,
-          delegationPubkey: IDL.Text,
-        }))], ['query']),
         
         // Game Engine functions
         createSession: IDL.Func([], [Result_Text], []),
@@ -1555,79 +1504,6 @@ class GameService {
     }
   }
 
-  // II Integration API methods
-  async newSession(publicKey: string, redirectUri?: string): Promise<{ sessionId: string; authorizeUrl: string }> {
-    if (!this.initialized || !this.actor) {
-      throw new Error('Service not initialized');
-    }
-    
-    try {
-      console.log('🔐 Creating new II session with publicKey:', publicKey, 'redirectUri:', redirectUri);
-      // Backend expects NewSessionRequest object
-      const request = {
-        publicKey,
-        redirectUri: redirectUri ? [redirectUri] : [],  // Optional field
-      };
-      const result = await this.actor.newSession(request);
-      console.log('🔐 New session result:', result);
-      console.log('🔐 [DEBUG] authorizeUrl =', result.authorizeUrl);
-      return result;
-    } catch (error) {
-      console.error('Failed to create new II session:', error);
-      
-      // エラーの詳細を解析
-      if (error instanceof Error) {
-        console.error('🔐 Error details:', {
-          message: error.message,
-          stack: error.stack,
-          name: error.name,
-        });
-        
-        // Response verification errorの場合
-        if (error.message && error.message.toLowerCase().includes('response verification')) {
-          console.error('❌ Response verification error detected!');
-          console.error('This usually means the IC Certificate validation failed');
-          console.error('Check: 1) Canister is serving certified responses');
-          console.error('       2) IC-Certificate header is present');
-          console.error('       3) client_id matches the canister domain');
-        }
-      }
-      
-      throw error;
-    }
-  }
-
-  async saveDelegate(sessionId: string, delegation: string, userPublicKey: string, delegationPubkey: string): Promise<{ success: boolean; error?: string }> {
-    if (!this.initialized || !this.actor) {
-      throw new Error('Service not initialized');
-    }
-    
-    try {
-      console.log('🔐 Saving delegation for session:', sessionId);
-      const result = await this.actor.saveDelegate(sessionId, delegation, userPublicKey, delegationPubkey);
-      console.log('🔐 Save delegate result:', result);
-      return result;
-    } catch (error) {
-      console.error('Failed to save delegate:', error);
-      throw error;
-    }
-  }
-
-  async closeSession(sessionId: string): Promise<boolean> {
-    if (!this.initialized || !this.actor) {
-      throw new Error('Service not initialized');
-    }
-    
-    try {
-      console.log('🔐 Closing session:', sessionId);
-      const result = await this.actor.closeSession(sessionId);
-      console.log('🔐 Close session result:', result);
-      return result;
-    } catch (error) {
-      console.error('Failed to close session:', error);
-      throw error;
-    }
-  }
 
   async getProMembershipExpiry(): Promise<Date | null> {
     if (!this.initialized || !this.actor) {
