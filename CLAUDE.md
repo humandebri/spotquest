@@ -280,6 +280,77 @@ After backend changes:
 **変更ファイル**:
 - `/Users/0xhude/Desktop/ICP/spotquest/README.md` - 完全に書き換え
 
+### 2025-07-24 - Xcodeビルドエラーの修正
+
+**問題**:
+- Xcodeでビルド時に`Unable to open base configuration reference file`エラーが発生
+- `/Users/0xhude/Desktop/ICP/Guess-the-Spot/`という古いパスを参照していた
+
+**原因**:
+- プロジェクトが以前の場所から移動された後、CocoaPodsの設定が更新されていなかった
+- `Podfile.lock`と`Pods.xcodeproj/project.pbxproj`に古い絶対パスが残存
+
+**解決方法**:
+1. Podsディレクトリを削除
+2. Podfile.lockを削除
+3. SpotQuest.xcworkspaceを削除
+4. `pod install`を再実行
+
+**結果**:
+- すべてのPods設定が現在のプロジェクトパスで再生成された
+- ビルドエラーが解決
+
+### 2025-07-24 - getDeepLinkTypeエラーの修正
+
+**問題**:
+- アプリ起動時に`Could not determine deep link type`エラーが発生
+- `spotquest:///`というカスタムスキームが認識されない
+
+**原因**:
+- `getDeepLinkType`関数が以下の条件でディープリンクタイプを判定:
+  1. `exp://` → "expo-go"
+  2. `http://localhost:8081` → "dev-server"
+  3. URLに`frontendCanisterId`を含む → `easDeepLinkType || "icp"`
+- `spotquest:///`は上記のどれにも当てはまらず、`EXPO_PUBLIC_EAS_DEEP_LINK_TYPE`も未設定だった
+
+**解決方法**:
+`.env`ファイルに以下を追加:
+```
+EXPO_PUBLIC_EAS_DEEP_LINK_TYPE=legacy
+```
+
+**結果**:
+- `spotquest://`スキームが"legacy"タイプとして正しく認識されるようになった
+- エラーが解消され、アプリが正常に起動
+
+**追加修正**:
+- 環境変数設定だけでは解決しなかったため、`getDeepLinkType`をラップする関数を作成
+- `spotquest://`で始まるディープリンクを自動的に`legacy`タイプとして扱うようにした
+
+### 2025-07-24 - Internet Identity認証URLの修正
+
+**問題**:
+- ログインボタンを押すとInternet Identityではなく統一キャニスターのルートページに遷移していた
+- URL: `https://77fv5-oiaaa-aaaal-qsoea-cai.icp0.io/?pubkey=...`
+
+**原因**:
+- `buildAppConnectionURL`でパスを指定していなかったため、ルート（/）へのURLが生成されていた
+- expo-ii-integrationは`/newSession`エンドポイントを期待している
+
+**解決方法**:
+App.tsxの`buildAppConnectionURL`呼び出しに`pathname`パラメータを追加：
+```typescript
+const iiIntegrationUrl = buildAppConnectionURL({
+  dfxNetwork,
+  localIPAddress: localIpAddress,
+  targetCanisterId: iiIntegrationCanisterId,
+  pathname: '/newSession',  // この行を追加
+});
+```
+
+**結果**:
+- `iiIntegrationUrl`が`https://77fv5-oiaaa-aaaal-qsoea-cai.icp0.io/newSession`になり、正しくInternet Identityにリダイレクトされるようになった
+
 ### 2025-07-10 - Response Verification Errorの調査と修正
 
 **実施内容**:
@@ -389,3 +460,28 @@ After backend changes:
 - `/src/frontend/src/components/LogIn.tsx` - シンプルな実装に置き換え
 - `/src/frontend/src/services/game.ts` - II関連メソッドを削除
 - `/src/backend/unified/main.mo` - ii-callback.htmlエンドポイントを削除
+
+### 2025-07-24 - Response Verification Errorの修正
+
+**問題**:
+- II認証ページで「Response Verification Error」が発生
+- /newSessionエンドポイントが動的レスポンスを返すため、IC-Certificateヘッダーがなく、Boundary Nodeの検証に失敗
+
+**実施内容**:
+1. **HTTP処理の再構造化**
+   - 既存の`http_request`関数を`handleHttpRequest`にリネーム（共通ロジック用）
+   - 新しい`http_request`関数を作成：
+     - `/newSession`と`/api/`パスには`200 + upgrade=true`を返す
+     - 静的エンドポイントは`handleHttpRequest`を直接呼び出す
+   - `http_request_update`を修正して`handleHttpRequest`を呼び出すように変更
+
+**技術的詳細**:
+- Boundary Nodeは動的エンドポイントに対して`upgrade=true`を期待
+- 403ステータスコードは使用せず、200を返すことが重要
+- これにより、実際の処理は`http_request_update`で行われ、証明書の検証問題を回避
+
+**変更ファイル**:
+- `/src/backend/unified/main.mo` - HTTP処理の再構造化
+
+**注意事項**:
+- デプロイにはキャニスターへのcycles追加が必要（最低221,204,655,923 cycles）

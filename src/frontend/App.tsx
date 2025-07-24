@@ -221,10 +221,24 @@ function AppWithAuth() {
     dfxNetwork,
     localIPAddress: localIpAddress,
     targetCanisterId: iiIntegrationCanisterId,
+    pathname: '/newSession',  // Add path to newSession endpoint
   });
   
+  // Helper function to handle custom scheme
+  function safeGetDeepLinkType(params: Parameters<typeof getDeepLinkType>[0]): string {
+    try {
+      return getDeepLinkType(params);
+    } catch (err) {
+      // Custom scheme (spotquest://) fallback to legacy
+      if (params.deepLink.startsWith('spotquest://')) {
+        return 'legacy';
+      }
+      throw err;
+    }
+  }
+  
   // Determine deep link type based on environment
-  const deepLinkType = getDeepLinkType({
+  const deepLinkType = safeGetDeepLinkType({
     deepLink,
     frontendCanisterId,
     easDeepLinkType: process.env.EXPO_PUBLIC_EAS_DEEP_LINK_TYPE,
@@ -232,6 +246,7 @@ function AppWithAuth() {
   
   debugLog('AUTH_FLOW', '🔗 II Integration URL:', iiIntegrationUrl);
   debugLog('AUTH_FLOW', '🔗 Deep Link Type:', deepLinkType);
+  console.log('🔗 II Integration URL (should include /newSession):', iiIntegrationUrl.toString());
   
   const iiIntegration = useIIIntegration({
     iiIntegrationUrl,

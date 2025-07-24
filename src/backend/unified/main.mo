@@ -3069,7 +3069,8 @@ actor GameUnified {
         }
     };
     
-    public query func http_request(req: HttpRequest) : async HttpResponse {
+    // Common HTTP request handler
+    private func handleHttpRequest(req: HttpRequest) : HttpResponse {
         // Log ALL incoming requests to understand what the IC gateway is checking
         Debug.print("🌐 [HTTP_REQUEST] Method: " # req.method # " URL: " # req.url);
         Debug.print("  Headers:");
@@ -4532,9 +4533,34 @@ actor GameUnified {
         jsonResponse("{\"error\":\"Not Found\",\"path\":\"" # path # "\"}", 404)
     };
     
+    // Public query function for HTTP requests - handles upgrade for dynamic endpoints
+    public query func http_request(req: HttpRequest) : async HttpResponse {
+        // Parse URL path - remove query parameters
+        let fullPath = req.url;
+        let path = switch (Text.split(fullPath, #char '?').next()) {
+            case null { fullPath };
+            case (?p) { p };
+        };
+        
+        // Check if this is a dynamic endpoint that needs http_request_update
+        if (path == "/newSession" or Text.startsWith(path, #text "/api/")) {
+            // Return 200 + upgrade=true for dynamic endpoints
+            {
+                status_code = 200;
+                headers = [("Content-Type", "text/plain")];
+                body = Text.encodeUtf8("");
+                streaming_strategy = null;
+                upgrade = ?true;
+            }
+        } else {
+            // For static endpoints, use the common handler
+            handleHttpRequest(req)
+        }
+    };
+    
     public func http_request_update(req: HttpRequest) : async HttpResponse {
-        // All HTTP requests are now handled in http_request for compatibility with raw URLs
-        await http_request(req)
+        // Handle all requests through the common handler
+        handleHttpRequest(req)
     };
     
     // ======================================
