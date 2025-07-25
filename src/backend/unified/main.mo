@@ -4310,15 +4310,29 @@ actor GameUnified {
                       "        const redirectUri = urlParams.get('redirect-uri');" #
                       "        const decodedRedirectUri = redirectUri ? decodeURIComponent(redirectUri) : null;" #
                       "        " #
+                      "        console.log('Redirect URI (encoded):', redirectUri);" #
+                      "        console.log('Redirect URI (decoded):', decodedRedirectUri);" #
+                      "        " #
                       "        if (decodedRedirectUri) {" #
                       "          // AuthSession needs exact match with its redirectUri" #
                       "          console.log('Redirecting to AuthSession URI:', decodedRedirectUri);" #
-                      "          document.body.innerHTML = '<p>Redirecting...</p>';" #
+                      "          document.body.innerHTML = '<p>Redirecting to app...</p><a id=\"manual\" href=\"' + decodedRedirectUri + '\">Click here if not redirected</a>';" #
                       "          " #
-                      "          // Simple redirect" #
+                      "          // Try immediate redirect (no setTimeout)" #
+                      "          try {" #
+                      "            window.location.href = decodedRedirectUri;" #
+                      "          } catch (e) {" #
+                      "            console.error('Direct redirect failed:', e);" #
+                      "          }" #
+                      "          " #
+                      "          // Fallback with replace after short delay" #
                       "          setTimeout(() => {" #
-                      "            window.location.replace(decodedRedirectUri);" #
-                      "          }, 500);" #
+                      "            try {" #
+                      "              window.location.replace(decodedRedirectUri);" #
+                      "            } catch (e) {" #
+                      "              console.error('Replace redirect failed:', e);" #
+                      "            }" #
+                      "          }, 100);" #
                       "        } else {" #
                       "          console.error('No redirect URI found');" #
                       "          document.body.innerHTML = '<h2>Auth Complete</h2><p>Close this window.</p>';" #
@@ -4452,8 +4466,8 @@ actor GameUnified {
                 // Check if this is a native app (mobile) or web
                 if (deepLinkType == "legacy" or deepLinkType == "expo-go" or deepLinkType == "modern") {
                     // Native app: use callback with redirect-uri parameter
-                    // AuthSession expects spotquest:///--/auth format
-                    let nativeRedirectUri = "spotquest:///--/auth";
+                    // Frontend expects spotquest:/// format (without --/auth)
+                    let nativeRedirectUri = "spotquest:///";
                     
                     // First encode the native redirect URI
                     var encodedNative = Text.replace(nativeRedirectUri, #char ':', "%3A");

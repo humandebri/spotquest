@@ -215,6 +215,8 @@ function AppWithAuth() {
   
   // Build deep link for II integration
   const deepLink = Linking.createURL('/');
+  console.log('🔗 Deep link for AuthSession:', deepLink);
+  console.log('🔗 Should match the redirect from callback (with --/auth for native)');
   
   // Build II integration URL using the correct helper
   const iiIntegrationUrl = buildAppConnectionURL({

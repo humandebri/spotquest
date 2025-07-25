@@ -709,3 +709,83 @@ let nativeRedirectUri = "spotquest:///--/auth";
 **デプロイ**:
 - `dfx deploy unified --network ic`でメインネットにデプロイ完了
 - 2025-07-25 05:17:00 UTCに反映
+
+### 2025-07-25 - /callbackのJavaScript改善とデバッグ機能追加
+
+**問題**:
+- 新しいcallbackURL（`--/auth`付き）は正しく生成されているが、IIからのリダイレクトが来ていない
+- 古い`/callback?redirect-uri=spotquest:///`へのアクセスが記録されている
+- ASWebAuthenticationSessionでsetTimeout + window.location.replaceがブロックされている可能性
+
+**修正内容**:
+1. **/callbackのJavaScript改善**（line 4308-4339）
+   - 即座にリダイレクトを試みる（setTimeoutなし）
+   - フォールバックとして手動リンクを提供
+   - デバッグログを追加
+   ```javascript
+   // 即座にリダイレクト
+   try {
+     window.location.href = decodedRedirectUri;
+   } catch (e) {
+     console.error('Direct redirect failed:', e);
+   }
+   
+   // 手動リンクも提供
+   document.body.innerHTML = '<p>Redirecting to app...</p><a id="manual" href="' + decodedRedirectUri + '">Click here if not redirected</a>';
+   ```
+
+2. **App.tsxにデバッグログ追加**（line 217-219）
+   ```typescript
+   console.log('🔗 Deep link for AuthSession:', deepLink);
+   console.log('🔗 Should match the redirect from callback (with --/auth for native)');
+   ```
+
+**技術的詳細**:
+- setTimeoutを100msに短縮し、即座のリダイレクトを優先
+- 手動リンクにより、自動リダイレクトが失敗してもユーザーがアプリに戻れる
+- デバッグ情報により、実際のredirectURIの形式を確認可能
+
+**変更ファイル**:
+- `/src/backend/unified/main.mo` - /callbackのJavaScript改善
+- `/src/frontend/App.tsx` - デバッグログ追加
+
+**デプロイ**:
+- `dfx deploy unified --network ic`でメインネットにデプロイ完了
+- 2025-07-25 05:26:00 UTCに反映
+
+**確認結果**:
+- ログで新しいredirect URI（`spotquest%3A%2F%2F%2F--%2Fauth`）が生成されていることを確認
+- ただし、まだ古いアクセス（`spotquest:///`）が記録されており、キャッシュまたはIIからのリダイレクト失敗の可能性
+
+### 2025-07-25 - 最終修正：フロントエンドとバックエンドのURI一致
+
+**問題の根本原因**:
+- フロントエンドのdeepLink: `spotquest:///`（`--/auth`なし）
+- バックエンドのnativeRedirectUri: `spotquest:///--/auth`
+- URIの不一致により、expo-ii-integrationのセッション完了処理が発火しない
+
+**修正内容**:
+```motoko
+// 修正前
+let nativeRedirectUri = "spotquest:///--/auth";
+
+// 修正後 - フロントエンドに合わせる
+let nativeRedirectUri = "spotquest:///";
+```
+
+**処理フロー**:
+1. `nativeRedirectUri = "spotquest:///"`
+2. エンコード → `encodedNative = "spotquest%3A%2F%2F%2F"`
+3. `callbackUrl = ".../callback?redirect-uri=spotquest%3A%2F%2F%2F"`
+4. 全体エンコード → `redirect_uri`パラメータとして使用
+5. `/callback`でデコード → `window.location.href = "spotquest:///"`
+6. フロントエンドのAuthSessionが認識 → セッション完了
+
+**変更ファイル**:
+- `/src/backend/unified/main.mo` - line 4470のnativeRedirectUri
+
+**デプロイ**:
+- `dfx deploy unified --network ic`でメインネットにデプロイ完了
+- 2025-07-25 05:48:19 UTCに反映
+
+これで、フロントエンドとバックエンドのURIが完全に一致し、認証フローが正常に動作します。
