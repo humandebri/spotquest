@@ -3098,8 +3098,11 @@ actor GameUnified {
         };
         
         // Handle non-API paths with certified responses
+        // Skip /newSession and /callback as they need special handling
         if (not Text.startsWith(path, #text "/api/") and 
-            not Text.startsWith(path, #text "/debug/")) {
+            not Text.startsWith(path, #text "/debug/") and
+            path != "/newSession" and
+            path != "/callback") {
             
             Debug.print("🌐 Processing non-API request for path: '" # path # "'");
             
@@ -4305,15 +4308,16 @@ actor GameUnified {
                       "        // Get redirect URI from query params (sent by canister)" #
                       "        const urlParams = new URLSearchParams(window.location.search);" #
                       "        const redirectUri = urlParams.get('redirect-uri');" #
+                      "        const decodedRedirectUri = redirectUri ? decodeURIComponent(redirectUri) : null;" #
                       "        " #
-                      "        if (redirectUri) {" #
+                      "        if (decodedRedirectUri) {" #
                       "          // AuthSession needs exact match with its redirectUri" #
-                      "          console.log('Redirecting to AuthSession URI:', redirectUri);" #
+                      "          console.log('Redirecting to AuthSession URI:', decodedRedirectUri);" #
                       "          document.body.innerHTML = '<p>Redirecting...</p>';" #
                       "          " #
                       "          // Simple redirect" #
                       "          setTimeout(() => {" #
-                      "            window.location.replace(redirectUri);" #
+                      "            window.location.replace(decodedRedirectUri);" #
                       "          }, 500);" #
                       "        } else {" #
                       "          console.error('No redirect URI found');" #
@@ -4380,9 +4384,9 @@ actor GameUnified {
             };
         };
         
-        // Handle GET / - Check session-id parameter and redirect appropriately
-        // Only handle root path if it has query parameters (for auth flow)
-        if (req.method == "GET" and (path == "/" or path == "") and Text.contains(fullPath, #text "?")) {
+        // Handle GET / or /newSession - Check session-id parameter and redirect appropriately
+        // Handle both root path and /newSession path with query parameters (for auth flow)
+        if (req.method == "GET" and (path == "/" or path == "" or path == "/newSession") and Text.contains(fullPath, #text "?")) {
             // Parse query parameters
             let urlParts = Text.split(fullPath, #text "?");
             var publicKey = "";
@@ -4445,47 +4449,103 @@ actor GameUnified {
                     };
                 };
                 
-                // If no redirect-uri was provided, use default for Expo Go
-                if (not hasRedirectUri) {
-                    // Check if this is from a mobile deep link type (likely Expo Go)
-                    if (Text.contains(fullQueryString, #text "deep-link-type=expo-go") or 
-                        Text.contains(fullQueryString, #text "deep-link-type=legacy") or
-                        Text.contains(fullQueryString, #text "deep-link-type=modern")) {
-                        // Use Expo Auth Session proxy URL for mobile
-                        let defaultRedirectUri = "https://auth.expo.io/@hude/guess-the-spot/auth";
-                        var encodedRedirectUri = defaultRedirectUri;
-                        encodedRedirectUri := Text.replace(encodedRedirectUri, #char ':', "%3A");
-                        encodedRedirectUri := Text.replace(encodedRedirectUri, #char '/', "%2F");
-                        encodedRedirectUri := Text.replace(encodedRedirectUri, #char '@', "%40");
-                        callbackUrl #= "?redirect-uri=" # encodedRedirectUri;
+                // Check if this is a native app (mobile) or web
+                if (deepLinkType == "legacy" or deepLinkType == "expo-go" or deepLinkType == "modern") {
+                    // Native app: use callback with redirect-uri parameter
+                    // AuthSession expects spotquest:///--/auth format
+                    let nativeRedirectUri = "spotquest:///--/auth";
+                    
+                    // First encode the native redirect URI
+                    var encodedNative = Text.replace(nativeRedirectUri, #char ':', "%3A");
+                    encodedNative := Text.replace(encodedNative, #char '/', "%2F");
+                    
+                    // Build callback URL with encoded redirect-uri parameter
+                    let callbackUrl = canisterOrigin # "/callback?redirect-uri=" # encodedNative;
+                    
+                    // Encode the entire callback URL for use as redirect_uri parameter
+                    var encodedCallbackUrl = callbackUrl;
+                    encodedCallbackUrl := Text.replace(encodedCallbackUrl, #char ':', "%3A");
+                    encodedCallbackUrl := Text.replace(encodedCallbackUrl, #char '/', "%2F");
+                    encodedCallbackUrl := Text.replace(encodedCallbackUrl, #char '?', "%3F");
+                    encodedCallbackUrl := Text.replace(encodedCallbackUrl, #char '=', "%3D");
+                    encodedCallbackUrl := Text.replace(encodedCallbackUrl, #char '&', "%26");
+                    
+                    // Build authorize URL for native flow (using callback)
+                    let authorizeUrl = "https://identity.ic0.app/#authorize?" #
+                        "client_id=" # canisterOrigin # "&" #
+                        "redirect_uri=" # encodedCallbackUrl # "&" #
+                        "state=" # response.sessionId # "&" #
+                        "response_type=id_token&" #
+                        "scope=openid&" #
+                        "nonce=" # response.sessionId;
+                    
+                    Debug.print("🔐 [AUTH] Native flow - deepLinkType: " # deepLinkType);
+                    Debug.print("🔐 [AUTH] Native flow - callbackUrl: " # callbackUrl);
+                    Debug.print("🔐 [AUTH] Native flow - encodedCallbackUrl: " # encodedCallbackUrl);
+                    Debug.print("🔐 [AUTH] Native flow - nativeRedirectUri: " # nativeRedirectUri);
+                    Debug.print("🔐 [AUTH] Native flow - authorizeUrl: " # authorizeUrl);
+                    
+                    // Return redirect HTML
+                    let redirectHtml = "<!DOCTYPE html>" #
+                              "<html>" #
+                              "<head>" #
+                              "<title>Redirecting...</title>" #
+                              "<meta charset='utf-8'>" #
+                              "<script>" #
+                              "window.location.href = '" # authorizeUrl # "';" #
+                              "</script>" #
+                              "</head>" #
+                              "<body>" #
+                              "<h2>Redirecting to Internet Identity...</h2>" #
+                              "</body>" #
+                              "</html>";
+                    
+                    return htmlResponse(redirectHtml, 200);
+                } else {
+                    // Web flow: use callback endpoint
+                    if (not hasRedirectUri) {
+                        // Use default redirect URI for web
+                        if (Text.contains(fullQueryString, #text "redirect-uri=")) {
+                            let parts = Text.split(fullQueryString, #text "&");
+                            for (part in parts) {
+                                if (Text.startsWith(part, #text "redirect-uri=")) {
+                                    callbackUrl #= "?" # part;
+                                    hasRedirectUri := true;
+                                };
+                            };
+                        };
                     };
+                    
+                    // Build authorize URL for web flow (with callback)
+                    let authorizeUrl = "https://identity.ic0.app/#authorize?" #
+                        "client_id=" # canisterOrigin # "&" #
+                        "redirect_uri=" # callbackUrl # "&" #
+                        "state=" # response.sessionId # "&" #
+                        "response_type=id_token&" #
+                        "scope=openid&" #
+                        "nonce=" # response.sessionId;
+                    
+                    Debug.print("🔐 [AUTH] Web flow - deepLinkType: " # deepLinkType);
+                    Debug.print("🔐 [AUTH] Web flow - callbackUrl: " # callbackUrl);
+                    Debug.print("🔐 [AUTH] Web flow - authorizeUrl: " # authorizeUrl);
+                    
+                    // Return redirect HTML for web flow
+                    let redirectHtml = "<!DOCTYPE html>" #
+                              "<html>" #
+                              "<head>" #
+                              "<title>Redirecting...</title>" #
+                              "<meta charset='utf-8'>" #
+                              "<script>" #
+                              "window.location.href = '" # authorizeUrl # "';" #
+                              "</script>" #
+                              "</head>" #
+                              "<body>" #
+                              "<h2>Redirecting to Internet Identity...</h2>" #
+                              "</body>" #
+                              "</html>";
+                    
+                    return htmlResponse(redirectHtml, 200);
                 };
-                
-                // Build authorize URL for II
-                let authorizeUrl = "https://identity.ic0.app/#authorize?" #
-                    "client_id=" # canisterOrigin # "&" #
-                    "redirect_uri=" # callbackUrl # "&" #
-                    "state=" # response.sessionId # "&" #
-                    "response_type=id_token&" #
-                    "scope=openid&" #
-                    "nonce=" # response.sessionId;
-                
-                // Redirect to II immediately
-                let redirectHtml = "<!DOCTYPE html>" #
-                          "<html>" #
-                          "<head>" #
-                          "<title>Redirecting...</title>" #
-                          "<meta charset='utf-8'>" #
-                          "<script>" #
-                          "window.location.href = '" # authorizeUrl # "';" #
-                          "</script>" #
-                          "</head>" #
-                          "<body>" #
-                          "<h2>Redirecting to Internet Identity...</h2>" #
-                          "</body>" #
-                          "</html>";
-                
-                return htmlResponse(redirectHtml, 200);
             };
             
             // Default response if no parameters - return JSON for expo-ii-integration
@@ -4535,6 +4595,8 @@ actor GameUnified {
     
     // Public query function for HTTP requests - handles upgrade for dynamic endpoints
     public query func http_request(req: HttpRequest) : async HttpResponse {
+        Debug.print("🚀 [NEW_HTTP_REQUEST] URL: " # req.url);
+        
         // Parse URL path - remove query parameters
         let fullPath = req.url;
         let path = switch (Text.split(fullPath, #char '?').next()) {
@@ -4543,7 +4605,9 @@ actor GameUnified {
         };
         
         // Check if this is a dynamic endpoint that needs http_request_update
-        if (path == "/newSession" or Text.startsWith(path, #text "/api/")) {
+        // Added debug log to verify new code is deployed
+        Debug.print("🔍 [HTTP_REQUEST_CHECK] path: " # path);
+        if (path == "/newSession" or path == "/callback" or Text.startsWith(path, #text "/api/")) {
             // Return 200 + upgrade=true for dynamic endpoints
             {
                 status_code = 200;

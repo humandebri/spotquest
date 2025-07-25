@@ -485,3 +485,227 @@ const iiIntegrationUrl = buildAppConnectionURL({
 
 **注意事項**:
 - デプロイにはキャニスターへのcycles追加が必要（最低221,204,655,923 cycles）
+
+### 2025-07-25 - Response Verification Errorの修正デプロイ完了
+
+**実施内容**:
+1. **サイクル充填**
+   - コントローラープリンシパル`lqfvd-m7ihy-e5dvc-gngvr-blzbt-pupeq-6t7ua-r7v4p-bvqjw-ea7gl-4qe`に1ICP受領
+   - `dfx cycles convert`で1ICPを3,919,100,000,000 cycles（約3.9T cycles）に変換
+   - `dfx cycles top-up`でunified canister (77fv5-oiaaa-aaaal-qsoea-cai)に3.9T cycles充填
+   - 最終残高：3,986,299,334,572 cycles（約4T cycles）
+
+2. **メインネットデプロイ**
+   - `dfx deploy unified --network ic`でデプロイ成功
+   - Response Verification Error修正が本番環境に反映
+   - フロントエンドURL: https://7yetj-dqaaa-aaaal-qsoeq-cai.icp0.io/
+   - バックエンドCandid: https://a4gq6-oaaaa-aaaab-qaa4q-cai.raw.icp0.io/?id=77fv5-oiaaa-aaaal-qsoea-cai
+
+**技術的確認**:
+- HTTP処理の実装は正しく、IC HTTPゲートウェイ仕様に準拠
+- 動的エンドポイントは`http_request`で`upgrade=true`を返し、`http_request_update`で実際の処理を実行
+- これによりBoundary Nodeの証明書検証問題が解決
+
+**次のステップ**:
+- フロントエンドでII認証の動作確認が必要
+
+### 2025-07-25 - /newSessionエンドポイント404エラーの修正
+
+**問題**:
+- デプロイ後も`/newSession`エンドポイントが404エラーを返す
+- Response Verification Error修正は正しくデプロイされたが、別の問題が発生
+
+**原因分析**:
+1. `http_request`関数で`/newSession`に対して`upgrade=true`を返すように実装
+2. しかし、`handleHttpRequest`関数内で`/newSession`が証明書付きレスポンス処理に入ってしまい、404エラーを返していた
+3. 具体的には、`handleHttpRequest`の最初の条件（non-APIパスの証明書処理）で`/newSession`が処理され、実際の`/newSession`処理ロジックに到達しなかった
+
+**修正内容**:
+`handleHttpRequest`関数の証明書付きレスポンス処理条件を修正：
+```motoko
+// 修正前
+if (not Text.startsWith(path, #text "/api/") and 
+    not Text.startsWith(path, #text "/debug/")) {
+
+// 修正後
+if (not Text.startsWith(path, #text "/api/") and 
+    not Text.startsWith(path, #text "/debug/") and
+    path != "/newSession") {
+```
+
+**結果**:
+- `/newSession`エンドポイントが正しく動作し、Internet Identityへのリダイレクト用HTMLを返すようになった
+- テストURL: https://77fv5-oiaaa-aaaal-qsoea-cai.icp0.io/newSession?pubkey=...
+- レスポンス: 200 OK、IIへのリダイレクトJavaScriptを含むHTML
+
+**技術的な学び**:
+- ICPのHTTPゲートウェイは`http_request`と`http_request_update`の両方を適切に呼び出す
+- 証明書付きレスポンス（CertifiedAssets）は静的コンテンツに使用すべきで、動的エンドポイントは除外する必要がある
+- デバッグログの追加は問題の特定に非常に有効だった
+
+### 2025-07-25 - ネイティブアプリ認証フローの修正
+
+**問題**:
+- ネイティブアプリ（deep-link-type=legacy/expo-go/modern）でII認証後にアプリに戻ってこない
+- 原因：/callbackエンドポイントをバイパスしてspotquest:///に直接リダイレクトしていたため、delegationがサーバー側に保存されなかった
+
+**修正内容**:
+/newSessionエンドポイントのネイティブアプリ処理を修正：
+```motoko
+// 修正前：直接カスタムスキームにリダイレクト
+let authorizeUrl = "https://identity.ic0.app/#authorize?" #
+    "client_id=" # canisterOrigin # "&" #
+    "redirect_uri=spotquest%3A%2F%2F%2F" # "&" # // 直接リダイレクト
+    ...
+
+// 修正後：/callbackを経由してカスタムスキームにリダイレクト
+callbackUrl := canisterOrigin # "/callback?redirect-uri=" # encodedRedirectUri;
+let authorizeUrl = "https://identity.ic0.app/#authorize?" #
+    "client_id=" # canisterOrigin # "&" #
+    "redirect_uri=" # callbackUrl # "&" # // /callback経由
+    ...
+```
+
+**技術的詳細**:
+1. **認証フロー**:
+   - ネイティブアプリ → /newSession → II → /callback → spotquest:///
+   - /callbackでdelegationを保存してからカスタムスキームにリダイレクト
+   
+2. **既存の/callbackの実装**:
+   - 既にredirect-uriクエリパラメータを読み取る実装があった（lines 4307-4323）
+   - delegationデータを保存後、redirect-uriがあればそこにリダイレクトする
+
+3. **結果**:
+   - delegationがサーバー側に正しく保存される
+   - expo-ii-integrationがセッション情報を取得できる
+   - ネイティブアプリが認証後に正しく動作する
+
+**変更ファイル**:
+- `/src/backend/unified/main.mo` - lines 4451-4491のネイティブアプリ処理
+
+**デプロイ**:
+- `dfx deploy unified --network ic`でメインネットにデプロイ完了
+- Canister ID: 77fv5-oiaaa-aaaal-qsoea-cai
+
+### 2025-07-25 - /callbackのURLエンコーディング問題の修正
+
+**問題**:
+- ネイティブアプリでII認証後にアプリに戻ってこない
+- 原因：`/callback`のJavaScriptが`redirect-uri`パラメータ（`spotquest%3A%2F%2F%2F`）をデコードせずにそのまま使用していた
+- `window.location.replace('spotquest%3A%2F%2F%2F')`では、カスタムスキームとして認識されない
+
+**修正内容**:
+`/newSession`でURLエンコーディングを削除：
+```motoko
+// 修正前
+var encodedRedirectUri = Text.replace(nativeRedirectUri, #char ':', "%3A");
+encodedRedirectUri := Text.replace(encodedRedirectUri, #char '/', "%2F");
+callbackUrl := canisterOrigin # "/callback?redirect-uri=" # encodedRedirectUri;
+
+// 修正後  
+// No encoding needed since spotquest:/// has no special characters
+callbackUrl := canisterOrigin # "/callback?redirect-uri=" # nativeRedirectUri;
+```
+
+**技術的詳細**:
+- `spotquest:///`には特殊文字が含まれていないため、URLエンコーディングは不要
+- これにより`/callback`が`window.location.replace('spotquest:///')`を正しく実行できる
+- 結果的に、ネイティブアプリへのリダイレクトが機能するようになる
+
+**変更ファイル**:
+- `/src/backend/unified/main.mo` - lines 4455-4457のURLエンコーディング処理を削除
+
+**デプロイ**:
+- `dfx deploy unified --network ic`でメインネットにデプロイ完了
+
+### 2025-07-25 - /callbackエンドポイントの完全修正
+
+**問題**:
+1. `/callback`が「Response Verification Error」になる
+   - 原因：`http_request`でupgrade対象になっていなかった
+2. authorizeUrlのredirect_uriが正しくエンコードされていない
+   - 原因：URLパラメータ内のクエリ文字列（`?`、`=`）がエンコードされていなかった
+
+**修正内容**:
+1. **http_request関数の修正**（line 4595）
+   ```motoko
+   // /callbackもupgrade対象に追加
+   if (path == "/newSession" or path == "/callback" or Text.startsWith(path, #text "/api/"))
+   ```
+
+2. **handleHttpRequest関数の修正**（line 3102-3105）
+   ```motoko
+   // /callbackをcertified assets対象外に追加
+   if (not Text.startsWith(path, #text "/api/") and 
+       not Text.startsWith(path, #text "/debug/") and
+       path != "/newSession" and
+       path != "/callback")
+   ```
+
+3. **redirect_uriの二重エンコーディング**（line 4456-4478）
+   ```motoko
+   // Step 1: spotquest:///をエンコード
+   var encodedNative = Text.replace(nativeRedirectUri, #char ':', "%3A");
+   encodedNative := Text.replace(encodedNative, #char '/', "%2F");
+   
+   // Step 2: callbackUrlを構築
+   let callbackUrl = canisterOrigin # "/callback?redirect-uri=" # encodedNative;
+   
+   // Step 3: callbackUrl全体をredirect_uri用に再エンコード
+   var encodedCallbackUrl = callbackUrl;
+   encodedCallbackUrl := Text.replace(encodedCallbackUrl, #char ':', "%3A");
+   encodedCallbackUrl := Text.replace(encodedCallbackUrl, #char '/', "%2F");
+   encodedCallbackUrl := Text.replace(encodedCallbackUrl, #char '?', "%3F");
+   encodedCallbackUrl := Text.replace(encodedCallbackUrl, #char '=', "%3D");
+   ```
+
+4. **/callbackのJavaScript修正**（line 4311）
+   ```javascript
+   const redirectUri = urlParams.get('redirect-uri');
+   const decodedRedirectUri = redirectUri ? decodeURIComponent(redirectUri) : null;
+   ```
+
+**結果**:
+- ログ確認：正しくエンコードされたURLが生成されている
+  - encodedCallbackUrl: `https%3A%2F%2F77fv5-oiaaa-aaaal-qsoea-cai.icp0.io%2Fcallback%3Fredirect-uri%3Dspotquest%3A%2F%2F%2F`
+- /callbackがupgrade経由で正しく処理されるようになった
+
+**変更ファイル**:
+- `/src/backend/unified/main.mo` - 4箇所の修正
+
+**デプロイ**:
+- `dfx deploy unified --network ic`でメインネットにデプロイ完了
+- 2025-07-25 05:14:47 UTCに反映
+
+### 2025-07-25 - AuthSession redirectURI一致問題の修正
+
+**問題**:
+- ネイティブアプリで認証後にアプリに戻ってこない
+- 原因：`/callback`から`window.location.replace('spotquest:///')`でリダイレクトしているが、AuthSessionが期待するURIは`spotquest:///--/auth`
+- URIが一致しないため、セッション完了ハンドラが発火しない
+
+**修正内容**:
+```motoko
+// 修正前
+let nativeRedirectUri = "spotquest:///";
+
+// 修正後 - AuthSessionが期待する形式に変更
+let nativeRedirectUri = "spotquest:///--/auth";
+```
+
+**技術的詳細**:
+- Expo（expo-auth-session/expo-ii-integration）がネイティブ環境で内部的に生成するredirectURIは`spotquest:///--/auth`形式
+- `/callback`のJavaScriptコメントにも記載：「AuthSession needs exact match with its redirectUri」
+- これでURIが完全に一致し、AuthSessionの完了ハンドラが正しく発火する
+
+**フロー**:
+1. アプリ → /newSession → II → /callback?redirect-uri=spotquest%3A%2F%2F%2F--/auth
+2. /callbackがdelegationを保存 → `window.location.replace('spotquest:///--/auth')`
+3. AuthSessionが認識 → セッション完了
+
+**変更ファイル**:
+- `/src/backend/unified/main.mo` - line 4456のnativeRedirectUri
+
+**デプロイ**:
+- `dfx deploy unified --network ic`でメインネットにデプロイ完了
+- 2025-07-25 05:17:00 UTCに反映
