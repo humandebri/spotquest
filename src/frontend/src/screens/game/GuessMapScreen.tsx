@@ -8,7 +8,7 @@ import {
   Image,
   SafeAreaView,
 } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker } from 'react-native-maps';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -326,7 +326,6 @@ export default function GuessMapScreen() {
       {/* 地図 */}
       <MapView
         style={styles.fullMap}
-        provider={PROVIDER_GOOGLE}
         mapType="standard"
         initialRegion={{
           latitude: initialGuess?.latitude || 35.6762,

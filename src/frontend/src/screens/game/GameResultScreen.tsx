@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   Animated,
 } from 'react-native';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -499,7 +499,7 @@ export default function GameResultScreen() {
           <MapView
             ref={mapRef}
             style={styles.fullMap}
-            provider={PROVIDER_GOOGLE}
+            
             initialRegion={initialRegion}
             onMapReady={() => {
               if (mapReady) return; // Prevent double execution

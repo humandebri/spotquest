@@ -18,7 +18,7 @@ import { RootStackParamList } from '../../navigation/AppNavigator';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as Location from 'expo-location';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { extractLocationFromExif, matchAssetWithPickedPhoto, formatCoordinates, parseExifDateTime } from '../../utils/locationHelpers';
@@ -426,7 +426,7 @@ export default function PhotoLibraryScreen() {
             <MapView
               ref={mapRef}
               style={styles.map}
-              provider={PROVIDER_GOOGLE}
+              
               initialRegion={mapRegion}
               onPress={(event) => {
                 const { latitude, longitude } = event.nativeEvent.coordinate;

@@ -14,7 +14,7 @@ import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 import { RootStackParamList } from '../../navigation/AppNavigator';
 import { gameService } from '../../services/game';
 import { photoService } from '../../services/photo';
@@ -652,7 +652,7 @@ export default function SessionDetailsScreen() {
                 <MapView
                   ref={mapRef}
                   style={styles.map}
-                  provider={PROVIDER_GOOGLE}
+                  
                   // keyを削除して再マウントを防止
                   initialRegion={(() => {
                     const latDiff = Math.abs(currentRound.guessData.lat - currentRound.photoLocation.lat);

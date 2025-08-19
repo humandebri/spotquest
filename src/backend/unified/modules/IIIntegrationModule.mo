@@ -120,18 +120,12 @@ module {
         };
 
         // Create new session (POST /api/session/new)
-        public func newSession(publicKey: Text, canisterOrigin: Text, redirectUri: ?Text) : NewSessionResponse {
+        public func newSession(publicKey: Text, canisterOrigin: Text, nativeRedirectUri: Text) : NewSessionResponse {
             sessionCounter += 1;
             let sessionId = Text.concat(
                 Text.concat("session_", Nat.toText(sessionCounter)),
                 Text.concat("_", Nat.toText(Int.abs(Time.now())))
             );
-            
-            // Use provided redirectUri or default
-            let finalRedirectUri = switch(redirectUri) {
-                case (?uri) { uri };
-                case null { "https://auth.expo.io/@hude/spotquest" };
-            };
             
             let sessionData : SessionData = {
                 sessionId = sessionId;
@@ -139,7 +133,7 @@ module {
                 timestamp = Time.now();
                 state = sessionId; // Use sessionId as state
                 nonce = sessionId; // Use sessionId as nonce
-                redirectUri = finalRedirectUri;
+                redirectUri = nativeRedirectUri; // Store native redirect URI (e.g., spotquest:///)
                 status = #Open;
                 publicKey = ?publicKey;
                 delegation = null;
@@ -149,12 +143,13 @@ module {
             
             sessions.put(sessionId, sessionData);
             
-            // Build authorize URL for II with proper URL encoding
-            let encodedRedirectUri = utf8PercentEncode(sessionData.redirectUri);
+            // Build authorize URL for II with simple callback URL (no query params)
+            let callbackUrl = canisterOrigin # "/callback";
+            let encodedCallbackUrl = utf8PercentEncode(callbackUrl);
             
-            let authorizeUrl = "https://identity.ic0.app/#authorize?" #
+            let authorizeUrl = "https://identity.internetcomputer.org/#authorize?" #
                 "client_id=" # canisterOrigin # "&" #
-                "redirect_uri=" # encodedRedirectUri # "&" #
+                "redirect_uri=" # encodedCallbackUrl # "&" #
                 "state=" # sessionId # "&" #
                 "response_type=token&" #
                 "scope=openid&" #
@@ -282,7 +277,7 @@ module {
             sessions.put(request.sessionId, sessionData);
             
             // Build II auth URL
-            let iiUrl = "https://identity.ic0.app";
+            let iiUrl = "https://identity.internetcomputer.org";
             let authUrl = iiUrl # "/#authorize?sessionId=" # request.sessionId # 
                          "&state=" # request.state # 
                          "&redirectUri=" # request.redirectUri;

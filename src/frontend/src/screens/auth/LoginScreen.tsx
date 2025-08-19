@@ -83,8 +83,8 @@ export default function LoginScreen() {
               </Text>
             </View>
 
-            {/* Dev Mode Login */}
-            {isDevMode && (
+            {/* Dev Mode Login - Show in development environment (Expo Go) */}
+            {__DEV__ && (
               <>
                 <View style={styles.divider}>
                   <View style={styles.dividerLine} />
@@ -102,7 +102,7 @@ export default function LoginScreen() {
                   ) : (
                     <>
                       <Feather name="code" size={20} color="#bbe1fa" />
-                      <Text style={styles.devButtonText}>Dev Mode Login</Text>
+                      <Text style={styles.devButtonText}>Dev Mode Login (Expo Go)</Text>
                     </>
                   )}
                 </TouchableOpacity>

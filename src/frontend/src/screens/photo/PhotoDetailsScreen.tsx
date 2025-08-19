@@ -14,7 +14,7 @@ import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker } from 'react-native-maps';
 import { RootStackParamList } from '../../navigation/AppNavigator';
 import { photoService } from '../../services/photo';
 import { gameService } from '../../services/game';
@@ -731,7 +731,7 @@ export default function PhotoDetailsScreen() {
             <View style={styles.mapContainer}>
               <MapView
                 style={styles.map}
-                provider={PROVIDER_GOOGLE}
+                
                 initialRegion={{
                   latitude: photoMeta.latitude,
                   longitude: photoMeta.longitude,

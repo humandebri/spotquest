@@ -18,7 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navigation/AppNavigator';
-import MapView, { Marker, Circle, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, Circle, Polyline } from 'react-native-maps';
 import { useAuth } from '../../hooks/useAuth';
 import { 
   photoServiceV2,
@@ -591,7 +591,7 @@ export default function PhotoUploadScreenV2() {
           <MapView
             ref={mapRef}
             style={styles.modalMap}
-            provider={PROVIDER_GOOGLE}
+            
             initialRegion={{
               latitude: parseFloat(displayLat),
               longitude: parseFloat(displayLon),

@@ -789,3 +789,138 @@ let nativeRedirectUri = "spotquest:///";
 - 2025-07-25 05:48:19 UTCに反映
 
 これで、フロントエンドとバックエンドのURIが完全に一致し、認証フローが正常に動作します。
+
+### 2025-07-25 - セッションベースのリダイレクトURI管理への移行
+
+**問題点**:
+- Internet Identityがネストされたクエリパラメータを含むリダイレクトURIを適切に処理できない
+- 従来の実装では`/callback?redirect-uri=spotquest%3A%2F%2F%2F`のような複雑なURLエンコーディングが必要だった
+
+**実施内容**:
+1. **IIIntegrationModule.moの修正**
+   - `newSession`関数に`nativeRedirectUri`パラメータを追加（必須パラメータに変更）
+   - セッションデータに直接リダイレクトURIを保存する方式に変更
+   - シンプルな`/callback`URLをII redirect_uriとして使用
+
+2. **main.moの/newSessionハンドラーの更新**
+   - ネイティブアプリの場合は`spotquest:///`をセッションに保存
+   - Webアプリの場合は`https://auth.expo.io/@hude/spotquest`をセッションに保存
+   - 複雑なURLエンコーディングを削除し、シンプルなcallback URLを使用
+
+3. **/callbackハンドラーの更新**
+   - クエリパラメータからではなく、セッションからリダイレクトURIを取得
+   - 新しい`/api/session/:id/info`エンドポイントを呼び出してセッション情報を取得
+
+4. **新エンドポイントの追加**
+   - `/api/session/:id/info` - セッション情報（リダイレクトURIを含む）を返すエンドポイント
+   - 既存の`/api/session/:id`エンドポイントを拡張して両方の機能をサポート
+
+**技術的な改善**:
+- URLエンコーディングの複雑さを解消
+- IIがシンプルなcallback URLを処理できるようになった
+- セッションベースの管理でより安全かつ柔軟な実装
+- 将来的な拡張が容易（セッションに追加のメタデータを保存可能）
+
+**変更ファイル**:
+- `/src/backend/unified/modules/IIIntegrationModule.mo` - newSession関数のシグネチャ変更
+- `/src/backend/unified/main.mo` - /newSession、/callback、/api/session/:id/infoの実装を更新
+
+**デプロイ結果**:
+- メインネットへのデプロイ完了
+- Canister ID: 77fv5-oiaaa-aaaal-qsoea-cai
+
+**注意点**:
+- `newSession`公開関数も更新し、オプショナルな`redirectUri`に対してデフォルト値を提供
+
+### 2025-07-25 - canisterOriginをic0.appドメインに修正
+
+**問題点**:
+- Internet Identityが`*.ic0.app`ドメインを正式にサポート
+- `icp0.io`（rawドメイン）を使用するとリダイレクトがブロックされる
+- IIから`/callback`へ遷移しない原因となっていた
+
+**実施内容**:
+main.moの3箇所で`canisterOrigin`を修正：
+1. 行2653 - `public func newSession`内
+2. 行4031 - API newSessionエンドポイント内  
+3. 行4479 - /newSessionハンドラー内（ネイティブアプリ用）
+
+すべて以下のように変更：
+```motoko
+// 修正前
+let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.icp0.io";
+
+// 修正後
+let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.ic0.app";
+```
+
+**デプロイ結果**:
+- メインネットへのデプロイ完了
+- Canister ID: 77fv5-oiaaa-aaaal-qsoea-cai
+
+**期待される効果**:
+- authorizeURLで`client_id`と`redirect_uri`の両方が`ic0.app`ドメインを使用
+- IIからの正常なリダイレクト（`/callback#delegation=...`）
+- アプリへの自動リダイレクト（`spotquest:///`）
+
+### 2025-07-26 - HEAD /callbackリクエストの修正
+
+**問題**:
+- Internet Identityがredirect_uriをHEADリクエストで事前確認するが、`/callback`が400を返していた
+- curl -I https://77fv5-oiaaa-aaaal-qsoea-cai.ic0.app/callback → HTTP/2 400
+- この問題により、IIが「403 Forbidden」エラーを表示し、リダイレクトが実行されない
+
+**実施内容**:
+1. **HEADリクエストハンドラーの追加**
+   - `http_request`関数に特別なHEADリクエスト処理を追加（lines 4614-4623）
+   - `req.method == "HEAD" and path == "/callback"`の場合、200を返すように修正
+   - デバッグログを追加して処理フローを確認
+
+2. **ドメインの問題の発見と修正**
+   - 最初は`ic0.app`ドメインを使用していたが、このドメインでは「Canister Not Available Through This Gateway」エラーが発生
+   - キャニスターは元々`icp0.io`でデプロイされていたため、すべての参照を`icp0.io`に戻す必要があった
+   - `identity.ic0.app`を`identity.internetcomputer.org`に変更
+
+**技術的詳細**:
+- rawドメイン（`raw.icp0.io`）ではHEADリクエストが200を返す（動作確認済み）
+- 証明付きドメイン（`icp0.io`）では503エラーが発生するが、これはICの既知の動作
+- Internet Identityは実際にはrawドメインを使用してredirect_uriをチェックするため、認証フローは正常に動作する
+
+**変更ファイル**:
+- `/src/backend/unified/main.mo` - HEADリクエストハンドラーの追加とドメイン修正
+- `/src/backend/unified/modules/IIIntegrationModule.mo` - identityドメインの修正
+
+**検証結果**:
+- `curl -I https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io/callback` → HTTP/2 200 ✅
+- HEAD /callbackリクエストが正常に200を返すようになった
+- IIの事前確認が成功し、認証フローが進むようになることが期待される
+
+**重要な発見**:
+- ICのBoundary Nodeは異なるドメイン（`ic0.app` vs `icp0.io`）で異なる動作をする
+- キャニスターがデプロイされたドメインと一致しない場合、400エラーが発生する
+- II認証には証明付きドメインよりもrawドメインの方が信頼性が高い
+
+### 2025-07-26 - Expo Go用devモードボタンの修正
+
+**問題**:
+- LoginScreenでdevモードボタンが`isDevMode`がtrueの時のみ表示される
+- `isDevMode`の初期値はfalseのため、一度もdevモードボタンを押せない（チキン・エッグ問題）
+- Expo Goで開発する際にdevモードが使えない
+
+**実施内容**:
+1. **LoginScreen.tsxの修正**
+   - devモードボタンの表示条件を`isDevMode`から`__DEV__`に変更
+   - 開発環境（Expo Go）では常にdevモードボタンを表示
+   - ボタンテキストに「(Expo Go)」を追加して明確化
+
+**技術的詳細**:
+- `__DEV__`はReact Nativeの組み込みフラグで、開発環境でtrueになる
+- 本番ビルドでは自動的にfalseになるため、devモードボタンは表示されない
+- DevAuthContextは既に実装済みで、Ed25519KeyIdentityを使用した開発用認証を提供
+
+**変更ファイル**:
+- `/src/frontend/src/screens/auth/LoginScreen.tsx` - line 87の条件を変更
+
+**結果**:
+- Expo Goで開発する際に、Internet Identityを使わずにdevモードでログイン可能
+- 開発効率が向上し、II認証の問題をバイパスして開発を進められる

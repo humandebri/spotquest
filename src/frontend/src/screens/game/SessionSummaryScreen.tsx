@@ -10,7 +10,7 @@ import {
   Share,
   Alert,
 } from 'react-native';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -267,7 +267,7 @@ export default function SessionSummaryScreen() {
           <MapView
             ref={mapRef}
             style={styles.fullMap}
-            provider={PROVIDER_GOOGLE}
+            
             initialRegion={initialRegion}
             onMapReady={() => setMapReady(true)}
             scrollEnabled={false}

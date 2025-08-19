@@ -2649,9 +2649,14 @@ actor GameUnified {
     
     // Create new II integration session
     public func newSession(request: IIIntegrationModule.NewSessionRequest) : async IIIntegrationModule.NewSessionResponse {
-        // client_idは証明書付きドメイン（.icp0.io）を使用する必要がある
-        let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.icp0.io";
-        iiIntegrationManager.newSession(request.publicKey, canisterOrigin, request.redirectUri)
+        // client_idはrawドメイン（.raw.icp0.io）を使用してHEADリクエストが通るようにする
+        let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io";
+        // Use provided redirect URI or default
+        let redirectUri = switch(request.redirectUri) {
+            case (?uri) { uri };
+            case null { "https://auth.expo.io/@hude/spotquest" };
+        };
+        iiIntegrationManager.newSession(request.publicKey, canisterOrigin, redirectUri)
     };
     
     // Save delegation for a session
@@ -4022,8 +4027,8 @@ actor GameUnified {
                 redirectUri := "https://auth.expo.io/@hude/guess-the-spot/auth"; // Test fallback - matches app.json
             };
             
-            // Get canister origin
-            let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.icp0.io";
+            // Get canister origin - use raw domain for HEAD request compatibility
+            let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io";
             
             // Create new session
             let response = iiIntegrationManager.newSession(publicKey, canisterOrigin, null);
@@ -4044,7 +4049,7 @@ actor GameUnified {
             };
             
             // Build authorize URL with our callback - simplified for debugging
-            let authorizeUrl = "https://identity.ic0.app/#authorize?" #
+            let authorizeUrl = "https://identity.internetcomputer.org/#authorize?" #
                 "client_id=" # canisterOrigin # "&" #
                 "redirect_uri=" # callbackUrl # "&" #
                 "state=" # response.sessionId # "&" #
@@ -4197,8 +4202,8 @@ actor GameUnified {
             };
         };
         
-        // Handle GET /callback - II callback page
-        if (req.method == "GET" and path == "/callback") {
+        // Handle GET/HEAD /callback - II callback page
+        if ((req.method == "GET" or req.method == "HEAD") and path == "/callback") {
             // Callback page that handles II response and redirects to Expo
             let html = "<!DOCTYPE html>" #
                       "<html>" #
@@ -4300,27 +4305,29 @@ actor GameUnified {
                       "        // Debug" #
                       "        console.log('Auth saved, redirecting...');" #
                       "        " #
+                      "        // Get redirect URI from session" #
+                      "        const sessionResponse = await fetch('/api/session/' + state + '/info', {" #
+                      "          method: 'GET'" #
+                      "        });" #
+                      "        const sessionData = await sessionResponse.json();" #
+                      "        const redirectUri = sessionData.redirectUri;" #
+                      "        " #
+                      "        console.log('Session data:', sessionData);" #
+                      "        console.log('Redirect URI from session:', redirectUri);" #
+                      "        " #
                       "        // Close the session to mark it as ready" #
                       "        await fetch('/api/session/' + state + '/close', {" #
                       "          method: 'POST'" #
                       "        });" #
                       "        " #
-                      "        // Get redirect URI from query params (sent by canister)" #
-                      "        const urlParams = new URLSearchParams(window.location.search);" #
-                      "        const redirectUri = urlParams.get('redirect-uri');" #
-                      "        const decodedRedirectUri = redirectUri ? decodeURIComponent(redirectUri) : null;" #
-                      "        " #
-                      "        console.log('Redirect URI (encoded):', redirectUri);" #
-                      "        console.log('Redirect URI (decoded):', decodedRedirectUri);" #
-                      "        " #
-                      "        if (decodedRedirectUri) {" #
+                      "        if (redirectUri) {" #
                       "          // AuthSession needs exact match with its redirectUri" #
-                      "          console.log('Redirecting to AuthSession URI:', decodedRedirectUri);" #
-                      "          document.body.innerHTML = '<p>Redirecting to app...</p><a id=\"manual\" href=\"' + decodedRedirectUri + '\">Click here if not redirected</a>';" #
+                      "          console.log('Redirecting to AuthSession URI:', redirectUri);" #
+                      "          document.body.innerHTML = '<p>Redirecting to app...</p><a id=\"manual\" href=\"' + redirectUri + '\">Click here if not redirected</a>';" #
                       "          " #
                       "          // Try immediate redirect (no setTimeout)" #
                       "          try {" #
-                      "            window.location.href = decodedRedirectUri;" #
+                      "            window.location.href = redirectUri;" #
                       "          } catch (e) {" #
                       "            console.error('Direct redirect failed:', e);" #
                       "          }" #
@@ -4328,13 +4335,13 @@ actor GameUnified {
                       "          // Fallback with replace after short delay" #
                       "          setTimeout(() => {" #
                       "            try {" #
-                      "              window.location.replace(decodedRedirectUri);" #
+                      "              window.location.replace(redirectUri);" #
                       "            } catch (e) {" #
                       "              console.error('Replace redirect failed:', e);" #
                       "            }" #
                       "          }, 100);" #
                       "        } else {" #
-                      "          console.error('No redirect URI found');" #
+                      "          console.error('No redirect URI found in session');" #
                       "          document.body.innerHTML = '<h2>Auth Complete</h2><p>Close this window.</p>';" #
                       "        }" #
                       "      } else {" #
@@ -4352,15 +4359,37 @@ actor GameUnified {
                       "</body>" #
                       "</html>";
             
+            // For HEAD requests, return empty body
+            if (req.method == "HEAD") {
+                return {
+                    status_code = 200;
+                    headers = [("Content-Type", "text/html; charset=utf-8")];
+                    body = Text.encodeUtf8("");
+                    streaming_strategy = null;
+                    upgrade = null;
+                };
+            };
+            
             return htmlResponse(html, 200);
         };
         
-        // Handle GET /api/session/:id - Get delegation for closed session
+        // Handle GET /api/session/:id/info or /api/session/:id - Get session info or delegation
         if (req.method == "GET" and Text.startsWith(path, #text "/api/session/")) {
             // Extract session ID from path
-            let sessionId = switch (Text.stripStart(path, #text "/api/session/")) {
+            let pathPart = switch (Text.stripStart(path, #text "/api/session/")) {
                 case null { "" };
                 case (?id) { id };
+            };
+            
+            // Check if this is an info request
+            let isInfoRequest = Text.endsWith(pathPart, #text "/info");
+            let sessionId = if (isInfoRequest) {
+                switch (Text.stripEnd(pathPart, #text "/info")) {
+                    case null { "" };
+                    case (?id) { id };
+                };
+            } else {
+                pathPart;
             };
             
             if (sessionId != "") {
@@ -4368,12 +4397,25 @@ actor GameUnified {
                 let debugSessions = iiIntegrationManager.getAllSessionIds();
                 let debugJson = "{\"requestedSession\":\"" # sessionId # "\",\"availableSessions\":" # Nat.toText(debugSessions.size()) # "}";
                 
-                // Check if this is a polling request (session still open)
+                // Get session status
                 switch (iiIntegrationManager.getSessionStatus(sessionId)) {
                     case null {
                         return jsonResponse(debugJson, 404);
                     };
                     case (?session) {
+                        // If this is an info request, return session info including redirect URI
+                        if (isInfoRequest) {
+                            let json = "{\"sessionId\":\"" # session.sessionId # "\"," #
+                                      "\"redirectUri\":\"" # session.redirectUri # "\"," #
+                                      "\"status\":\"" # (switch(session.status) {
+                                          case (#Open) { "open" };
+                                          case (#HasDelegation) { "has_delegation" };
+                                          case (#Closed) { "closed" };
+                                      }) # "\"}";
+                            return jsonResponse(json, 200);
+                        };
+                        
+                        // Otherwise, handle delegation request
                         // If session is still open or has delegation but not closed, return pending
                         if (session.status != #Closed) {
                             return jsonResponse("{\"status\":\"pending\"}", 200);
@@ -4444,69 +4486,31 @@ actor GameUnified {
             
             // If publicKey exists, this is the initial request - redirect to II
             if (publicKey != "") {
-                // Create a new session synchronously
-                let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.icp0.io";
-                let response = iiIntegrationManager.newSession(publicKey, canisterOrigin, null);
-                
-                // Build callback URL with redirect-uri from original query if present
-                var callbackUrl = canisterOrigin # "/callback";
-                
-                // Extract redirect-uri parameter from original query
-                var hasRedirectUri = false;
-                if (Text.contains(fullQueryString, #text "redirect-uri=")) {
-                    let parts = Text.split(fullQueryString, #text "&");
-                    for (part in parts) {
-                        if (Text.startsWith(part, #text "redirect-uri=")) {
-                            callbackUrl #= "?" # part;
-                            hasRedirectUri := true;
-                        };
-                    };
-                };
+                // Create a new session synchronously - use raw domain
+                let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io";
                 
                 // Check if this is a native app (mobile) or web
                 if (deepLinkType == "legacy" or deepLinkType == "expo-go" or deepLinkType == "modern") {
-                    // Native app: use callback with redirect-uri parameter
+                    // Native app: use callback without query params, store redirect in session
                     // Frontend expects spotquest:/// format (without --/auth)
                     let nativeRedirectUri = "spotquest:///";
                     
-                    // First encode the native redirect URI
-                    var encodedNative = Text.replace(nativeRedirectUri, #char ':', "%3A");
-                    encodedNative := Text.replace(encodedNative, #char '/', "%2F");
-                    
-                    // Build callback URL with encoded redirect-uri parameter
-                    let callbackUrl = canisterOrigin # "/callback?redirect-uri=" # encodedNative;
-                    
-                    // Encode the entire callback URL for use as redirect_uri parameter
-                    var encodedCallbackUrl = callbackUrl;
-                    encodedCallbackUrl := Text.replace(encodedCallbackUrl, #char ':', "%3A");
-                    encodedCallbackUrl := Text.replace(encodedCallbackUrl, #char '/', "%2F");
-                    encodedCallbackUrl := Text.replace(encodedCallbackUrl, #char '?', "%3F");
-                    encodedCallbackUrl := Text.replace(encodedCallbackUrl, #char '=', "%3D");
-                    encodedCallbackUrl := Text.replace(encodedCallbackUrl, #char '&', "%26");
-                    
-                    // Build authorize URL for native flow (using callback)
-                    let authorizeUrl = "https://identity.ic0.app/#authorize?" #
-                        "client_id=" # canisterOrigin # "&" #
-                        "redirect_uri=" # encodedCallbackUrl # "&" #
-                        "state=" # response.sessionId # "&" #
-                        "response_type=id_token&" #
-                        "scope=openid&" #
-                        "nonce=" # response.sessionId;
+                    // Pass native redirect URI to be stored in session
+                    let response = iiIntegrationManager.newSession(publicKey, canisterOrigin, nativeRedirectUri);
                     
                     Debug.print("🔐 [AUTH] Native flow - deepLinkType: " # deepLinkType);
-                    Debug.print("🔐 [AUTH] Native flow - callbackUrl: " # callbackUrl);
-                    Debug.print("🔐 [AUTH] Native flow - encodedCallbackUrl: " # encodedCallbackUrl);
                     Debug.print("🔐 [AUTH] Native flow - nativeRedirectUri: " # nativeRedirectUri);
-                    Debug.print("🔐 [AUTH] Native flow - authorizeUrl: " # authorizeUrl);
+                    Debug.print("🔐 [AUTH] Native flow - sessionId: " # response.sessionId);
+                    Debug.print("🔐 [AUTH] Native flow - authorizeUrl: " # response.authorizeUrl);
                     
-                    // Return redirect HTML
+                    // Return redirect HTML using the authorize URL from IIIntegrationManager
                     let redirectHtml = "<!DOCTYPE html>" #
                               "<html>" #
                               "<head>" #
                               "<title>Redirecting...</title>" #
                               "<meta charset='utf-8'>" #
                               "<script>" #
-                              "window.location.href = '" # authorizeUrl # "';" #
+                              "window.location.href = '" # response.authorizeUrl # "';" #
                               "</script>" #
                               "</head>" #
                               "<body>" #
@@ -4516,32 +4520,16 @@ actor GameUnified {
                     
                     return htmlResponse(redirectHtml, 200);
                 } else {
-                    // Web flow: use callback endpoint
-                    if (not hasRedirectUri) {
-                        // Use default redirect URI for web
-                        if (Text.contains(fullQueryString, #text "redirect-uri=")) {
-                            let parts = Text.split(fullQueryString, #text "&");
-                            for (part in parts) {
-                                if (Text.startsWith(part, #text "redirect-uri=")) {
-                                    callbackUrl #= "?" # part;
-                                    hasRedirectUri := true;
-                                };
-                            };
-                        };
-                    };
+                    // Web flow: use default web redirect URI
+                    let webRedirectUri = "https://auth.expo.io/@hude/spotquest";
                     
-                    // Build authorize URL for web flow (with callback)
-                    let authorizeUrl = "https://identity.ic0.app/#authorize?" #
-                        "client_id=" # canisterOrigin # "&" #
-                        "redirect_uri=" # callbackUrl # "&" #
-                        "state=" # response.sessionId # "&" #
-                        "response_type=id_token&" #
-                        "scope=openid&" #
-                        "nonce=" # response.sessionId;
+                    // Pass web redirect URI to be stored in session
+                    let response = iiIntegrationManager.newSession(publicKey, canisterOrigin, webRedirectUri);
                     
-                    Debug.print("🔐 [AUTH] Web flow - deepLinkType: " # deepLinkType);
-                    Debug.print("🔐 [AUTH] Web flow - callbackUrl: " # callbackUrl);
-                    Debug.print("🔐 [AUTH] Web flow - authorizeUrl: " # authorizeUrl);
+                    Debug.print("🔐 [AUTH] Web flow - webRedirectUri: " # webRedirectUri);
+                    Debug.print("🔐 [AUTH] Web flow - sessionId: " # response.sessionId);
+                    Debug.print("🔐 [AUTH] Web flow - authorizeUrl: " # response.authorizeUrl);
+                    
                     
                     // Return redirect HTML for web flow
                     let redirectHtml = "<!DOCTYPE html>" #
@@ -4550,7 +4538,7 @@ actor GameUnified {
                               "<title>Redirecting...</title>" #
                               "<meta charset='utf-8'>" #
                               "<script>" #
-                              "window.location.href = '" # authorizeUrl # "';" #
+                              "window.location.href = '" # response.authorizeUrl # "';" #
                               "</script>" #
                               "</head>" #
                               "<body>" #
@@ -4609,7 +4597,7 @@ actor GameUnified {
     
     // Public query function for HTTP requests - handles upgrade for dynamic endpoints
     public query func http_request(req: HttpRequest) : async HttpResponse {
-        Debug.print("🚀 [NEW_HTTP_REQUEST] URL: " # req.url);
+        Debug.print("🚀 [NEW_HTTP_REQUEST] Method: " # req.method # " URL: " # req.url);
         
         // Parse URL path - remove query parameters
         let fullPath = req.url;
@@ -4620,7 +4608,21 @@ actor GameUnified {
         
         // Check if this is a dynamic endpoint that needs http_request_update
         // Added debug log to verify new code is deployed
-        Debug.print("🔍 [HTTP_REQUEST_CHECK] path: " # path);
+        Debug.print("🔍 [HTTP_REQUEST_CHECK] Method: " # req.method # " Path: " # path);
+        
+        // Special handling for HEAD /callback
+        if (req.method == "HEAD" and path == "/callback") {
+            Debug.print("✅ [HEAD_CALLBACK] Returning 200 for HEAD /callback");
+            // Internet Identity checks redirect_uri with HEAD request
+            return {
+                status_code = 200;
+                headers = [("Content-Type", "text/html; charset=utf-8")];
+                body = Text.encodeUtf8("");
+                streaming_strategy = null;
+                upgrade = null;
+            };
+        };
+        
         if (path == "/newSession" or path == "/callback" or Text.startsWith(path, #text "/api/")) {
             // Return 200 + upgrade=true for dynamic endpoints
             {

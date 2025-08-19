@@ -219,12 +219,19 @@ function AppWithAuth() {
   console.log('🔗 Should match the redirect from callback (with --/auth for native)');
   
   // Build II integration URL using the correct helper
-  const iiIntegrationUrl = buildAppConnectionURL({
+  let iiIntegrationUrl = buildAppConnectionURL({
     dfxNetwork,
     localIPAddress: localIpAddress,
     targetCanisterId: iiIntegrationCanisterId,
     pathname: '/newSession',  // Add path to newSession endpoint
   });
+  
+  // Override URL to use raw domain for mainnet
+  if (dfxNetwork === 'ic') {
+    const urlStr = iiIntegrationUrl.toString();
+    const rawUrl = urlStr.replace('.icp0.io', '.raw.icp0.io');
+    iiIntegrationUrl = new URL(rawUrl);
+  }
   
   // Helper function to handle custom scheme
   function safeGetDeepLinkType(params: Parameters<typeof getDeepLinkType>[0]): string {
@@ -249,6 +256,7 @@ function AppWithAuth() {
   debugLog('AUTH_FLOW', '🔗 II Integration URL:', iiIntegrationUrl);
   debugLog('AUTH_FLOW', '🔗 Deep Link Type:', deepLinkType);
   console.log('🔗 II Integration URL (should include /newSession):', iiIntegrationUrl.toString());
+  console.log('🔗 Using RAW domain:', iiIntegrationUrl.toString().includes('.raw.icp0.io'));
   
   const iiIntegration = useIIIntegration({
     iiIntegrationUrl,
