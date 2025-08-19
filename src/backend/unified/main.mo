@@ -4049,7 +4049,7 @@ actor GameUnified {
             };
             
             // Build authorize URL with our callback - simplified for debugging
-            let authorizeUrl = "https://identity.internetcomputer.org/#authorize?" #
+            let authorizeUrl = "https://id.ai/#authorize?" #
                 "client_id=" # canisterOrigin # "&" #
                 "redirect_uri=" # callbackUrl # "&" #
                 "state=" # response.sessionId # "&" #

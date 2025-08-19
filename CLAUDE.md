@@ -924,3 +924,37 @@ let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.ic0.app";
 **結果**:
 - Expo Goで開発する際に、Internet Identityを使わずにdevモードでログイン可能
 - 開発効率が向上し、II認証の問題をバイパスして開発を進められる
+
+### 2025-08-19 - Internet Identity v2への移行
+
+**背景**:
+- Internet Identity v2がリリースされ、新しいドメイン`id.ai`に移行
+- 開発者は`identity.internetcomputer.org`から`id.ai`へ更新するだけで対応可能
+
+**実施内容**:
+1. **バックエンドの更新**
+   - `/src/backend/unified/main.mo` - authorizeURL内の`identity.internetcomputer.org`を`id.ai`に変更
+   - `/src/backend/unified/modules/IIIntegrationModule.mo` - 2箇所のII URLを`id.ai`に更新
+
+2. **フロントエンドの更新**
+   - `/src/frontend/src/constants/index.ts` - デフォルトII URLを`id.ai`に変更
+   - `/src/frontend/.env` - `EXPO_PUBLIC_INTERNET_IDENTITY_URL`を`id.ai`に更新
+   - `/src/frontend/.env.local` - 同様に更新
+   - `/src/frontend/eas.json` - ビルド設定の2箇所を更新
+
+**技術的詳細**:
+- シンプルなURL置換のみで移行可能
+- expo-ii-integrationパッケージは特別な設定変更不要
+- II v2は後方互換性があるため、既存の認証フローに影響なし
+
+**変更ファイル**:
+- `/src/backend/unified/main.mo` - line 4052
+- `/src/backend/unified/modules/IIIntegrationModule.mo` - lines 150, 280
+- `/src/frontend/src/constants/index.ts` - line 24
+- `/src/frontend/.env` - line 7
+- `/src/frontend/.env.local` - line 7
+- `/src/frontend/eas.json` - lines 19, 35
+
+**次のステップ**:
+- ローカル環境でのテスト実施
+- メインネットへのデプロイ（`dfx deploy unified --network ic`）

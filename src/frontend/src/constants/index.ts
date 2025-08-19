@@ -21,4 +21,4 @@ export const ADMIN_PRINCIPALS = [
 ];
 
 // Internet Identity URL
-export const INTERNET_IDENTITY_URL = process.env.EXPO_PUBLIC_INTERNET_IDENTITY_URL || 'https://identity.ic0.app';
+export const INTERNET_IDENTITY_URL = process.env.EXPO_PUBLIC_INTERNET_IDENTITY_URL || 'https://id.ai';

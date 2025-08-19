@@ -147,7 +147,7 @@ module {
             let callbackUrl = canisterOrigin # "/callback";
             let encodedCallbackUrl = utf8PercentEncode(callbackUrl);
             
-            let authorizeUrl = "https://identity.internetcomputer.org/#authorize?" #
+            let authorizeUrl = "https://id.ai/#authorize?" #
                 "client_id=" # canisterOrigin # "&" #
                 "redirect_uri=" # encodedCallbackUrl # "&" #
                 "state=" # sessionId # "&" #
@@ -277,7 +277,7 @@ module {
             sessions.put(request.sessionId, sessionData);
             
             // Build II auth URL
-            let iiUrl = "https://identity.internetcomputer.org";
+            let iiUrl = "https://id.ai";
             let authUrl = iiUrl # "/#authorize?sessionId=" # request.sessionId # 
                          "&state=" # request.state # 
                          "&redirectUri=" # request.redirectUri;
