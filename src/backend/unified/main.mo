@@ -295,6 +295,27 @@ actor GameUnified {
         photoManagerV2.getPhotoStatsEntries()
     };
 
+    // ======================================
+    // HELPER FUNCTIONS FOR CANISTER INFO
+    // ======================================
+    
+    // Get the current canister's principal ID as text
+    private func getCanisterId() : Text {
+        Principal.toText(Principal.fromActor(GameUnified))
+    };
+    
+    // Get the canister origin URL for II integration
+    private func getCanisterOrigin() : Text {
+        let canisterId = getCanisterId();
+        "https://" # canisterId # ".raw.icp0.io"
+    };
+    
+    // Get certified domains for this canister
+    private func getCertifiedDomains() : Text {
+        let canisterId = getCanisterId();
+        canisterId # ".raw.icp0.io\n" # canisterId # ".icp0.io"
+    };
+
     // ICRC-1 TOKEN FUNCTIONS
     // ======================================
     public query func icrc1_name() : async Text {
@@ -1879,7 +1900,7 @@ actor GameUnified {
     
     public shared(msg) func setOwner(newOwner: Principal) : async Result.Result<(), Text> {
         // Only current owner or controller can change owner
-        if (msg.caller != owner and msg.caller != Principal.fromText("lqfvd-m7ihy-e5dvc-gngvr-blzbt-pupeq-6t7ua-r7v4p-bvqjw-ea7gl-4qe")) {
+        if (msg.caller != owner) {
             return #err("Unauthorized: Only owner or controller can change owner");
         };
         owner := newOwner;
@@ -2650,7 +2671,7 @@ actor GameUnified {
     // Create new II integration session
     public func newSession(request: IIIntegrationModule.NewSessionRequest) : async IIIntegrationModule.NewSessionResponse {
         // client_idはrawドメイン（.raw.icp0.io）を使用してHEADリクエストが通るようにする
-        let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io";
+        let canisterOrigin = getCanisterOrigin();
         // Use provided redirect URI or default
         let redirectUri = switch(request.redirectUri) {
             case (?uri) { uri };
@@ -3010,8 +3031,7 @@ actor GameUnified {
         certifiedAssets.certify(emptyEndpoint);
         
         // Certify .well-known/ic-domains
-        let domains = "77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io\n" #
-                      "77fv5-oiaaa-aaaal-qsoea-cai.icp0.io";
+        let domains = getCertifiedDomains();
         
         let domainsEndpoint = CertifiedAssets.Endpoint("/.well-known/ic-domains", ?Text.encodeUtf8(domains))
             .no_request_certification()
@@ -3139,8 +3159,7 @@ actor GameUnified {
                 }
             } else if (path == "/.well-known/ic-domains") {
                 // IC domains file
-                let domains = "77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io\n" #
-                              "77fv5-oiaaa-aaaal-qsoea-cai.icp0.io";
+                let domains = getCertifiedDomains();
                 {
                     status_code = 200;
                     body = Text.encodeUtf8(domains);
@@ -4024,11 +4043,11 @@ actor GameUnified {
             
             // Temporary fallback for testing
             if (redirectUri == "") {
-                redirectUri := "https://auth.expo.io/@hude/guess-the-spot/auth"; // Test fallback - matches app.json
+                redirectUri := "https://auth.expo.io/@hude/spotquest/auth"; // Test fallback - matches app.config.js
             };
             
             // Get canister origin - use raw domain for HEAD request compatibility
-            let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io";
+            let canisterOrigin = getCanisterOrigin();
             
             // Create new session
             let response = iiIntegrationManager.newSession(publicKey, canisterOrigin, null);
@@ -4487,7 +4506,7 @@ actor GameUnified {
             // If publicKey exists, this is the initial request - redirect to II
             if (publicKey != "") {
                 // Create a new session synchronously - use raw domain
-                let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io";
+                let canisterOrigin = getCanisterOrigin();
                 
                 // Check if this is a native app (mobile) or web
                 if (deepLinkType == "legacy" or deepLinkType == "expo-go" or deepLinkType == "modern") {
@@ -4551,7 +4570,8 @@ actor GameUnified {
             };
             
             // Default response if no parameters - return JSON for expo-ii-integration
-            return jsonResponse("{\"status\":\"ready\",\"canisterId\":\"77fv5-oiaaa-aaaal-qsoea-cai\"}", 200);
+            let canisterId = getCanisterId();
+            return jsonResponse("{\"status\":\"ready\",\"canisterId\":\"" # canisterId # "\"}", 200);
         };
         
         // Serve the certified endpoint

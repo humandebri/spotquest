@@ -20,9 +20,6 @@ export default {
       supportsTablet: true,
       bundleIdentifier: "com.spotquest.app",
       buildNumber: "18",
-      config: {
-        googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY
-      },
       infoPlist: {
         CFBundleIconName: "AppIcon",
         NSCameraUsageDescription: "This app needs access to camera to take photos for the game.",
@@ -41,11 +38,6 @@ export default {
       },
       edgeToEdgeEnabled: true,
       package: "com.spotquest.app",
-      config: {
-        googleMaps: {
-          apiKey: process.env.GOOGLE_MAPS_API_KEY
-        }
-      },
       permissions: [
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION",

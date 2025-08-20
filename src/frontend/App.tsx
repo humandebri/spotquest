@@ -208,8 +208,7 @@ function AppContent() {
 // Wrapper component to handle the IIAuthProvider
 function AppWithAuth() {
   // Get environment variables
-  const localIpAddress = process.env.EXPO_PUBLIC_LOCAL_IP_ADDRESS || 'localhost';
-  const dfxNetwork = process.env.EXPO_PUBLIC_DFX_NETWORK || 'local';
+  const dfxNetwork = process.env.EXPO_PUBLIC_DFX_NETWORK || 'ic';
   const iiIntegrationCanisterId = process.env.EXPO_PUBLIC_II_INTEGRATION_CANISTER_ID || '';
   const frontendCanisterId = process.env.EXPO_PUBLIC_FRONTEND_CANISTER_ID || '';
   
@@ -221,7 +220,6 @@ function AppWithAuth() {
   // Build II integration URL using the correct helper
   let iiIntegrationUrl = buildAppConnectionURL({
     dfxNetwork,
-    localIPAddress: localIpAddress,
     targetCanisterId: iiIntegrationCanisterId,
     pathname: '/newSession',  // Add path to newSession endpoint
   });

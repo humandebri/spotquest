@@ -1,7 +1,6 @@
 // Environment constants
-// Force mainnet for all environments - no localhost for physical devices
+// Force mainnet for all environments
 export const DFX_NETWORK = 'ic';
-export const LOCAL_IP_ADDRESS = process.env.EXPO_PUBLIC_LOCAL_IP_ADDRESS || '127.0.0.1';
 
 // Canister IDs
 export const CANISTER_ID_UNIFIED = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || '77fv5-oiaaa-aaaal-qsoea-cai';

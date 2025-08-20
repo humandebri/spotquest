@@ -5,7 +5,6 @@ import { Principal } from '@dfinity/principal';
 
 // Environment variables
 const DFX_NETWORK = process.env.EXPO_PUBLIC_DFX_NETWORK || 'ic';
-const LOCAL_IP_ADDRESS = process.env.EXPO_PUBLIC_LOCAL_IP_ADDRESS || 'localhost';
 const CANISTER_ID_UNIFIED = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || '77fv5-oiaaa-aaaal-qsoea-cai';
 
 // GameEngineV2 types
@@ -484,7 +483,6 @@ export type UnifiedService = any; // TODO: properly type this based on the IDL
 export function createGameActor(identity?: Identity): UnifiedService {
   const canisterManager = new CanisterManager({
     dfxNetwork: DFX_NETWORK,
-    localIPAddress: LOCAL_IP_ADDRESS,
   });
 
   return canisterManager.createActor<UnifiedService>({
