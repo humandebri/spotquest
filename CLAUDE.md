@@ -957,4 +957,35 @@ let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.ic0.app";
 
 **次のステップ**:
 - ローカル環境でのテスト実施
+
+### 2025-08-20 - ハードコード値の修正とクリーンアップ
+
+**実施内容**:
+1. **ハードコードされたCanister IDの修正**
+   - 5つのサービスファイルで定数ファイルからインポートするように変更
+   - `/app/services/photo.ts`
+   - `/app/services/photoV2.ts`
+   - `/app/services/photoV2Direct.ts`
+   - `/app/services/game.ts`
+   - `/app/services/gameCanisterManager.ts`
+
+2. **古いアプリ名の修正**
+   - `GuessTheSpot` → `SpotQuest`に変更（User-Agentヘッダー）
+   - `guess-the-spot` → `spotquest`に変更（開発用シード文字列）
+   - 影響ファイル:
+     - `/app/services/photo.ts` - User-Agent
+     - `/app/services/photoV2.ts` - User-Agent
+     - `/app/contexts/DevAuthContext.tsx` - FIXED_SEED
+
+3. **package.jsonスクリプトの修正**
+   - 存在しない`App-ii.tsx`を参照する`start:ii`スクリプトを削除
+
+4. **検証**
+   - TypeScript型チェック成功（`npx tsc --noEmit`）
+   - すべてのインポートパスが正しいことを確認
+
+**技術的詳細**:
+- すべてのCanister IDは`/app/constants/index.ts`で一元管理
+- 環境変数が存在しない場合のフォールバック値も定数ファイルで管理
+- TypeScriptコンパイルエラーなし
 - メインネットへのデプロイ（`dfx deploy unified --network ic`）

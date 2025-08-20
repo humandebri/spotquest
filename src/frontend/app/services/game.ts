@@ -1,6 +1,7 @@
 import { Actor, HttpAgent, Identity } from '@dfinity/agent';
 import { CustomPrincipal as Principal } from '../utils/principal';
 import { IDL } from '@dfinity/candid';
+import { CANISTER_ID_UNIFIED, IC_HOST } from '../constants';
 
 // Import IDL from unified canister (we'll create this)
 // import { idlFactory } from '../../../../declarations/unified';
@@ -131,7 +132,7 @@ class GameService {
       }
       
       // メインネットの統合canister IDを使用
-      const canisterId = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || '77fv5-oiaaa-aaaal-qsoea-cai';
+      const canisterId = CANISTER_ID_UNIFIED;
       
       // Log agent configuration
       console.log('🎮 HttpAgent created:', {

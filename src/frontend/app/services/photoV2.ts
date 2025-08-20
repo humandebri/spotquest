@@ -1,9 +1,10 @@
 import { Actor, HttpAgent, Identity } from '@dfinity/agent';
 import { Principal } from '@dfinity/principal';
 import { CustomPrincipal } from '../utils/principal';
+import { CANISTER_ID_UNIFIED } from '../constants';
 
 // メインネット統合Canister ID設定
-const UNIFIED_CANISTER_ID = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || '77fv5-oiaaa-aaaal-qsoea-cai';
+const UNIFIED_CANISTER_ID = CANISTER_ID_UNIFIED;
 
 // ======================================
 // V2 Types (新しい検索対応版)
@@ -822,7 +823,7 @@ export async function getRegionInfo(latitude: number, longitude: number): Promis
     
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'GuessTheSpotApp/2.0 (https://guess-the-spot.com; contact@guess-the-spot.com)',
+        'User-Agent': 'SpotQuestApp/2.0 (https://spotquest.app; contact@spotquest.app)',
         'Accept': 'application/json',
         'Accept-Language': 'en',
       },

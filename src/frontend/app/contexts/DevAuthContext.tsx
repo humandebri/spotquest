@@ -39,7 +39,7 @@ export function DevAuthProvider({ children }: DevAuthProviderProps) {
       // This ensures the same key is generated every time for dev mode
       const generateTestKey = (): Uint8Array => {
         // Use a fixed seed string that's not a real private key
-        const FIXED_SEED = 'guess-the-spot-dev-mode-test-key-2024';
+        const FIXED_SEED = 'spotquest-dev-mode-test-key-2024';
         
         // Simple hash function to generate consistent bytes from seed
         const key = new Uint8Array(32);

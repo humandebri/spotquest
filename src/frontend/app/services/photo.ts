@@ -4,9 +4,10 @@ import { Principal } from '@dfinity/principal';
 import { CustomPrincipal } from '../utils/principal';
 import * as FileSystem from 'expo-file-system';
 import { Buffer } from 'buffer';
+import { CANISTER_ID_UNIFIED } from '../constants';
 
 // メインネット統合Canister ID設定
-const UNIFIED_CANISTER_ID = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || '77fv5-oiaaa-aaaal-qsoea-cai';
+const UNIFIED_CANISTER_ID = CANISTER_ID_UNIFIED;
 
 // 写真データ型定義
 export interface PhotoUploadData {
@@ -696,7 +697,7 @@ export const reverseGeocode = async (latitude: number, longitude: number): Promi
     
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'GuessTheSpotApp/1.0 (https://guess-the-spot.com; contact@guess-the-spot.com)',
+        'User-Agent': 'SpotQuestApp/1.0 (https://spotquest.app; contact@spotquest.app)',
         'Accept': 'application/json',
         'Accept-Language': 'en',
       },

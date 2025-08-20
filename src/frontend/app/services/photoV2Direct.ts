@@ -1,9 +1,10 @@
 import { Actor, HttpAgent, Identity } from '@dfinity/agent';
 import { Principal } from '@dfinity/principal';
 import { CustomPrincipal } from '../utils/principal';
+import { CANISTER_ID_UNIFIED } from '../constants';
 
 // メインネット統合Canister ID設定
-const UNIFIED_CANISTER_ID = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || '77fv5-oiaaa-aaaal-qsoea-cai';
+const UNIFIED_CANISTER_ID = CANISTER_ID_UNIFIED;
 
 // Import types and service from photoV2
 import { CreatePhotoRequest, PhotoMetaV2, sceneKindFromString, difficultyFromString, photoServiceV2 } from './photoV2';

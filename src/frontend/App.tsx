@@ -1,8 +1,8 @@
-import './src/utils/earlyPatches'; // MUST be first import
+import './app/utils/earlyPatches'; // MUST be first import
 import 'react-native-gesture-handler';
 import 'react-native-url-polyfill/auto';
-import './src/utils/polyfills';
-// import './src/global.css';
+import './app/utils/polyfills';
+// import './app/global.css';
 import React from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
@@ -23,18 +23,18 @@ import {
 import { useIIIntegration, IIIntegrationProvider, useIIIntegrationContext } from 'expo-ii-integration';
 import { buildAppConnectionURL } from 'expo-icp-app-connect-helpers';
 import { getDeepLinkType } from 'expo-icp-frontend-helpers';
-import { DevAuthProvider } from './src/contexts/DevAuthContext';
-import AppNavigator from './src/navigation/AppNavigator';
-import { GlobalErrorBoundary } from './src/components/GlobalErrorBoundary';
-import { enableJSONParseLogging } from './src/utils/jsonSafeParse';
-import { patchIIIntegrationFetch } from './src/utils/iiIntegrationPatch';
-import { patchStorageForIIIntegration } from './src/utils/storagePatch';
-import { debugStorage } from './src/utils/debugStorage';
-import { patchExpoIIIntegration } from './src/utils/expoIIIntegrationPatch';
-import { patchEd25519KeyIdentity } from './src/utils/ed25519Fix';
-import { DEBUG_CONFIG, debugLog } from './src/utils/debugConfig';
-import { secureStorage, regularStorage } from './src/storage';
-import { cryptoModule } from './src/crypto';
+import { DevAuthProvider } from './app/contexts/DevAuthContext';
+import AppNavigator from './app/navigation/AppNavigator';
+import { GlobalErrorBoundary } from './app/components/GlobalErrorBoundary';
+import { enableJSONParseLogging } from './app/utils/jsonSafeParse';
+import { patchIIIntegrationFetch } from './app/utils/iiIntegrationPatch';
+import { patchStorageForIIIntegration } from './app/utils/storagePatch';
+import { debugStorage } from './app/utils/debugStorage';
+import { patchExpoIIIntegration } from './app/utils/expoIIIntegrationPatch';
+import { patchEd25519KeyIdentity } from './app/utils/ed25519Fix';
+import { DEBUG_CONFIG, debugLog } from './app/utils/debugConfig';
+import { secureStorage, regularStorage } from './app/storage';
+import { cryptoModule } from './app/crypto';
 
 // Apply critical patches - needed in both dev and production
 debugLog('AUTH_FLOW', '🚀 Applying patches...');
@@ -103,7 +103,9 @@ function AppContent() {
         // Parse the URL to check for token data
         try {
           // Parse URL and check both query params and fragment
-          const { fragment, queryParams } = Linking.parse(url.url);
+          const parsed = Linking.parse(url.url);
+          const { queryParams } = parsed;
+          const fragment = (parsed as any).fragment;
           debugLog('DEEP_LINKS', '🔗 Parsed URL fragment:', fragment);
           debugLog('DEEP_LINKS', '🔗 Parsed URL query params:', queryParams);
           
@@ -220,6 +222,7 @@ function AppWithAuth() {
   // Build II integration URL using the correct helper
   let iiIntegrationUrl = buildAppConnectionURL({
     dfxNetwork,
+    localIPAddress: 'localhost', // Not used when dfxNetwork is 'ic'
     targetCanisterId: iiIntegrationCanisterId,
     pathname: '/newSession',  // Add path to newSession endpoint
   });
@@ -232,7 +235,7 @@ function AppWithAuth() {
   }
   
   // Helper function to handle custom scheme
-  function safeGetDeepLinkType(params: Parameters<typeof getDeepLinkType>[0]): string {
+  function safeGetDeepLinkType(params: Parameters<typeof getDeepLinkType>[0]): "icp" | "dev-server" | "expo-go" | "legacy" | "modern" {
     try {
       return getDeepLinkType(params);
     } catch (err) {

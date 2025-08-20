@@ -2,10 +2,7 @@ import { Identity } from '@dfinity/agent';
 import { IDL } from '@dfinity/candid';
 import { CanisterManager } from 'canister-manager';
 import { Principal } from '@dfinity/principal';
-
-// Environment variables
-const DFX_NETWORK = process.env.EXPO_PUBLIC_DFX_NETWORK || 'ic';
-const CANISTER_ID_UNIFIED = process.env.EXPO_PUBLIC_UNIFIED_CANISTER_ID || '77fv5-oiaaa-aaaal-qsoea-cai';
+import { DFX_NETWORK, CANISTER_ID_UNIFIED } from '../constants';
 
 // GameEngineV2 types
 export interface HintType {
@@ -483,6 +480,7 @@ export type UnifiedService = any; // TODO: properly type this based on the IDL
 export function createGameActor(identity?: Identity): UnifiedService {
   const canisterManager = new CanisterManager({
     dfxNetwork: DFX_NETWORK,
+    localIPAddress: 'localhost', // Not used when dfxNetwork is 'ic'
   });
 
   return canisterManager.createActor<UnifiedService>({
