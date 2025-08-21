@@ -988,4 +988,74 @@ let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.ic0.app";
 - すべてのCanister IDは`/app/constants/index.ts`で一元管理
 - 環境変数が存在しない場合のフォールバック値も定数ファイルで管理
 - TypeScriptコンパイルエラーなし
-- メインネットへのデプロイ（`dfx deploy unified --network ic`）
+
+### 2025-08-20 - II認証フローの修正
+
+**問題**:
+- IIログイン後にアプリに戻らない（`id.ai/manage`画面で停止）
+- 原因：App.tsxで`.icp0.io`を`.raw.icp0.io`に変換していたため、II認証フローが破損
+
+**修正内容**:
+- App.tsxから`.raw.icp0.io`への変換コードを削除
+- II integrationには標準ドメイン（`.icp0.io`）を使用するように修正
+- rawドメインはII認証と互換性がないことが判明
+
+**技術的詳細**:
+- expo-ii-integrationは標準ICPドメインでのみ正しく動作
+- rawドメインは証明書なしのアクセス用で、II認証には不適切
+- バックエンドは`id.ai`を使用（II v2）
+
+### 2025-08-20 - II 2.0 postMessage許可オリジンの確認と更新
+
+**背景**:
+- II 2.0でIdPオリジンが`https://id.ai`に統一
+- 旧ドメイン（`identity.internetcomputer.org`、`identity.ic0.app`）への参照を確認
+
+**確認結果**:
+1. **旧ドメインへの参照発見**
+   - `/app/utils/iiIntegrationPatch.ts` - `identity.ic0.app`への参照があった
+
+2. **postMessage許可オリジン**
+   - expo-ii-integrationパッケージ内には直接的なpostMessage設定なし
+   - パッケージバージョン0.1.24は標準的なWeb Browser APIを使用
+
+3. **バックエンド**
+   - すでに`id.ai`を使用（IIIntegrationModule.moとmain.mo）
+   - callbackエンドポイントはwindow.locationでリダイレクト
+
+**修正内容**:
+- `iiIntegrationPatch.ts`の`identity.ic0.app`を`id.ai`に更新
+
+**技術的詳細**:
+- postMessageの明示的な許可オリジン設定は不要（expo-ii-integrationが内部処理）
+- II 2.0との互換性は確保済み
+
+### 2025-08-20 - Expo GoでのII認証問題の修正
+
+**問題**:
+- Expo Goで「IIには入れるが id.ai/manage からアプリに戻らない」
+- 原因：
+  1. linking.prefixesに古い`auth.expo.io`が入っていた（現在は`auth.expo.dev`）
+  2. deepLinkTypeがlacyにフォールバックし、Expo Goで`spotquest:///`を使っていた
+
+**修正内容**:
+1. **linking.prefixesを更新**
+   - `auth.expo.io` → `auth.expo.dev`に変更
+   
+2. **環境別のredirectURI生成**
+   - Expo Go: `makeRedirectUri()` → `https://auth.expo.dev/@hude/spotquest`
+   - Standalone: `Linking.createURL('/')` → `spotquest:///`
+   
+3. **deepLinkTypeの明示的設定**
+   - 環境変数`EXPO_PUBLIC_EAS_DEEP_LINK_TYPE`で制御
+   - Expo Go用には`expo-go`を設定
+   - フォールバックも環境に合わせて適切に設定
+
+4. **App.tsxのクリーンアップ**
+   - 重複・不要なコード約50行を削除
+   - 未使用変数の削除
+
+**技術的詳細**:
+- Expo Goは`https://auth.expo.dev`プロキシ経由で戻る必要がある
+- deepLinkTypeが`legacy`になると、カスタムスキーム(`spotquest:///`)を使い、Expo Goでは戻れない
+- 環境に応じた適切なredirectURIとdeepLinkTypeの組み合わせが必須

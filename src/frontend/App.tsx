@@ -12,13 +12,14 @@ import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import * as Font from 'expo-font';
 import { makeRedirectUri } from 'expo-auth-session';
-import { 
-  Ionicons, 
-  MaterialIcons, 
-  FontAwesome, 
-  MaterialCommunityIcons, 
+import Constants from 'expo-constants';
+import {
+  Ionicons,
+  MaterialIcons,
+  FontAwesome,
+  MaterialCommunityIcons,
   Feather,
-  FontAwesome5 
+  FontAwesome5
 } from '@expo/vector-icons';
 import { useIIIntegration, IIIntegrationProvider, useIIIntegrationContext } from 'expo-ii-integration';
 import { buildAppConnectionURL } from 'expo-icp-app-connect-helpers';
@@ -32,7 +33,7 @@ import { patchStorageForIIIntegration } from './app/utils/storagePatch';
 import { debugStorage } from './app/utils/debugStorage';
 import { patchExpoIIIntegration } from './app/utils/expoIIIntegrationPatch';
 import { patchEd25519KeyIdentity } from './app/utils/ed25519Fix';
-import { DEBUG_CONFIG, debugLog } from './app/utils/debugConfig';
+import { debugLog } from './app/utils/debugConfig';
 import { secureStorage, regularStorage } from './app/storage';
 import { cryptoModule } from './app/crypto';
 
@@ -53,20 +54,14 @@ if (__DEV__) {
 
 debugLog('AUTH_FLOW', '🚀 All patches applied');
 
-// ★ 必須: Safari/WebBrowserが閉じるように
-try {
-  if (WebBrowser && typeof WebBrowser.maybeCompleteAuthSession === 'function') {
-    WebBrowser.maybeCompleteAuthSession();
-  }
-} catch (error) {
-  console.log('WebBrowser.maybeCompleteAuthSession not available:', error);
-}
+// Complete any pending auth sessions on app start
+WebBrowser.maybeCompleteAuthSession();
 
 // App content component - must be inside IIIntegrationProvider
 function AppContent() {
-  const { isAuthReady, isAuthenticated } = useIIIntegrationContext();
+  const { isAuthReady } = useIIIntegrationContext();
   const [fontsLoaded, setFontsLoaded] = React.useState(false);
-  
+
   // Load icon fonts
   React.useEffect(() => {
     const loadFonts = async () => {
@@ -86,98 +81,31 @@ function AppContent() {
         setFontsLoaded(true);
       }
     };
-    
+
     loadFonts();
   }, []);
-  
-  // Monitor deep linking events
+
+  // Monitor deep linking events (handled by expo-ii-integration)
   React.useEffect(() => {
     const handleUrl = (url: { url: string }) => {
       debugLog('DEEP_LINKS', '🔗 Deep link received:', url.url);
-      
-      // Check if this is an auth callback (spotquest://callback pattern)
-      if (url.url.includes('callback') || url.url.includes('auth') || url.url.includes('delegation') || url.url.includes('--/')) {
-        debugLog('DEEP_LINKS', '🔗 Auth callback detected!');
-        debugLog('DEEP_LINKS', '🔗 Full URL:', url.url);
-        
-        // Parse the URL to check for token data
-        try {
-          // Parse URL and check both query params and fragment
-          const parsed = Linking.parse(url.url);
-          const { queryParams } = parsed;
-          const fragment = (parsed as any).fragment;
-          debugLog('DEEP_LINKS', '🔗 Parsed URL fragment:', fragment);
-          debugLog('DEEP_LINKS', '🔗 Parsed URL query params:', queryParams);
-          
-          // Check fragment for access_token (II typically uses fragment)
-          if (fragment) {
-            const fragmentParams = new URLSearchParams(fragment);
-            const accessToken = fragmentParams.get('access_token');
-            const delegation = fragmentParams.get('delegation');
-            
-            if (accessToken) {
-              debugLog('DEEP_LINKS', '🔗 Access token found in fragment!');
-              // Token handling will be done by expo-ii-integration
-            }
-            if (delegation) {
-              debugLog('DEEP_LINKS', '🔗 Delegation found in fragment!');
-            }
-          }
-          
-          // Also check query params
-          if (queryParams) {
-            debugLog('DEEP_LINKS', '🔗 Query params:', queryParams);
-          }
-        } catch (e) {
-          debugLog('DEEP_LINKS', '🔗 Could not parse URL:', e);
-        }
-        
-        // Force auth session completion
-        WebBrowser.maybeCompleteAuthSession();
-        
-        // Check auth state after a short delay
-        setTimeout(() => {
-          debugLog('DEEP_LINKS', '🔗 Checking auth state after redirect...');
-          debugLog('DEEP_LINKS', '🔗 Current auth state:', {
-            isAuthenticated,
-            isAuthReady
-          });
-        }, 1000);
-      }
     };
-    
-    // Listen for URL changes
+
     const subscription = Linking.addEventListener('url', handleUrl);
     
-    // Check initial URL
     Linking.getInitialURL().then((url) => {
-      if (url) {
-        debugLog('DEEP_LINKS', '🔗 Initial URL:', url);
-      }
+      if (url) debugLog('DEEP_LINKS', '🔗 Initial URL:', url);
     });
-    
-    return () => {
-      try {
-        // Expo's addEventListener returns an object with remove method
-        if (subscription && typeof subscription === 'object') {
-          const sub = subscription as { remove?: () => void };
-          if (typeof sub.remove === 'function') {
-            sub.remove();
-            debugLog('DEEP_LINKS', '✅ Linking event listener removed successfully');
-          }
-        }
-      } catch (error) {
-        console.log('⚠️ Error removing Linking event listener:', error);
-      }
-    };
-  }, [isAuthenticated, isAuthReady]);
+
+    return () => subscription?.remove?.();
+  }, []);
 
   // Deep linking configuration
   const linking = {
     prefixes: [
-      Linking.createURL('/'),
-      'https://spotquest.app',
-      'https://auth.expo.io/@hude/spotquest',
+      Linking.createURL('/'),              // spotquest:///
+      'https://spotquest.app',             // Custom domain (optional)
+      'https://auth.expo.dev/@hude/spotquest', // Expo Auth proxy (.dev is correct)  
     ],
     config: {
       screens: {
@@ -213,52 +141,80 @@ function AppWithAuth() {
   const dfxNetwork = process.env.EXPO_PUBLIC_DFX_NETWORK || 'ic';
   const iiIntegrationCanisterId = process.env.EXPO_PUBLIC_II_INTEGRATION_CANISTER_ID || '';
   const frontendCanisterId = process.env.EXPO_PUBLIC_FRONTEND_CANISTER_ID || '';
+
+  // Determine the environment and redirect URI
+  const easDeepLinkType = process.env.EXPO_PUBLIC_EAS_DEEP_LINK_TYPE;
   
-  // Build deep link for II integration
-  const deepLink = Linking.createURL('/');
-  console.log('🔗 Deep link for AuthSession:', deepLink);
-  console.log('🔗 Should match the redirect from callback (with --/auth for native)');
+  // Detect if we're in Expo Go (not dev build)
+  // Dev builds have executionEnvironment: 'bare' but also have the native app shell
+  const isExpoGo = 
+    Constants.executionEnvironment === 'storeClient' || // Expo Go from store
+    (Constants.executionEnvironment === 'bare' && !Constants.isDevice && __DEV__) || // Simulator in Expo Go
+    easDeepLinkType === 'expo-go'; // Explicitly set for Expo Go
   
-  // Build II integration URL using the correct helper
-  let iiIntegrationUrl = buildAppConnectionURL({
-    dfxNetwork,
-    localIPAddress: 'localhost', // Not used when dfxNetwork is 'ic'
-    targetCanisterId: iiIntegrationCanisterId,
-    pathname: '/newSession',  // Add path to newSession endpoint
-  });
+  // Detect if we're in a dev build
+  const isDevBuild = 
+    Constants.executionEnvironment === 'bare' && 
+    Constants.isDevice && 
+    __DEV__;
   
-  // Override URL to use raw domain for mainnet
-  if (dfxNetwork === 'ic') {
-    const urlStr = iiIntegrationUrl.toString();
-    const rawUrl = urlStr.replace('.icp0.io', '.raw.icp0.io');
-    iiIntegrationUrl = new URL(rawUrl);
-  }
-  
-  // Helper function to handle custom scheme
-  function safeGetDeepLinkType(params: Parameters<typeof getDeepLinkType>[0]): "icp" | "dev-server" | "expo-go" | "legacy" | "modern" {
-    try {
-      return getDeepLinkType(params);
-    } catch (err) {
-      // Custom scheme (spotquest://) fallback to legacy
-      if (params.deepLink.startsWith('spotquest://')) {
-        return 'legacy';
-      }
-      throw err;
+  // Generate appropriate redirect URI based on environment
+  const redirectUri = (() => {
+    if (easDeepLinkType === 'expo-go' || isExpoGo) {
+      // For Expo Go, use the proxy with proper parameters
+      const proxyUrl = makeRedirectUri({ 
+        scheme: 'spotquest',
+        preferLocalhost: false,
+        isTripleSlashed: true,
+      });
+      // If makeRedirectUri doesn't return the proxy URL, use it directly
+      return proxyUrl.includes('auth.expo') 
+        ? proxyUrl 
+        : 'https://auth.expo.dev/@hude/spotquest';
     }
-  }
+    // For dev builds and production, use custom scheme
+    return Linking.createURL('/');
+  })();
   
-  // Determine deep link type based on environment
-  const deepLinkType = safeGetDeepLinkType({
-    deepLink,
-    frontendCanisterId,
-    easDeepLinkType: process.env.EXPO_PUBLIC_EAS_DEEP_LINK_TYPE,
+  console.log('🔗 Redirect URI for auth:', redirectUri);
+  console.log('🔗 Is Expo Go:', isExpoGo);
+  console.log('🔗 Is Dev Build:', isDevBuild);
+  console.log('🔗 Execution Environment:', Constants.executionEnvironment);
+  console.log('🔗 EAS Deep Link Type:', easDeepLinkType);
+  console.log('🔗 Is Device:', Constants.isDevice);
+
+  // Build II integration URL
+  const iiIntegrationUrl = buildAppConnectionURL({
+    dfxNetwork,
+    localIPAddress: 'localhost',
+    targetCanisterId: iiIntegrationCanisterId,
+    pathname: '/newSession',
   });
-  
-  debugLog('AUTH_FLOW', '🔗 II Integration URL:', iiIntegrationUrl);
-  debugLog('AUTH_FLOW', '🔗 Deep Link Type:', deepLinkType);
-  console.log('🔗 II Integration URL (should include /newSession):', iiIntegrationUrl.toString());
-  console.log('🔗 Using RAW domain:', iiIntegrationUrl.toString().includes('.raw.icp0.io'));
-  
+
+  // Determine deep link type based on environment
+  const deepLinkType = (() => {
+    // Explicit setting takes priority
+    if (easDeepLinkType) {
+      return easDeepLinkType;
+    }
+    // Auto-detect based on environment
+    if (isExpoGo) {
+      return 'expo-go';
+    }
+    if (isDevBuild) {
+      return 'dev-client';
+    }
+    // Production or standalone
+    return 'modern';
+  })();
+
+  debugLog('AUTH_FLOW', '🔗 Configuration:', {
+    iiIntegrationUrl: iiIntegrationUrl.toString(),
+    deepLinkType,
+    redirectUri,
+    isExpoGo,
+  });
+
   const iiIntegration = useIIIntegration({
     iiIntegrationUrl,
     deepLinkType,
@@ -266,15 +222,15 @@ function AppWithAuth() {
     regularStorage,
     cryptoModule,
   });
-  
+
   const { authError, isAuthReady } = iiIntegration;
-  
+
   React.useEffect(() => {
     if (authError) {
       console.error('Auth error:', authError);
     }
   }, [authError]);
-  
+
   if (!isAuthReady) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1a1a2e' }}>
@@ -283,7 +239,7 @@ function AppWithAuth() {
       </View>
     );
   }
-  
+
   return (
     <DevAuthProvider>
       <IIIntegrationProvider value={iiIntegration}>

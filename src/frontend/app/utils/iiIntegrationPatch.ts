@@ -8,7 +8,7 @@ export function patchIIIntegrationFetch() {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     
     // Debug all auth-related requests
-    if (url && (url.includes('77fv5-oiaaa-aaaal-qsoea-cai') || url.includes('identity.ic0.app') || url.includes('delegation'))) {
+    if (url && (url.includes('77fv5-oiaaa-aaaal-qsoea-cai') || url.includes('id.ai') || url.includes('delegation'))) {
       debugLog('FETCH_INTERCEPT', '🔧 Auth-related request:', {
         url,
         method: init?.method || 'GET',
