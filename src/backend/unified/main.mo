@@ -2675,7 +2675,8 @@ actor GameUnified {
         // Use provided redirect URI or default
         let redirectUri = switch(request.redirectUri) {
             case (?uri) { uri };
-            case null { "https://auth.expo.io/@hude/spotquest" };
+            // Align with modern Expo AuthSession proxy domain
+            case null { "https://auth.expo.dev/@hude/spotquest" };
         };
         iiIntegrationManager.newSession(request.publicKey, canisterOrigin, redirectUri)
     };
@@ -4509,7 +4510,8 @@ actor GameUnified {
                 let canisterOrigin = getCanisterOrigin();
                 
                 // Check if this is a native app (mobile) or web
-                if (deepLinkType == "legacy" or deepLinkType == "expo-go" or deepLinkType == "modern") {
+                // Treat dev-client as native too (Expo Dev Build)
+                if (deepLinkType == "legacy" or deepLinkType == "expo-go" or deepLinkType == "modern" or deepLinkType == "dev-client") {
                     // Native app: use callback without query params, store redirect in session
                     // Frontend expects spotquest:/// format (without --/auth)
                     let nativeRedirectUri = "spotquest:///";
@@ -4540,7 +4542,8 @@ actor GameUnified {
                     return htmlResponse(redirectHtml, 200);
                 } else {
                     // Web flow: use default web redirect URI
-                    let webRedirectUri = "https://auth.expo.io/@hude/spotquest";
+                    // Use the current Expo Auth proxy domain (.dev)
+                    let webRedirectUri = "https://auth.expo.dev/@hude/spotquest";
                     
                     // Pass web redirect URI to be stored in session
                     let response = iiIntegrationManager.newSession(publicKey, canisterOrigin, webRedirectUri);

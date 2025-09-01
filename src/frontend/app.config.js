@@ -53,7 +53,8 @@ export default {
     linking: {
       prefixes: [
         "spotquest://",  // カスタムスキームを追加
-        "https://auth.expo.io/@hude/spotquest",
+        // Use modern Expo Auth proxy domain
+        "https://auth.expo.dev/@hude/spotquest",
         "https://spotquest.app"
       ],
       config: {
