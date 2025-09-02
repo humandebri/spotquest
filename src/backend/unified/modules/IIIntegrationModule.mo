@@ -147,11 +147,13 @@ module {
             let callbackUrl = canisterOrigin # "/callback";
             let encodedCallbackUrl = utf8PercentEncode(callbackUrl);
             
-            let authorizeUrl = "https://id.ai/#authorize?" #
+            // Use path-based authorize endpoint (id.ai/authorize) to avoid SPA hash routing issues
+            let authorizeUrl = "https://id.ai/authorize?" #
                 "client_id=" # canisterOrigin # "&" #
                 "redirect_uri=" # encodedCallbackUrl # "&" #
                 "state=" # sessionId # "&" #
-                "response_type=token&" #
+                // Request an ID Token (JWT) so callback can parse it
+                "response_type=id_token&" #
                 "scope=openid&" #
                 "nonce=" # sessionId;
             
@@ -278,7 +280,8 @@ module {
             
             // Build II auth URL
             let iiUrl = "https://id.ai";
-            let authUrl = iiUrl # "/#authorize?sessionId=" # request.sessionId # 
+            // Use path-based authorize to ensure parameters persist across navigation
+            let authUrl = iiUrl # "/authorize?sessionId=" # request.sessionId # 
                          "&state=" # request.state # 
                          "&redirectUri=" # request.redirectUri;
             
