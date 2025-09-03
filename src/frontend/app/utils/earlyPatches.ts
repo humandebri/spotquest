@@ -1,14 +1,14 @@
 // Early patches that need to be applied before any modules are loaded
 // This file should be imported at the very top of the app
 
-console.log('🚀 Applying early patches...');
+if (__DEV__) console.log('🚀 Applying early patches...');
 
 // Patch global crypto if needed
 if (typeof global !== 'undefined' && !global.crypto) {
-  console.log('🚀 Setting up global.crypto');
+  if (__DEV__) console.log('🚀 Setting up global.crypto');
   global.crypto = {
     getRandomValues: <T extends ArrayBufferView | null>(array: T): T => {
-      console.log('🚀 global.crypto.getRandomValues called');
+      if (__DEV__) console.log('🚀 global.crypto.getRandomValues called');
       if (!array || !('length' in array)) return array;
       
       const timestamp = Date.now();
@@ -25,7 +25,7 @@ if (typeof global !== 'undefined' && !global.crypto) {
 }
 
 // Ed25519KeyIdentity patch is no longer needed since we use fixed test keys in dev mode
-console.log('🚀 Early patch: Using fixed test identity for dev mode (no patching needed)');
+if (__DEV__) console.log('🚀 Early patch: Using fixed test identity for dev mode (no patching needed)');
 
 // Patch certificate verification for dev mode
 try {
@@ -39,12 +39,12 @@ try {
       // Override Certificate.prototype.verify
       if (OriginalCertificate.prototype) {
         OriginalCertificate.prototype.verify = function() {
-          console.log('🚀 Certificate.verify called - returning true for dev mode');
+          if (__DEV__) console.log('🚀 Certificate.verify called - returning true for dev mode');
           return true;
         };
         
         OriginalCertificate.prototype.verifyTime = async function() {
-          console.log('🚀 Certificate.verifyTime called - returning true for dev mode');
+          if (__DEV__) console.log('🚀 Certificate.verifyTime called - returning true for dev mode');
           return true;
         };
       }
@@ -59,7 +59,7 @@ try {
           cert.verifyTime = async () => true;
           return cert;
         } catch (error) {
-          console.log('🚀 Certificate.create error, returning mock certificate');
+          if (__DEV__) console.log('🚀 Certificate.create error, returning mock certificate');
           // Return a mock certificate object
           return {
             cert: options.certificate,
@@ -80,21 +80,21 @@ try {
         }
       };
       
-      console.log('🚀 Certificate verification patched for dev mode');
+      if (__DEV__) console.log('🚀 Certificate verification patched for dev mode');
     }
     
     // Also patch verifyCertification function if it exists
     if (agentModule && agentModule.verifyCertification) {
       agentModule.verifyCertification = () => {
-        console.log('🚀 verifyCertification called - returning true for dev mode');
+        if (__DEV__) console.log('🚀 verifyCertification called - returning true for dev mode');
         return true;
       };
     }
   }
 } catch (error) {
-  console.warn('🚀 Could not patch certificate verification:', error);
+if (__DEV__) console.warn('🚀 Could not patch certificate verification:', error);
 }
 
-console.log('🚀 Early patches applied');
+if (__DEV__) console.log('🚀 Early patches applied');
 
 export {};

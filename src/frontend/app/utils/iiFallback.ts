@@ -76,6 +76,8 @@ export async function startExternalLogin(
   const pubkey = await prepareIIKeysAndGetPubKey(secureStorage);
   if (!pubkey) throw new Error('Failed to prepare keys');
   const deepLinkType = getDeepLinkType();
-  const url = buildNewSessionUrl(iiCanisterId, pubkey, deepLinkType);
+  // Prefer raw origins on backend side for higher success rate
+  let url = buildNewSessionUrl(iiCanisterId, pubkey, deepLinkType);
+  url += (url.includes('?') ? '&' : '?') + 'redir=raw';
   await LinkingModule.openURL(url);
 }

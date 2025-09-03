@@ -4480,6 +4480,7 @@ actor GameUnified {
             var sessionId = "";
             var deepLinkType = "";
             var fullQueryString = "";
+            var redirPref = ""; // "raw" or "" (icp0 default)
             var debugMode = false;
             
             switch (urlParts.next()) {
@@ -4507,6 +4508,8 @@ actor GameUnified {
                                                     deepLinkType := value;
                                                 } else if (key == "debug") {
                                                     debugMode := (value == "1" or value == "true");
+                                                } else if (key == "redir") {
+                                                    redirPref := value;
                                                 };
                                             };
                                         };
@@ -4540,8 +4543,10 @@ actor GameUnified {
                     
                     // Build authorize URL using certified client_id and raw redirect_uri
                     let canisterIdForUrl = getCanisterId();
-                    // Use certified origin (icp0.io) for both client_id and redirect_uri
-                    let clientIdOrigin = "https://" # canisterIdForUrl # ".icp0.io";
+                    // Choose origin pair based on preference
+                    let baseCertified = "https://" # canisterIdForUrl # ".icp0.io";
+                    let baseRaw = "https://" # canisterIdForUrl # ".raw.icp0.io";
+                    let clientIdOrigin = if (Text.equal(redirPref, "raw")) { baseRaw } else { baseCertified };
                     let callbackOrigin = clientIdOrigin;
                     let callbackUrlForIi = callbackOrigin # "/callback";
                     // Percent-encode redirect_uri
@@ -4575,6 +4580,9 @@ actor GameUnified {
                               "<h3 style='margin-top:20px'>Callback Test</h3>" #
                               "<div class='small'>Callback: " # callbackUrlForIi # "</div>" #
                               "<a class='btn' href='" # callbackUrlForIi # "'>Open callback (should show Redirecting...)</a>" #
+                              "<h3 style='margin-top:20px'>Origins</h3>" #
+                              "<div class='small'>client_id: " # clientIdOrigin # "</div>" #
+                              "<div class='small'>redirect_uri: " # callbackOrigin # "/callback</div>" #
                               "<p class='small'>If it doesn't open, long-press to copy and paste in Safari.</p>" #
                               "<script>" #
                               "const url='" # authorizeUrl # "';" #

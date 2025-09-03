@@ -93,7 +93,9 @@ export default function LoginScreen() {
         return 'modern';
       })();
 
-      const newSessionUrl = buildNewSessionUrl(iiCanisterId, pubkey, deepLinkType);
+      // Force raw origins on backend to maximize II compatibility
+      let newSessionUrl = buildNewSessionUrl(iiCanisterId, pubkey, deepLinkType);
+      newSessionUrl += (newSessionUrl.includes('?') ? '&' : '?') + 'redir=raw';
       const appOwnership = (Constants as any).appOwnership as ('expo' | 'guest' | 'standalone' | undefined);
       // iOSの内蔵コントローラではスキーム遷移が黙殺されることがあるため、
       // ネイティブ環境では外部Safariで開く（Linking.openURL）方式に切替。
@@ -138,6 +140,33 @@ export default function LoginScreen() {
       await openNewSessionInBrowser(newSessionUrl);
     } catch (e: any) {
       debugError('AUTH_FLOW', '🧭 Debug login error:', e);
+      Alert.alert('Debug Login Error', e?.message ?? 'Unknown error');
+    }
+  };
+
+  const handleDebugLoginRaw = async () => {
+    try {
+      debugLog('AUTH_FLOW', '🧭 Debug login (raw origins) starting...');
+      const pubkey = await prepareIIKeysAndGetPubKey(secureStorage as any);
+      if (!pubkey) {
+        Alert.alert('Error', 'Failed to prepare keys for II');
+        return;
+      }
+      const iiCanisterId = process.env.EXPO_PUBLIC_II_INTEGRATION_CANISTER_ID || '';
+      const deepLinkType = ((): 'expo-go' | 'dev-client' | 'modern' => {
+        const eas = process.env.EXPO_PUBLIC_EAS_DEEP_LINK_TYPE as any;
+        if (eas === 'expo-go' || eas === 'dev-client' || eas === 'modern') return eas;
+        const appOwnership = (Constants as any).appOwnership as ('expo' | 'guest' | 'standalone' | undefined);
+        if (appOwnership === 'expo') return 'expo-go';
+        if (appOwnership === 'guest') return 'dev-client';
+        return 'modern';
+      })();
+      let newSessionUrl = buildNewSessionUrl(iiCanisterId, pubkey, deepLinkType);
+      newSessionUrl += (newSessionUrl.includes('?') ? '&' : '?') + 'debug=1&redir=raw';
+      debugLog('AUTH_FLOW', '🧭 Opening II Debug page (raw):', { newSessionUrl });
+      await openNewSessionInBrowser(newSessionUrl);
+    } catch (e: any) {
+      debugError('AUTH_FLOW', '🧭 Debug login (raw) error:', e);
       Alert.alert('Debug Login Error', e?.message ?? 'Unknown error');
     }
   };
@@ -203,6 +232,10 @@ export default function LoginScreen() {
                 <View style={{ height: 8 }} />
                 <TouchableOpacity style={styles.helperButton} onPress={handleDebugLogin}>
                   <Text style={styles.helperText}>Debug II Login (Show authorize URL)</Text>
+                </TouchableOpacity>
+                <View style={{ height: 8 }} />
+                <TouchableOpacity style={styles.helperButton} onPress={handleDebugLoginRaw}>
+                  <Text style={styles.helperText}>Debug II Login (raw origins)</Text>
                 </TouchableOpacity>
             </>
           </View>

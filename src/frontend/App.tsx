@@ -37,25 +37,25 @@ import { debugLog } from './app/utils/debugConfig';
 import { secureStorage, regularStorage } from './app/storage';
 import { cryptoModule } from './app/crypto';
 
-// Apply critical patches - needed in both dev and production
-debugLog('AUTH_FLOW', '🚀 Applying patches...');
-
-// Critical patches that must run in production
-patchEd25519KeyIdentity();
-patchExpoIIIntegration();
-patchStorageForIIIntegration();
-patchIIIntegrationFetch();
-
-// Debug-only patches
-if (__DEV__) {
-  debugStorage();
-  enableJSONParseLogging();
+// Apply patches (development by default; enable in prod via env flag)
+const ENABLE_PATCHES = __DEV__ || process.env.EXPO_PUBLIC_ENABLE_PATCHES === 'true';
+if (ENABLE_PATCHES) {
+  debugLog('AUTH_FLOW', '🚀 Applying patches...');
+  patchEd25519KeyIdentity();
+  patchExpoIIIntegration();
+  patchStorageForIIIntegration();
+  patchIIIntegrationFetch();
+  if (__DEV__) {
+    debugStorage();
+    enableJSONParseLogging();
+  }
+  debugLog('AUTH_FLOW', '🚀 All patches applied');
 }
 
-debugLog('AUTH_FLOW', '🚀 All patches applied');
-
-// Complete any pending auth sessions on app start
-WebBrowser.maybeCompleteAuthSession();
+// Complete any pending auth sessions on app start (only when patches enabled)
+if (__DEV__ || process.env.EXPO_PUBLIC_ENABLE_PATCHES === 'true') {
+  WebBrowser.maybeCompleteAuthSession();
+}
 
 // App content component - must be inside IIIntegrationProvider
 function AppContent() {
@@ -101,12 +101,14 @@ function AppContent() {
   }, []);
 
   // Deep linking configuration
+  const appOwnershipLocal = (Constants as any).appOwnership as ('expo' | 'guest' | 'standalone' | undefined);
+  const isExpoGoLocal = appOwnershipLocal === 'expo';
+  const prefixes = isExpoGoLocal
+    ? [Linking.createURL('/'), 'https://spotquest.app', 'https://auth.expo.dev/@hude/spotquest']
+    : [Linking.createURL('/'), 'https://spotquest.app'];
+
   const linking = {
-    prefixes: [
-      Linking.createURL('/'),              // spotquest:///
-      'https://spotquest.app',             // Custom domain (optional)
-      'https://auth.expo.dev/@hude/spotquest', // Expo Auth proxy (.dev is correct)  
-    ],
+    prefixes,
     config: {
       screens: {
         auth: 'auth',
@@ -116,7 +118,7 @@ function AppContent() {
         Leaderboard: 'leaderboard',
       },
     },
-  };
+  } as const;
 
   if (!isAuthReady || !fontsLoaded) {
     return (
