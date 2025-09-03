@@ -1,0 +1,3 @@
+# Exclude Vite-based backup frontend from EAS upload
+src/frontend-vite-backup/
+

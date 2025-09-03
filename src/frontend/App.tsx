@@ -142,25 +142,20 @@ function AppWithAuth() {
   const iiIntegrationCanisterId = process.env.EXPO_PUBLIC_II_INTEGRATION_CANISTER_ID || '';
   const frontendCanisterId = process.env.EXPO_PUBLIC_FRONTEND_CANISTER_ID || '';
 
-  // Determine the environment and redirect URI
+  // Determine runtime environment
   const easDeepLinkType = process.env.EXPO_PUBLIC_EAS_DEEP_LINK_TYPE;
-  
-  // Detect if we're in Expo Go (not dev build)
-  // Dev builds have executionEnvironment: 'bare' but also have the native app shell
-  const isExpoGo = 
-    Constants.executionEnvironment === 'storeClient' || // Expo Go from store
-    (Constants.executionEnvironment === 'bare' && !Constants.isDevice && __DEV__) || // Simulator in Expo Go
-    easDeepLinkType === 'expo-go'; // Explicitly set for Expo Go
-  
-  // Detect if we're in a dev build
-  const isDevBuild = 
-    Constants.executionEnvironment === 'bare' && 
-    Constants.isDevice && 
-    __DEV__;
+  const appOwnership = (Constants as any).appOwnership as ('expo' | 'guest' | 'standalone' | undefined);
+  // appOwnership meanings:
+  // - 'expo': Expo Go
+  // - 'guest': Expo Dev Client
+  // - 'standalone': App Store/Production or adhoc standalone
+  const isExpoGo = appOwnership === 'expo';
+  const isDevClient = appOwnership === 'guest';
+  const isStandalone = appOwnership === 'standalone';
   
   // Generate appropriate redirect URI based on environment
   const redirectUri = (() => {
-    if (easDeepLinkType === 'expo-go' || isExpoGo) {
+    if (isExpoGo || easDeepLinkType === 'expo-go') {
       // For Expo Go, use the proxy with proper parameters
       const proxyUrl = makeRedirectUri({ 
         scheme: 'spotquest',
@@ -177,11 +172,13 @@ function AppWithAuth() {
   })();
   
   console.log('🔗 Redirect URI for auth:', redirectUri);
+  console.log('🔗 App Ownership:', appOwnership);
   console.log('🔗 Is Expo Go:', isExpoGo);
-  console.log('🔗 Is Dev Build:', isDevBuild);
+  console.log('🔗 Is Dev Client:', isDevClient);
+  console.log('🔗 Is Standalone:', isStandalone);
   console.log('🔗 Execution Environment:', Constants.executionEnvironment);
   console.log('🔗 EAS Deep Link Type:', easDeepLinkType);
-  console.log('🔗 Is Device:', Constants.isDevice);
+  console.log('🔗 Is Device:', (Constants as any).isDevice);
 
   // Build II integration URL
   const iiIntegrationUrl = buildAppConnectionURL({
@@ -193,18 +190,12 @@ function AppWithAuth() {
 
   // Determine deep link type based on environment
   const deepLinkType = (() => {
-    // Explicit setting takes priority
-    if (easDeepLinkType) {
+    // Explicit setting takes priority for known values only
+    if (easDeepLinkType === 'expo-go' || easDeepLinkType === 'dev-client' || easDeepLinkType === 'modern') {
       return easDeepLinkType;
     }
-    // Auto-detect based on environment
-    if (isExpoGo) {
-      return 'expo-go';
-    }
-    if (isDevBuild) {
-      return 'dev-client';
-    }
-    // Production or standalone
+    if (isExpoGo) return 'expo-go';
+    if (isDevClient) return 'dev-client';
     return 'modern';
   })();
 
@@ -225,11 +216,73 @@ function AppWithAuth() {
 
   const { authError, isAuthReady } = iiIntegration;
 
+  // Handle deep links that return with session-id and resume auth
+  React.useEffect(() => {
+    const processUrl = async (inputUrl?: string | null) => {
+      if (!inputUrl) return;
+      try {
+        debugLog('DEEP_LINKS', '🔗 Processing URL:', inputUrl);
+        const url = new URL(inputUrl);
+        const sessionId = url.searchParams.get('session-id');
+        if (sessionId) {
+          debugLog('AUTH_FLOW', '🔗 Received session-id from deep link:', sessionId);
+          try {
+            await (secureStorage as any).setItem?.('expo-ii-integration.sessionId', sessionId);
+          } catch (e) {
+            // ignore
+          }
+          // Nudge the integration to re-check identity
+          try {
+            // @ts-ignore - not part of public types but usually present
+            if (typeof iiIntegration.getIdentity === 'function') {
+              await iiIntegration.getIdentity();
+            }
+          } catch {}
+        }
+      } catch {}
+    };
+
+    const sub = Linking.addEventListener('url', ({ url }) => processUrl(url));
+    Linking.getInitialURL().then(processUrl);
+    return () => sub.remove();
+  }, [iiIntegration]);
+
   React.useEffect(() => {
     if (authError) {
       console.error('Auth error:', authError);
     }
   }, [authError]);
+
+  // When we receive a session-id in a deep link, poll backend and nudge identity resolution
+  React.useEffect(() => {
+    let cancelled = false;
+    let timer: any = null;
+
+    const II_CANISTER = process.env.EXPO_PUBLIC_II_INTEGRATION_CANISTER_ID || '';
+    const iiBase = II_CANISTER ? `https://${II_CANISTER}.icp0.io` : '';
+
+    const poll = async () => {
+      try {
+        const sessionId = await (secureStorage as any).getItem?.('expo-ii-integration.sessionId');
+        if (!sessionId || !iiBase) return;
+        // Check status
+        const info = await fetch(`${iiBase}/api/session/${sessionId}/info`).then(r => r.json()).catch(() => null);
+        debugLog('AUTH_FLOW', '🔎 Poll session info:', info);
+        if (info && info.status === 'closed') {
+          try {
+            // Nudge integration to pick up delegation
+            // @ts-ignore
+            if (typeof iiIntegration.getIdentity === 'function') {
+              await iiIntegration.getIdentity();
+            }
+          } catch {}
+        }
+      } catch {}
+    };
+
+    timer = setInterval(() => { if (!cancelled) poll(); }, 1000);
+    return () => { cancelled = true; if (timer) clearInterval(timer); };
+  }, [iiIntegration]);
 
   if (!isAuthReady) {
     return (

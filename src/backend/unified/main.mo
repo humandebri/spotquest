@@ -4233,8 +4233,12 @@ actor GameUnified {
                       "<meta name='viewport' content='width=device-width, initial-scale=1'>" #
                       "</head>" #
                       "<body>" #
-                      "<h2>Authentication Complete</h2>" #
-                      "<p>Redirecting back to app...</p>" #
+                      "<div style='font-family:-apple-system,system-ui,Segoe UI,Roboto; padding:24px; text-align:center; color:#0b2533;'>" #
+                      "  <h2 style='margin:0 0 8px'>認証が完了しました</h2>" #
+                      "  <p style='margin:0 0 16px'>アプリに戻ります…</p>" #
+                      "  <a id='manual' href='spotquest:///' style='display:inline-block; padding:12px 16px; background:#2aa9e0; color:#fff; border-radius:10px; text-decoration:none; font-weight:600;'>SpotQuestに戻る</a>" #
+                      "  <div id='deeplink' style='margin-top:10px; font-size:12px; opacity:.7; word-break:break-all;'>spotquest:///</div>" #
+                      "</div>" #
                       "<script>" #
                       "(async function() {" #
                       "  console.log('Callback page loaded');" #
@@ -4334,6 +4338,8 @@ actor GameUnified {
                       "        " #
                       "        console.log('Session data:', sessionData);" #
                       "        console.log('Redirect URI from session:', redirectUri);" #
+                      "        const sep = redirectUri.includes('?') ? '&' : '?';" #
+                      "        const finalRedirect = redirectUri + sep + 'session-id=' + encodeURIComponent(state);" #
                       "        " #
                       "        // Close the session to mark it as ready" #
                       "        await fetch('/api/session/' + state + '/close', {" #
@@ -4342,12 +4348,17 @@ actor GameUnified {
                       "        " #
                       "        if (redirectUri) {" #
                       "          // AuthSession needs exact match with its redirectUri" #
-                      "          console.log('Redirecting to AuthSession URI:', redirectUri);" #
-                      "          document.body.innerHTML = '<p>Redirecting to app...</p><a id=\"manual\" href=\"' + redirectUri + '\">Click here if not redirected</a>';" #
+                      "          console.log('Redirecting to AuthSession URI:', finalRedirect);" #
+                      "          // Update existing button and deeplink text instead of replacing whole body" #
+                      "          try {" #
+                      "            var a = document.getElementById('manual'); if (a) a.href = finalRedirect;" #
+                      "            var d = document.getElementById('deeplink'); if (d) d.textContent = finalRedirect;" #
+                      "          } catch (e) {}" #
+                      "          // Attempt automatic redirect" #
                       "          " #
                       "          // Try immediate redirect (no setTimeout)" #
                       "          try {" #
-                      "            window.location.href = redirectUri;" #
+                      "            window.location.href = finalRedirect;" #
                       "          } catch (e) {" #
                       "            console.error('Direct redirect failed:', e);" #
                       "          }" #
@@ -4355,7 +4366,7 @@ actor GameUnified {
                       "          // Fallback with replace after short delay" #
                       "          setTimeout(() => {" #
                       "            try {" #
-                      "              window.location.replace(redirectUri);" #
+                      "              window.location.replace(finalRedirect);" #
                       "            } catch (e) {" #
                       "              console.error('Replace redirect failed:', e);" #
                       "            }" #
@@ -4469,6 +4480,7 @@ actor GameUnified {
             var sessionId = "";
             var deepLinkType = "";
             var fullQueryString = "";
+            var debugMode = false;
             
             switch (urlParts.next()) {
                 case null { };
@@ -4493,6 +4505,8 @@ actor GameUnified {
                                                     sessionId := value;
                                                 } else if (key == "deep-link-type") {
                                                     deepLinkType := value;
+                                                } else if (key == "debug") {
+                                                    debugMode := (value == "1" or value == "true");
                                                 };
                                             };
                                         };
@@ -4510,8 +4524,8 @@ actor GameUnified {
                 let canisterOrigin = getCanisterOrigin();
                 
                 // Check if this is a native app (mobile) or web
-                // Treat dev-client as native too (Expo Dev Build)
-                if (deepLinkType == "legacy" or deepLinkType == "expo-go" or deepLinkType == "modern" or deepLinkType == "dev-client") {
+                // Treat dev-client/modern/legacy as native; expo-go uses web proxy
+                if (deepLinkType == "legacy" or deepLinkType == "modern" or deepLinkType == "dev-client") {
                     // Native app: use callback without query params, store redirect in session
                     // Frontend expects spotquest:/// format (without --/auth)
                     let nativeRedirectUri = "spotquest:///";
@@ -4524,21 +4538,68 @@ actor GameUnified {
                     Debug.print("🔐 [AUTH] Native flow - sessionId: " # response.sessionId);
                     Debug.print("🔐 [AUTH] Native flow - authorizeUrl: " # response.authorizeUrl);
                     
-                    // Return redirect HTML using the authorize URL from IIIntegrationManager
+                    // Build authorize URL using certified client_id and raw redirect_uri
+                    let canisterIdForUrl = getCanisterId();
+                    // Use certified origin (icp0.io) for both client_id and redirect_uri
+                    let clientIdOrigin = "https://" # canisterIdForUrl # ".icp0.io";
+                    let callbackOrigin = clientIdOrigin;
+                    let callbackUrlForIi = callbackOrigin # "/callback";
+                    // Percent-encode redirect_uri
+                    var encodedCallback = callbackUrlForIi;
+                    encodedCallback := Text.replace(encodedCallback, #char ':', "%3A");
+                    encodedCallback := Text.replace(encodedCallback, #char '/', "%2F");
+                    encodedCallback := Text.replace(encodedCallback, #char '?', "%3F");
+                    encodedCallback := Text.replace(encodedCallback, #char '#', "%23");
+                    encodedCallback := Text.replace(encodedCallback, #char '&', "%26");
+                    encodedCallback := Text.replace(encodedCallback, #char '=', "%3D");
+                    encodedCallback := Text.replace(encodedCallback, #char '@', "%40");
+                    let authorizeUrl = "https://id.ai/#authorize?" #
+                        "client_id=" # clientIdOrigin # "&" #
+                        "redirect_uri=" # encodedCallback # "&" #
+                        "state=" # response.sessionId # "&" #
+                        "response_type=token&scope=openid&nonce=" # response.sessionId #
+                        "&prompt=login";
+
+                    // If debug mode, show an intermediate page with the exact authorize URL
+                    if (debugMode) {
+                        let debugHtml = "<!DOCTYPE html>" #
+                              "<html>" #
+                              "<head>" #
+                              "<meta charset='utf-8'>" #
+                              "<title>II Debug</title>" #
+                              "<style>body{font-family: -apple-system, system-ui; padding:16px; color:#fff; background:#0b2533;} .box{background:#163a4d; padding:12px; border-radius:8px; word-break:break-all;} a.btn{display:inline-block; margin-top:12px; padding:10px 14px; background:#2aa9e0; color:#fff; border-radius:6px; text-decoration:none;} .small{opacity:.8; font-size:12px}</style>" #
+                              "</head><body>" #
+                              "<h2>Authorize URL (copy & open)</h2>" #
+                              "<div class='box' id='url'></div>" #
+                              "<a class='btn' id='open' href='#'>Open id.ai</a>" #
+                              "<h3 style='margin-top:20px'>Callback Test</h3>" #
+                              "<div class='small'>Callback: " # callbackUrlForIi # "</div>" #
+                              "<a class='btn' href='" # callbackUrlForIi # "'>Open callback (should show Redirecting...)</a>" #
+                              "<p class='small'>If it doesn't open, long-press to copy and paste in Safari.</p>" #
+                              "<script>" #
+                              "const url='" # authorizeUrl # "';" #
+                              "document.getElementById('url').textContent=url;" #
+                              "document.getElementById('open').href=url;" #
+                              "</script>" #
+                              "</body></html>";
+                        return htmlResponse(debugHtml, 200);
+                    };
+
+                    // Return redirect HTML using the computed authorize URL
                     let redirectHtml = "<!DOCTYPE html>" #
                               "<html>" #
                               "<head>" #
                               "<title>Redirecting...</title>" #
                               "<meta charset='utf-8'>" #
                               "<script>" #
-                              "window.location.href = '" # response.authorizeUrl # "';" #
+                              "window.location.href = '" # authorizeUrl # "';" #
                               "</script>" #
                               "</head>" #
                               "<body>" #
                               "<h2>Redirecting to Internet Identity...</h2>" #
                               "</body>" #
                               "</html>";
-                    
+
                     return htmlResponse(redirectHtml, 200);
                 } else {
                     // Web flow: use default web redirect URI

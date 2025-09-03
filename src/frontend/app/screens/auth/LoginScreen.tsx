@@ -15,6 +15,12 @@ import { useIIIntegrationContext } from 'expo-ii-integration';
 import { LogIn } from '../../components/LogIn';
 import { useDevAuth } from '../../contexts/DevAuthContext';
 import { DEBUG_CONFIG, debugLog, debugError } from '../../utils/debugConfig';
+import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
+import Constants from 'expo-constants';
+import { secureStorage, regularStorage } from '../../storage';
+import { clearAllIIData } from '../../utils/clearAllIIData';
+import { prepareIIKeysAndGetPubKey, buildNewSessionUrl, openNewSessionInBrowser } from '../../utils/iiFallback';
 
 export default function LoginScreen() {
   const { isAuthenticated, authError } = useIIIntegrationContext();
@@ -57,6 +63,85 @@ export default function LoginScreen() {
     }
   };
 
+  const handleResetIIData = async () => {
+    try {
+      await clearAllIIData(secureStorage as any, regularStorage as any);
+      Alert.alert('Cleared', 'II session data cleared. Try logging in again.');
+    } catch (e) {
+      Alert.alert('Error', 'Failed to clear II data');
+    }
+  };
+
+  const handleFallbackLogin = async () => {
+    try {
+      debugLog('AUTH_FLOW', '🧭 Fallback login starting...');
+      // Ensure keys exist and get public key for session init
+      const pubkey = await prepareIIKeysAndGetPubKey(secureStorage as any);
+      if (!pubkey) {
+        Alert.alert('Error', 'Failed to prepare keys for II');
+        return;
+      }
+
+      const iiCanisterId = process.env.EXPO_PUBLIC_II_INTEGRATION_CANISTER_ID || '';
+      const deepLinkType = ((): 'expo-go' | 'dev-client' | 'modern' => {
+        const eas = process.env.EXPO_PUBLIC_EAS_DEEP_LINK_TYPE as any;
+        if (eas) return eas;
+        const isExpoGo = Constants.executionEnvironment === 'storeClient' ||
+          (Constants.executionEnvironment === 'bare' && !Constants.isDevice && __DEV__);
+        if (isExpoGo) return 'expo-go';
+        if (Constants.executionEnvironment === 'bare' && Constants.isDevice) return 'dev-client';
+        return 'modern';
+      })();
+
+      const newSessionUrl = buildNewSessionUrl(iiCanisterId, pubkey, deepLinkType);
+      const appOwnership = (Constants as any).appOwnership as ('expo' | 'guest' | 'standalone' | undefined);
+      // iOSの内蔵コントローラではスキーム遷移が黙殺されることがあるため、
+      // ネイティブ環境では外部Safariで開く（Linking.openURL）方式に切替。
+      if (appOwnership === 'guest' || appOwnership === 'standalone' || !appOwnership) {
+        debugLog('AUTH_FLOW', '🧭 Opening external Safari:', { newSessionUrl });
+        await Linking.openURL(newSessionUrl);
+      } else {
+        // Expo Go では in-app ブラウザでOK
+        debugLog('AUTH_FLOW', '🧭 Opening Browser (SFSafariViewController):', { newSessionUrl });
+        await openNewSessionInBrowser(newSessionUrl);
+      }
+    } catch (e: any) {
+      debugError('AUTH_FLOW', '🧭 Fallback login error:', e);
+      Alert.alert('Fallback Login Error', e?.message ?? 'Unknown error');
+    }
+  };
+
+  const handleDebugLogin = async () => {
+    try {
+      debugLog('AUTH_FLOW', '🧭 Debug login starting...');
+      const pubkey = await prepareIIKeysAndGetPubKey(secureStorage as any);
+      if (!pubkey) {
+        Alert.alert('Error', 'Failed to prepare keys for II');
+        return;
+      }
+
+      const iiCanisterId = process.env.EXPO_PUBLIC_II_INTEGRATION_CANISTER_ID || '';
+      const deepLinkType = ((): 'expo-go' | 'dev-client' | 'modern' => {
+        const eas = process.env.EXPO_PUBLIC_EAS_DEEP_LINK_TYPE as any;
+        if (eas === 'expo-go' || eas === 'dev-client' || eas === 'modern') return eas;
+        const appOwnership = (Constants as any).appOwnership as ('expo' | 'guest' | 'standalone' | undefined);
+        if (appOwnership === 'expo') return 'expo-go';
+        if (appOwnership === 'guest') return 'dev-client';
+        return 'modern';
+      })();
+
+      let newSessionUrl = buildNewSessionUrl(iiCanisterId, pubkey, deepLinkType);
+      newSessionUrl += (newSessionUrl.includes('?') ? '&' : '?') + 'debug=1';
+      debugLog('AUTH_FLOW', '🧭 Opening II Debug page:', { newSessionUrl });
+
+      // Always open in in-app browser (SFSafariViewController) for easy copy
+      await openNewSessionInBrowser(newSessionUrl);
+    } catch (e: any) {
+      debugError('AUTH_FLOW', '🧭 Debug login error:', e);
+      Alert.alert('Debug Login Error', e?.message ?? 'Unknown error');
+    }
+  };
+
   return (
     <LinearGradient
       colors={['#1a1a2e', '#0f4c75', '#3282b8']}
@@ -83,14 +168,13 @@ export default function LoginScreen() {
               </Text>
             </View>
 
-            {/* Dev Mode Login - Show in development environment (Expo Go) */}
-            {__DEV__ && (
-              <>
-                <View style={styles.divider}>
-                  <View style={styles.dividerLine} />
-                  <Text style={styles.dividerText}>OR</Text>
-                  <View style={styles.dividerLine} />
-                </View>
+            {/* Helper actions visible in all builds */}
+            <>
+              <View style={styles.divider}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>OR</Text>
+                <View style={styles.dividerLine} />
+              </View>
 
                 <TouchableOpacity
                   style={styles.devButton}
@@ -106,8 +190,21 @@ export default function LoginScreen() {
                     </>
                   )}
                 </TouchableOpacity>
-              </>
-            )}
+
+                {/* Troubleshooting helpers */}
+                <View style={{ height: 12 }} />
+                <TouchableOpacity style={styles.helperButton} onPress={handleResetIIData}>
+                  <Text style={styles.helperText}>Reset II Session Data</Text>
+                </TouchableOpacity>
+                <View style={{ height: 8 }} />
+                <TouchableOpacity style={styles.helperButton} onPress={handleFallbackLogin}>
+                  <Text style={styles.helperText}>Try Alternate Login (AuthSession)</Text>
+                </TouchableOpacity>
+                <View style={{ height: 8 }} />
+                <TouchableOpacity style={styles.helperButton} onPress={handleDebugLogin}>
+                  <Text style={styles.helperText}>Debug II Login (Show authorize URL)</Text>
+                </TouchableOpacity>
+            </>
           </View>
 
           {/* Info Section */}
@@ -207,6 +304,19 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#bbe1fa',
     marginLeft: 8,
+  },
+  helperButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#bbe1fa',
+    opacity: 0.7,
+  },
+  helperText: {
+    fontSize: 14,
+    color: '#bbe1fa',
   },
   infoSection: {
     marginTop: 40,

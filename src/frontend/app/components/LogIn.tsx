@@ -1,7 +1,11 @@
 import React, { useState } from 'react';
 import { TouchableOpacity, Text, ActivityIndicator, StyleSheet, Alert } from 'react-native';
 import { useRoute } from '@react-navigation/native';
+import * as Linking from 'expo-linking';
+import Constants from 'expo-constants';
 import { useIIIntegrationContext } from 'expo-ii-integration';
+import { secureStorage } from '../storage';
+import { startExternalLogin } from '../utils/iiFallback';
 
 /**
  * Component that handles the login functionality
@@ -14,12 +18,18 @@ export function LogIn() {
   const handleLogin = async () => {
     setBusy(true);
     try {
-      // Get current route for redirect after login
+      // Prefer external Safari-based flow for reliability on iOS
       const currentRoute = route.name;
-      
-      await login({
-        redirectPath: currentRoute,
-      });
+      const iiCanisterId = process.env.EXPO_PUBLIC_II_INTEGRATION_CANISTER_ID || '';
+      const getDLType = () => {
+        const eas = process.env.EXPO_PUBLIC_EAS_DEEP_LINK_TYPE as any;
+        if (eas === 'expo-go' || eas === 'dev-client' || eas === 'modern') return eas;
+        const appOwnership = (Constants as any).appOwnership as ('expo' | 'guest' | 'standalone' | undefined);
+        if (appOwnership === 'expo') return 'expo-go';
+        if (appOwnership === 'guest') return 'dev-client';
+        return 'modern';
+      };
+      await startExternalLogin(iiCanisterId, secureStorage as any, getDLType, { openURL: (u: string) => Linking.openURL(u).then(() => undefined) });
     } catch (error) {
       Alert.alert(
         'Login Failed',
@@ -42,7 +52,7 @@ export function LogIn() {
       {busy ? (
         <ActivityIndicator size="small" color="#ffffff" />
       ) : (
-        <Text style={styles.buttonText}>Login with Internet Identity</Text>
+        <Text style={styles.buttonText}>Login with Internet Identity (Safari)</Text>
       )}
     </TouchableOpacity>
   );

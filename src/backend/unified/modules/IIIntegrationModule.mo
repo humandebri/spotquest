@@ -147,15 +147,15 @@ module {
             let callbackUrl = canisterOrigin # "/callback";
             let encodedCallbackUrl = utf8PercentEncode(callbackUrl);
             
-            // Use path-based authorize endpoint (id.ai/authorize) to avoid SPA hash routing issues
-            let authorizeUrl = "https://id.ai/authorize?" #
+            // Use hash-based authorize endpoint (id.ai/#authorize) expected by II
+            let authorizeUrl = "https://id.ai/#authorize?" #
                 "client_id=" # canisterOrigin # "&" #
                 "redirect_uri=" # encodedCallbackUrl # "&" #
                 "state=" # sessionId # "&" #
-                // Request an ID Token (JWT) so callback can parse it
-                "response_type=id_token&" #
+                // Request access token semantics
+                "response_type=token&" #
                 "scope=openid&" #
-                "nonce=" # sessionId;
+                "nonce=" # sessionId # "&prompt=login";
             
             {
                 sessionId = sessionId;
@@ -280,8 +280,8 @@ module {
             
             // Build II auth URL
             let iiUrl = "https://id.ai";
-            // Use path-based authorize to ensure parameters persist across navigation
-            let authUrl = iiUrl # "/authorize?sessionId=" # request.sessionId # 
+            // Legacy flow uses hash-based authorize
+            let authUrl = iiUrl # "/#authorize?sessionId=" # request.sessionId # 
                          "&state=" # request.state # 
                          "&redirectUri=" # request.redirectUri;
             
