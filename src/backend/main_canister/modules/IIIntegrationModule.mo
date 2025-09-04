@@ -143,19 +143,24 @@ module {
             
             sessions.put(sessionId, sessionData);
             
-            // Build authorize URL for II with simple callback URL (no query params)
+            // Build authorize URL for Internet Identity (stable)
             let callbackUrl = canisterOrigin # "/callback";
             let encodedCallbackUrl = utf8PercentEncode(callbackUrl);
-            
-            // Use hash-based authorize endpoint (id.ai/#authorize) expected by II
-            let authorizeUrl = "https://id.ai/#authorize?" #
-                "client_id=" # canisterOrigin # "&" #
-                "redirect_uri=" # encodedCallbackUrl # "&" #
+            // Add derivationOrigin (same origin as redirect) and scope for compatibility
+            let originOnly = canisterOrigin; // already like https://<canister>.<gateway>
+            // Force redirect-based response for mobile environments
+            // Explicitly set response_mode and response_type to avoid web_message postMessage
+            // Use legacy authorize hash route for compatibility
+            let authorizeUrl = "https://identity.ic0.app/#authorize?" #
+                "sessionId=" # sessionId # "&" #
                 "state=" # sessionId # "&" #
-                // Request access token semantics
-                "response_type=token&" #
+                "derivationOrigin=" # originOnly # "&" #
                 "scope=openid&" #
-                "nonce=" # sessionId # "&prompt=login";
+                "client_id=" # originOnly # "&" #
+                "response_mode=fragment&" #
+                "response_type=token&" #
+                "prompt=consent&" #
+                "redirect_uri=" # encodedCallbackUrl;
             
             {
                 sessionId = sessionId;

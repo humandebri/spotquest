@@ -10,8 +10,10 @@ export const CANISTER_ID_II_INTEGRATION = process.env.EXPO_PUBLIC_II_INTEGRATION
 // IC Host
 export const IC_HOST = process.env.EXPO_PUBLIC_IC_HOST || 'https://ic0.app';
 
-// App scheme for deep links
-export const APP_SCHEME = 'spotquest';
+// App scheme and URLs for deep links
+export const APP_SCHEME = process.env.EXPO_PUBLIC_APP_SCHEME || 'spotquest';
+export const APP_WEB_URL = process.env.EXPO_PUBLIC_APP_WEB_URL || 'https://spotquest.app';
+export const AUTH_PROXY_URL = process.env.EXPO_PUBLIC_AUTH_PROXY_URL || 'https://auth.expo.dev/@hude/spotquest';
 
 // Admin principals
 export const ADMIN_PRINCIPALS = [

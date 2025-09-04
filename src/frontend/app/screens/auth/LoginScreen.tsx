@@ -11,37 +11,22 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons, Feather } from '@expo/vector-icons';
-import { useIIIntegrationContext } from 'expo-ii-integration';
-import { LogIn } from '../../components/LogIn';
+// Removed II login UI
 import { useDevAuth } from '../../contexts/DevAuthContext';
-import { DEBUG_CONFIG, debugLog, debugError } from '../../utils/debugConfig';
-import * as WebBrowser from 'expo-web-browser';
+import { debugLog, debugError } from '../../utils/debugConfig';
+import { secureStorage } from '../../storage';
 import * as Linking from 'expo-linking';
-import Constants from 'expo-constants';
-import { secureStorage, regularStorage } from '../../storage';
-import { clearAllIIData } from '../../utils/clearAllIIData';
-import { prepareIIKeysAndGetPubKey, buildNewSessionUrl, openNewSessionInBrowser } from '../../utils/iiFallback';
+// Removed II fallback helpers
+import { signInWithGoogle } from '../../utils/googleAuth';
+import { getOrCreateSessionIdentity } from '../../utils/sessionKeys';
+import { useIIAuthStore } from '../../store/iiAuthStore';
+import { Principal } from '@dfinity/principal';
+import { LogIn as IIAuthButton } from '../../components/LogIn';
 
 export default function LoginScreen() {
-  const { isAuthenticated, authError } = useIIIntegrationContext();
   const { loginAsDev, isDevMode } = useDevAuth();
   const [isDevLogin, setIsDevLogin] = useState(false);
-
-  // Monitor authentication state changes
-  React.useEffect(() => {
-    debugLog('AUTH_FLOW', '🔍 LoginScreen: isAuthenticated =', isAuthenticated);
-    if (isAuthenticated) {
-      debugLog('AUTH_FLOW', '✅ User authenticated successfully!');
-    }
-  }, [isAuthenticated]);
-
-  // Monitor auth errors
-  React.useEffect(() => {
-    if (authError) {
-      debugError('AUTH_FLOW', '❌ Auth error:', authError);
-      Alert.alert('Authentication Error', String(authError), [{ text: 'OK' }]);
-    }
-  }, [authError]);
+  // II auth state handling removed from this screen
 
   const handleDevLogin = async () => {
     setIsDevLogin(true);
@@ -63,113 +48,44 @@ export default function LoginScreen() {
     }
   };
 
-  const handleResetIIData = async () => {
+  // Oisy Wallet login via external Safari
+  const handleOisyLogin = async () => {
     try {
-      await clearAllIIData(secureStorage as any, regularStorage as any);
-      Alert.alert('Cleared', 'II session data cleared. Try logging in again.');
-    } catch (e) {
-      Alert.alert('Error', 'Failed to clear II data');
+      debugLog('AUTH_FLOW', '🧭 Oisy login starting...');
+      const returnUrl = Linking.createURL('wallet-connect'); // spotquest:///wallet-connect
+      await (await import('../../utils/oisy')).openOisyConnect({
+        returnUrl,
+        appName: 'SpotQuest',
+        includePubkey: true,
+        storage: secureStorage as any,
+      });
+    } catch (e: any) {
+      debugError('AUTH_FLOW', '🧭 Oisy login error:', e);
+      Alert.alert('Oisy Login Error', e?.message ?? 'Unknown error');
     }
   };
 
-  const handleFallbackLogin = async () => {
+  // Google login (via AuthSession) then link to local Ed25519 identity
+  const handleGoogleLogin = async () => {
     try {
-      debugLog('AUTH_FLOW', '🧭 Fallback login starting...');
-      // Ensure keys exist and get public key for session init
-      const pubkey = await prepareIIKeysAndGetPubKey(secureStorage as any);
-      if (!pubkey) {
-        Alert.alert('Error', 'Failed to prepare keys for II');
+      debugLog('AUTH_FLOW', '🧭 Google login starting...');
+      const res = await signInWithGoogle();
+      if (!res || !res.idToken) {
+        Alert.alert('Google Login', 'Cancelled or no id_token');
         return;
       }
-
-      const iiCanisterId = process.env.EXPO_PUBLIC_II_INTEGRATION_CANISTER_ID || '';
-      const deepLinkType = ((): 'expo-go' | 'dev-client' | 'modern' => {
-        const eas = process.env.EXPO_PUBLIC_EAS_DEEP_LINK_TYPE as any;
-        if (eas) return eas;
-        const isExpoGo = Constants.executionEnvironment === 'storeClient' ||
-          (Constants.executionEnvironment === 'bare' && !Constants.isDevice && __DEV__);
-        if (isExpoGo) return 'expo-go';
-        if (Constants.executionEnvironment === 'bare' && Constants.isDevice) return 'dev-client';
-        return 'modern';
-      })();
-
-      // Force raw origins on backend to maximize II compatibility
-      let newSessionUrl = buildNewSessionUrl(iiCanisterId, pubkey, deepLinkType);
-      newSessionUrl += (newSessionUrl.includes('?') ? '&' : '?') + 'redir=raw';
-      const appOwnership = (Constants as any).appOwnership as ('expo' | 'guest' | 'standalone' | undefined);
-      // iOSの内蔵コントローラではスキーム遷移が黙殺されることがあるため、
-      // ネイティブ環境では外部Safariで開く（Linking.openURL）方式に切替。
-      if (appOwnership === 'guest' || appOwnership === 'standalone' || !appOwnership) {
-        debugLog('AUTH_FLOW', '🧭 Opening external Safari:', { newSessionUrl });
-        await Linking.openURL(newSessionUrl);
-      } else {
-        // Expo Go では in-app ブラウザでOK
-        debugLog('AUTH_FLOW', '🧭 Opening Browser (SFSafariViewController):', { newSessionUrl });
-        await openNewSessionInBrowser(newSessionUrl);
-      }
+      const identity = await getOrCreateSessionIdentity(secureStorage as any);
+      const principal = identity.getPrincipal();
+      useIIAuthStore.getState().setAuthenticated(principal as unknown as Principal, identity as any);
+      debugLog('AUTH_FLOW', '✅ Google login linked to SpotQuest identity:', principal.toString());
+      Alert.alert('Login', 'Signed in with Google and created SpotQuest identity');
     } catch (e: any) {
-      debugError('AUTH_FLOW', '🧭 Fallback login error:', e);
-      Alert.alert('Fallback Login Error', e?.message ?? 'Unknown error');
+      debugError('AUTH_FLOW', '🧭 Google login error:', e);
+      Alert.alert('Google Login Error', e?.message ?? 'Unknown error');
     }
   };
 
-  const handleDebugLogin = async () => {
-    try {
-      debugLog('AUTH_FLOW', '🧭 Debug login starting...');
-      const pubkey = await prepareIIKeysAndGetPubKey(secureStorage as any);
-      if (!pubkey) {
-        Alert.alert('Error', 'Failed to prepare keys for II');
-        return;
-      }
-
-      const iiCanisterId = process.env.EXPO_PUBLIC_II_INTEGRATION_CANISTER_ID || '';
-      const deepLinkType = ((): 'expo-go' | 'dev-client' | 'modern' => {
-        const eas = process.env.EXPO_PUBLIC_EAS_DEEP_LINK_TYPE as any;
-        if (eas === 'expo-go' || eas === 'dev-client' || eas === 'modern') return eas;
-        const appOwnership = (Constants as any).appOwnership as ('expo' | 'guest' | 'standalone' | undefined);
-        if (appOwnership === 'expo') return 'expo-go';
-        if (appOwnership === 'guest') return 'dev-client';
-        return 'modern';
-      })();
-
-      let newSessionUrl = buildNewSessionUrl(iiCanisterId, pubkey, deepLinkType);
-      newSessionUrl += (newSessionUrl.includes('?') ? '&' : '?') + 'debug=1';
-      debugLog('AUTH_FLOW', '🧭 Opening II Debug page:', { newSessionUrl });
-
-      // Always open in in-app browser (SFSafariViewController) for easy copy
-      await openNewSessionInBrowser(newSessionUrl);
-    } catch (e: any) {
-      debugError('AUTH_FLOW', '🧭 Debug login error:', e);
-      Alert.alert('Debug Login Error', e?.message ?? 'Unknown error');
-    }
-  };
-
-  const handleDebugLoginRaw = async () => {
-    try {
-      debugLog('AUTH_FLOW', '🧭 Debug login (raw origins) starting...');
-      const pubkey = await prepareIIKeysAndGetPubKey(secureStorage as any);
-      if (!pubkey) {
-        Alert.alert('Error', 'Failed to prepare keys for II');
-        return;
-      }
-      const iiCanisterId = process.env.EXPO_PUBLIC_II_INTEGRATION_CANISTER_ID || '';
-      const deepLinkType = ((): 'expo-go' | 'dev-client' | 'modern' => {
-        const eas = process.env.EXPO_PUBLIC_EAS_DEEP_LINK_TYPE as any;
-        if (eas === 'expo-go' || eas === 'dev-client' || eas === 'modern') return eas;
-        const appOwnership = (Constants as any).appOwnership as ('expo' | 'guest' | 'standalone' | undefined);
-        if (appOwnership === 'expo') return 'expo-go';
-        if (appOwnership === 'guest') return 'dev-client';
-        return 'modern';
-      })();
-      let newSessionUrl = buildNewSessionUrl(iiCanisterId, pubkey, deepLinkType);
-      newSessionUrl += (newSessionUrl.includes('?') ? '&' : '?') + 'debug=1&redir=raw';
-      debugLog('AUTH_FLOW', '🧭 Opening II Debug page (raw):', { newSessionUrl });
-      await openNewSessionInBrowser(newSessionUrl);
-    } catch (e: any) {
-      debugError('AUTH_FLOW', '🧭 Debug login (raw) error:', e);
-      Alert.alert('Debug Login Error', e?.message ?? 'Unknown error');
-    }
-  };
+  // Removed raw Safari debug handler
 
   return (
     <LinearGradient
@@ -188,22 +104,24 @@ export default function LoginScreen() {
           {/* Login Section */}
           <View style={styles.loginSection}>
             <Text style={styles.sectionTitle}>Get Started</Text>
+            {/* Internet Identity login via expo-icp flow */}
+            <IIAuthButton />
+            <View style={{ height: 8 }} />
             
-            {/* Internet Identity Login */}
-            <View style={styles.loginOption}>
-              <LogIn />
-              <Text style={styles.optionDescription}>
-                Secure login with Internet Identity
-              </Text>
+            {/* Oisy Wallet login */}
+            <TouchableOpacity style={styles.helperButton} onPress={handleOisyLogin}>
+              <Text style={styles.helperText}>Login with Oisy Wallet (Safari)</Text>
+            </TouchableOpacity>
+            <View style={{ height: 8 }} />
+            <TouchableOpacity style={styles.helperButton} onPress={handleGoogleLogin}>
+              <Text style={styles.helperText}>Sign in with Google</Text>
+            </TouchableOpacity>
+            <View style={{ height: 12 }} />
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>OR</Text>
+              <View style={styles.dividerLine} />
             </View>
-
-            {/* Helper actions visible in all builds */}
-            <>
-              <View style={styles.divider}>
-                <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>OR</Text>
-                <View style={styles.dividerLine} />
-              </View>
 
                 <TouchableOpacity
                   style={styles.devButton}
@@ -220,24 +138,7 @@ export default function LoginScreen() {
                   )}
                 </TouchableOpacity>
 
-                {/* Troubleshooting helpers */}
-                <View style={{ height: 12 }} />
-                <TouchableOpacity style={styles.helperButton} onPress={handleResetIIData}>
-                  <Text style={styles.helperText}>Reset II Session Data</Text>
-                </TouchableOpacity>
-                <View style={{ height: 8 }} />
-                <TouchableOpacity style={styles.helperButton} onPress={handleFallbackLogin}>
-                  <Text style={styles.helperText}>Try Alternate Login (AuthSession)</Text>
-                </TouchableOpacity>
-                <View style={{ height: 8 }} />
-                <TouchableOpacity style={styles.helperButton} onPress={handleDebugLogin}>
-                  <Text style={styles.helperText}>Debug II Login (Show authorize URL)</Text>
-                </TouchableOpacity>
-                <View style={{ height: 8 }} />
-                <TouchableOpacity style={styles.helperButton} onPress={handleDebugLoginRaw}>
-                  <Text style={styles.helperText}>Debug II Login (raw origins)</Text>
-                </TouchableOpacity>
-            </>
+                {/* II troubleshooting buttons removed */}
           </View>
 
           {/* Info Section */}

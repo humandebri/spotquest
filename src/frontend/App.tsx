@@ -25,6 +25,7 @@ import { useIIIntegration, IIIntegrationProvider, useIIIntegrationContext } from
 import { buildAppConnectionURL } from 'expo-icp-app-connect-helpers';
 import { getDeepLinkType } from 'expo-icp-frontend-helpers';
 import { DevAuthProvider } from './app/contexts/DevAuthContext';
+import { APP_SCHEME, APP_WEB_URL, AUTH_PROXY_URL } from './app/constants';
 import AppNavigator from './app/navigation/AppNavigator';
 import { GlobalErrorBoundary } from './app/components/GlobalErrorBoundary';
 import { enableJSONParseLogging } from './app/utils/jsonSafeParse';
@@ -34,6 +35,10 @@ import { debugStorage } from './app/utils/debugStorage';
 import { patchExpoIIIntegration } from './app/utils/expoIIIntegrationPatch';
 import { patchEd25519KeyIdentity } from './app/utils/ed25519Fix';
 import { debugLog } from './app/utils/debugConfig';
+import { useIIAuthStore } from './app/store/iiAuthStore';
+import { Principal } from '@dfinity/principal';
+import { getOrCreateSessionIdentity } from './app/utils/sessionKeys';
+import { parseDelegationString, buildDelegationIdentity } from './app/utils/oisyDelegation';
 import { secureStorage, regularStorage } from './app/storage';
 import { cryptoModule } from './app/crypto';
 
@@ -104,8 +109,8 @@ function AppContent() {
   const appOwnershipLocal = (Constants as any).appOwnership as ('expo' | 'guest' | 'standalone' | undefined);
   const isExpoGoLocal = appOwnershipLocal === 'expo';
   const prefixes = isExpoGoLocal
-    ? [Linking.createURL('/'), 'https://spotquest.app', 'https://auth.expo.dev/@hude/spotquest']
-    : [Linking.createURL('/'), 'https://spotquest.app'];
+    ? [Linking.createURL('/'), APP_WEB_URL, AUTH_PROXY_URL]
+    : [Linking.createURL('/'), APP_WEB_URL];
 
   const linking = {
     prefixes,
@@ -160,14 +165,14 @@ function AppWithAuth() {
     if (isExpoGo || easDeepLinkType === 'expo-go') {
       // For Expo Go, use the proxy with proper parameters
       const proxyUrl = makeRedirectUri({ 
-        scheme: 'spotquest',
+        scheme: APP_SCHEME,
         preferLocalhost: false,
         isTripleSlashed: true,
       });
       // If makeRedirectUri doesn't return the proxy URL, use it directly
       return proxyUrl.includes('auth.expo') 
         ? proxyUrl 
-        : 'https://auth.expo.dev/@hude/spotquest';
+        : AUTH_PROXY_URL;
     }
     // For dev builds and production, use custom scheme
     return Linking.createURL('/');
@@ -225,22 +230,100 @@ function AppWithAuth() {
       try {
         debugLog('DEEP_LINKS', '🔗 Processing URL:', inputUrl);
         const url = new URL(inputUrl);
-        const sessionId = url.searchParams.get('session-id');
-        if (sessionId) {
-          debugLog('AUTH_FLOW', '🔗 Received session-id from deep link:', sessionId);
-          try {
-            await (secureStorage as any).setItem?.('expo-ii-integration.sessionId', sessionId);
-          } catch (e) {
-            // ignore
+        // Oisy Wallet return handler
+        if (url.pathname.replace(/^\//, '') === 'wallet-connect') {
+          const principalText = url.searchParams.get('principal') || url.searchParams.get('pid') || '';
+          const delegationStr = url.searchParams.get('delegation') || url.searchParams.get('id_token') || '';
+          // Accept delegation passed via fragment as well
+          if (!delegationStr && inputUrl.includes('#')) {
+            try {
+              const h = inputUrl.split('#')[1];
+              const hsp = new URLSearchParams(h);
+              const del = hsp.get('delegation') || hsp.get('id_token');
+              if (del) {
+                const sessionSigner = await getOrCreateSessionIdentity(secureStorage as any);
+                const delegationJson = parseDelegationString(del);
+                if (delegationJson) {
+                  const identity = buildDelegationIdentity(sessionSigner, delegationJson);
+                  const princ = identity.getPrincipal();
+                  useIIAuthStore.getState().setAuthenticated(princ, identity as any);
+                  debugLog('AUTH_FLOW', '✅ Oisy delegation applied from fragment. Principal:', princ.toString());
+                  return;
+                }
+              }
+            } catch {}
           }
-          // Nudge the integration to re-check identity
-          try {
-            // @ts-ignore - not part of public types but usually present
-            if (typeof iiIntegration.getIdentity === 'function') {
-              await iiIntegration.getIdentity();
+          debugLog('AUTH_FLOW', '🔗 Oisy return:', { hasPrincipal: !!principalText, hasDelegation: !!delegationStr });
+          if (delegationStr) {
+            try {
+              const sessionSigner = await getOrCreateSessionIdentity(secureStorage as any);
+              const delegationJson = parseDelegationString(delegationStr);
+              if (delegationJson) {
+                const identity = buildDelegationIdentity(sessionSigner, delegationJson);
+                const princ = identity.getPrincipal();
+                useIIAuthStore.getState().setAuthenticated(princ, identity as any);
+                debugLog('AUTH_FLOW', '✅ Oisy delegation applied. Principal:', princ.toString());
+                return;
+              }
+            } catch (e) {
+              debugLog('AUTH_FLOW', '❌ Failed to build Oisy DelegationIdentity', e);
             }
-          } catch {}
+          }
+          if (principalText) {
+            try {
+              const princ = Principal.fromText(principalText);
+              const placeholder = await getOrCreateSessionIdentity(secureStorage as any);
+              useIIAuthStore.getState().setAuthenticated(princ, placeholder as any);
+              debugLog('AUTH_FLOW', '✅ Oisy principal applied (no delegation)');
+            } catch {}
+          }
+          return;
         }
+        // Accept multiple param names for session
+        const sessionId = url.searchParams.get('session-id') || url.searchParams.get('state') || url.searchParams.get('sessionId');
+        const idToken = url.searchParams.get('id_token');
+        const delegation = url.searchParams.get('delegation');
+        const userPublicKey = url.searchParams.get('userPublicKey') || url.searchParams.get('user_public_key') || url.searchParams.get('publicKey');
+        const delegationPubkey = url.searchParams.get('delegation_pubkey') || url.searchParams.get('delegationPubkey') || '';
+
+        if (!sessionId) return;
+
+        debugLog('AUTH_FLOW', '🔗 Deep link session:', { sessionId, hasIdToken: !!idToken, hasDelegation: !!delegation });
+
+        try {
+          await (secureStorage as any).setItem?.('expo-ii-integration.sessionId', sessionId);
+        } catch {}
+
+        const II_CANISTER = process.env.EXPO_PUBLIC_II_INTEGRATION_CANISTER_ID || '';
+        const iiBase = II_CANISTER ? `https://${II_CANISTER}.icp0.io` : '';
+
+        // If delegation info present (Expo proxy with response_mode=query), persist to canister
+        if (iiBase && (idToken || delegation)) {
+          const body = {
+            delegation: delegation || idToken,
+            userPublicKey: userPublicKey || '',
+            delegationPubkey: delegationPubkey || '',
+          };
+          try {
+            await fetch(`${iiBase}/api/session/${sessionId}/delegate`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+            await fetch(`${iiBase}/api/session/${sessionId}/close`, { method: 'POST' });
+            debugLog('AUTH_FLOW', '✅ Delegation saved via app');
+          } catch (e) {
+            debugLog('AUTH_FLOW', '❌ Failed to save delegation via app', e);
+          }
+        }
+
+        // Nudge the integration to re-check identity
+        try {
+          // @ts-ignore - not part of public types but usually present
+          if (typeof iiIntegration.getIdentity === 'function') {
+            await iiIntegration.getIdentity();
+          }
+        } catch {}
       } catch {}
     };
 

@@ -1,10 +1,10 @@
 {
   "version": 1,
   "canisters": {
-    "unified": {
+    "main_canister": {
       "type": "motoko",
-      "main": "src/backend/unified/main.mo",
-      "packtool": "cd src/backend/unified && mops sources"
+      "main": "src/backend/main_canister/main.mo",
+      "packtool": "cd src/backend/main_canister && mops sources"
     },
     "frontend": {
       "type": "assets",

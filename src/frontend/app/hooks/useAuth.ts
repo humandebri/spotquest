@@ -123,12 +123,17 @@ export function useAuth() {
     }
   }, [iiIntegration.login]);
 
+  const isLoadingComputed = React.useMemo(() => {
+    if (storeAuthenticated) return false;
+    return isDevMode ? false : !iiIntegration.isAuthReady;
+  }, [storeAuthenticated, isDevMode, iiIntegration.isAuthReady]);
+
   return {
     // State from store (properly synced)
     isAuthenticated: storeAuthenticated,
     principal: storePrincipal,
     identity: storeIdentity,
-    isLoading: isDevMode ? false : !iiIntegration.isAuthReady,
+    isLoading: isLoadingComputed,
     error: isDevMode ? null : (iiIntegration.authError ? String(iiIntegration.authError) : null),
     isAdmin,
     isDevMode,

@@ -55,12 +55,12 @@ Perfect guess (≤10m) = 5000 points
 
 ## 🏗️ Technical Architecture
 
-### Unified Canister Architecture
+### Main Canister Architecture
 
 We implemented a monolithic canister design that consolidates all functionality:
 
 ```
-unified_canister/
+main_canister/
 ├── TokenModule (ICRC-1)      # SPOT token implementation
 ├── GameEngineModule          # Core game logic
 ├── PhotoModuleV2             # Photo storage & retrieval

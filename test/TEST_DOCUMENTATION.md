@@ -1,7 +1,7 @@
-# Unified Canister Test Documentation
+# Main Canister Test Documentation
 
 ## Overview
-This document describes the comprehensive test suite for the unified canister. These tests should be run before and after any refactoring to ensure functionality is preserved.
+This document describes the comprehensive test suite for the main canister. These tests should be run before and after any refactoring to ensure functionality is preserved.
 
 ## Test Files
 

@@ -42,6 +42,8 @@ import CertifiedAssets "mo:certified-assets";
 import Blob "mo:base/Blob";
 import CertifiedData "mo:base/CertifiedData";
 import HttpTypes "mo:http-types";
+import Cycles "mo:base/ExperimentalCycles";
+import Nat64 "mo:base/Nat64";
 
 actor GameUnified {
     // ======================================
@@ -215,6 +217,37 @@ actor GameUnified {
     
     // Player stats stable storage
     private stable var playerStatsStable : ?[(Principal, PlayerStatsModule.PlayerStats)] = null;
+    
+    // ======================================
+    // CALLBACK METRICS (debug)
+    // ======================================
+    private stable var callbackHits : Nat = 0;
+    private stable var callbackLastAt : Time.Time = 0;
+
+    // Recent debug logs (most recent last). Keep up to 200 entries
+    private stable var recentLogs : [Text] = [];
+
+    private func nowText() : Text {
+        Int.toText(Time.now())
+    };
+
+    private func addLog(msg: Text) : () {
+        let entry = nowText() # " " # msg;
+        // Append and trim to 200
+        let newSize = recentLogs.size() + 1;
+        if (newSize <= 200) {
+            recentLogs := Array.append<Text>(recentLogs, [entry]);
+        } else {
+            // Drop the oldest 1 item
+            if (recentLogs.size() > 0) {
+                let tail = Array.tabulate<Text>(recentLogs.size() - 1, func(i) = recentLogs[i+1]);
+                recentLogs := Array.append<Text>(tail, [entry]);
+            } else {
+                recentLogs := [entry];
+            };
+        };
+        Debug.print("📝 [LOG] " # entry);
+    };
     
     // Game limits stable storage (old format for compatibility)
     private stable var gameLimitsStable : ?{
@@ -3086,6 +3119,104 @@ actor GameUnified {
             upgrade = null;
         }
     };
+
+    // Helper function to create plain text response
+    private func textResponse(text: Text, statusCode: Nat16) : HttpResponse {
+        {
+            body = Text.encodeUtf8(text);
+            headers = [
+                ("Content-Type", "text/plain; charset=utf-8"),
+                ("Access-Control-Allow-Origin", "*"),
+                ("Access-Control-Allow-Methods", "GET, POST, OPTIONS"),
+                ("Access-Control-Allow-Headers", "Content-Type")
+            ];
+            status_code = statusCode;
+            streaming_strategy = null;
+            upgrade = null;
+        }
+    };
+
+  // =============================
+  // id.ai v2 PAR (Pushed Auth Request) support
+  // Config (set via admin function below). Disabled by default.
+  private stable var idaiParEnabled : Bool = false;
+  private stable var idaiParEndpoint : Text = ""; // e.g., https://id.ai/oauth2/par
+  private stable var idaiClientId : Text = "";    // if empty, fallback to originOnly
+  // Optional Authorization header value (e.g., "Basic base64(client_id:secret)" or "Bearer <JWT>")
+  private stable var idaiAuthHeader : ?Text = null;
+
+  // Admin-only setter for PAR config
+  public shared(msg) func setIdaiParConfig(enabled: Bool, endpoint: Text, clientId: Text, authHeader: ?Text) : async Result.Result<(), Text> {
+    if (msg.caller != owner) { return #err("Only owner can set config"); };
+    idaiParEnabled := enabled;
+    idaiParEndpoint := endpoint;
+    idaiClientId := clientId;
+    idaiAuthHeader := authHeader;
+    #ok(())
+  };
+
+  // Minimal URL encoding for x-www-form-urlencoded (subset)
+  private func formEncode(s: Text) : Text {
+    var t = s;
+    t := Text.replace(t, #char '%', "%25");
+    t := Text.replace(t, #char ' ', "+");
+    t := Text.replace(t, #char '&', "%26");
+    t := Text.replace(t, #char '=', "%3D");
+    t := Text.replace(t, #char ':', "%3A");
+    t := Text.replace(t, #char '/', "%2F");
+    t := Text.replace(t, #char '?', "%3F");
+    t
+  };
+
+  // Types for HTTPS outcall to management canister
+  type HeaderField = (Text, Text);
+  type OutcallResponse = { status : Nat; body : Blob; headers : [HeaderField] };
+  type TransformArgs = { response : OutcallResponse; context : Blob };
+  type TransformResult = OutcallResponse;
+  type HttpRequestArgs = {
+    url : Text;
+    max_response_bytes : ?Nat64;
+    headers : [HeaderField];
+    body : ?Blob;
+    method : { #get; #post; #head };
+    transform : ?{ function : shared query TransformArgs -> async TransformResult; context : Blob };
+  };
+  let IC : actor { http_request : (HttpRequestArgs) -> async OutcallResponse } = actor ("aaaaa-aa");
+
+  // Attempt PAR against id.ai; return raw response text if successful
+  private func doParRequest(clientId: Text, redirectUri: Text, state: Text, responseMode: Text, responseType: Text, scope: Text) : async ?Text {
+    if (not idaiParEnabled) return null;
+    if (idaiParEndpoint == "") return null;
+    let cid = if (Text.size(idaiClientId) > 0) { idaiClientId } else { clientId };
+    // Build x-www-form-urlencoded body per PAR
+    let bodyText =
+      "client_id=" # formEncode(cid) #
+      "&redirect_uri=" # formEncode(redirectUri) #
+      "&response_type=" # formEncode(responseType) #
+      "&response_mode=" # formEncode(responseMode) #
+      "&scope=" # formEncode(scope) #
+      "&state=" # formEncode(state) #
+      "&nonce=" # formEncode(state);
+    let headersBase : [HeaderField] = [("Content-Type", "application/x-www-form-urlencoded")];
+    let headers : [HeaderField] = switch (idaiAuthHeader) {
+      case null headersBase;
+      case (?h) Array.append<HeaderField>(headersBase, [("Authorization", h)])
+    };
+
+    let args : HttpRequestArgs = {
+      url = idaiParEndpoint;
+      max_response_bytes = ?(1_000_000 : Nat64);
+      headers = headers;
+      body = ?Text.encodeUtf8(bodyText);
+      method = #post;
+      transform = null;
+    };
+    // Add some cycles for the outcall
+    Cycles.add<system>(200_000_000);
+    let resp = await IC.http_request(args);
+    let txt = switch (Text.decodeUtf8(resp.body)) { case null ""; case (?t) t };
+    if (resp.status >= 200 and resp.status < 300) { ?txt } else { null }
+  };
     
     // Get request body as text
     private func getBodyText(body: Blob) : Text {
@@ -3121,6 +3252,27 @@ actor GameUnified {
         let path = switch (Text.split(fullPath, #char '?').next()) {
             case null { fullPath };
             case (?p) { p };
+        };
+
+        // API: metrics endpoint must be handled here (update call) to avoid 503 on icp0.io
+        if (path == "/api/metrics/callback") {
+            let lastAtText = Int.toText(callbackLastAt);
+            let json = "{\"hits\":" # Nat.toText(callbackHits) # ",\"lastAt\":\"" # lastAtText # "\"}";
+            return jsonResponse(json, 200);
+        };
+
+        if (path == "/api/metrics/logs") {
+            // Return recent logs as JSON array
+            var json = "[";
+            var first = true;
+            for (t in recentLogs.vals()) {
+                if (first) { first := false } else { json #= "," };
+                // naive string escape: replace " with ' to keep it simple
+                let safe = Text.replace(t, #text "\"", "'");
+                json #= "\"" # safe # "\"";
+            };
+            json #= "]";
+            return jsonResponse(json, 200);
         };
         
         // Handle non-API paths with certified responses
@@ -4224,6 +4376,11 @@ actor GameUnified {
         
         // Handle GET/HEAD /callback - II callback page
         if ((req.method == "GET" or req.method == "HEAD") and path == "/callback") {
+            if (req.method == "GET") {
+                callbackHits += 1;
+                callbackLastAt := Time.now();
+                addLog("callback GET received: " # req.url);
+            };
             // Callback page that handles II response and redirects to Expo
             let html = "<!DOCTYPE html>" #
                       "<html>" #
@@ -4340,6 +4497,7 @@ actor GameUnified {
                       "        console.log('Redirect URI from session:', redirectUri);" #
                       "        const sep = redirectUri.includes('?') ? '&' : '?';" #
                       "        const finalRedirect = redirectUri + sep + 'session-id=' + encodeURIComponent(state);" #
+                      "        try { fetch('/api/metrics/logs?note=' + encodeURIComponent('finalRedirect:' + finalRedirect)); } catch (e) {}" #
                       "        " #
                       "        // Close the session to mark it as ready" #
                       "        await fetch('/api/session/' + state + '/close', {" #
@@ -4401,6 +4559,52 @@ actor GameUnified {
                 };
             };
             
+            return htmlResponse(html, 200);
+        };
+
+        // Handle GET/HEAD /wallet-return - Generic wallet return bridge to custom scheme
+        if ((req.method == "GET" or req.method == "HEAD") and path == "/wallet-return") {
+            if (req.method == "GET") {
+                addLog("wallet-return GET received: " # req.url);
+            } else {
+                addLog("wallet-return HEAD received: " # req.url);
+            };
+            let html = "<!DOCTYPE html>" #
+                      "<html><head><meta charset='utf-8'><title>Returning to App…</title>" #
+                      "<meta name='viewport' content='width=device-width, initial-scale=1'>" #
+                      "</head><body>" #
+                      "<div style='font-family:-apple-system,system-ui,Segoe UI,Roboto; padding:24px; text-align:center; color:#0b2533;'>" #
+                      "  <h2 style='margin:0 0 8px'>認証が完了しました</h2>" #
+                      "  <p style='margin:0 0 16px'>アプリに戻ります…</p>" #
+                      "  <a id='manual' href='spotquest:///wallet-connect' style='display:inline-block; padding:12px 16px; background:#2aa9e0; color:#fff; border-radius:10px; text-decoration:none; font-weight:600;'>SpotQuestに戻る</a>" #
+                      "  <div id='deeplink' style='margin-top:10px; font-size:12px; opacity:.7; word-break:break-all;'>spotquest:///wallet-connect</div>" #
+                      "</div>" #
+                      "<script>" #
+                      "(function(){" #
+                      "  try {" #
+                      "    var href = window.location.href;" #
+                      "    var qs = href.split('?')[1]||'';" #
+                      "    var hash = href.split('#')[1]||'';" #
+                      "    var sep = qs ? '?' : (hash ? '?' : '');" #
+                      "    var extra = qs ? ('?' + qs) : (hash ? ('?' + hash) : '');" #
+                      "    var finalUrl = 'spotquest:///wallet-connect' + extra;" #
+                      "    var a = document.getElementById('manual'); if (a) a.href = finalUrl;" #
+                      "    var d = document.getElementById('deeplink'); if (d) d.textContent = finalUrl;" #
+                      "    window.location.href = finalUrl;" #
+                      "    setTimeout(function(){ try{ window.location.replace(finalUrl); }catch(e){} }, 100);" #
+                      "  } catch(e) { console.error(e); }" #
+                      "})();" #
+                      "</script>" #
+                      "</body></html>";
+            if (req.method == "HEAD") {
+                return {
+                    status_code = 200;
+                    headers = [("Content-Type", "text/html; charset=utf-8")];
+                    body = Text.encodeUtf8("");
+                    streaming_strategy = null;
+                    upgrade = null;
+                };
+            };
             return htmlResponse(html, 200);
         };
         
@@ -4474,6 +4678,7 @@ actor GameUnified {
         // Handle GET / or /newSession - Check session-id parameter and redirect appropriately
         // Handle both root path and /newSession path with query parameters (for auth flow)
         if (req.method == "GET" and (path == "/" or path == "" or path == "/newSession") and Text.contains(fullPath, #text "?")) {
+            addLog("newSession request: " # fullPath);
             // Parse query parameters
             let urlParts = Text.split(fullPath, #text "?");
             var publicKey = "";
@@ -4523,8 +4728,14 @@ actor GameUnified {
             
             // If publicKey exists, this is the initial request - redirect to II
             if (publicKey != "") {
-                // Create a new session synchronously - use raw domain
-                let canisterOrigin = getCanisterOrigin();
+                // Create a new session synchronously - choose callback origin (raw/icp0)
+                let canisterIdForUrl = getCanisterId();
+                let baseCertified = "https://" # canisterIdForUrl # ".ic0.app";
+                let baseRaw = "https://" # canisterIdForUrl # ".raw.icp0.io";
+                // expo proxy full URL
+                let expoProxyFull = "https://auth.expo.dev/@hude/spotquest";
+                let callbackOrigin = if (Text.equal(redirPref, "raw")) { baseRaw } else { baseCertified };
+                let canisterOrigin = if (Text.equal(redirPref, "expo")) { expoProxyFull } else { callbackOrigin };
                 
                 // Check if this is a native app (mobile) or web
                 // Treat dev-client/modern/legacy as native; expo-go uses web proxy
@@ -4544,12 +4755,18 @@ actor GameUnified {
                     // Build authorize URL using certified client_id and raw redirect_uri
                     let canisterIdForUrl = getCanisterId();
                     // Choose origin pair based on preference
-                    let baseCertified = "https://" # canisterIdForUrl # ".icp0.io";
+                    let baseCertified = "https://" # canisterIdForUrl # ".ic0.app";
                     let baseRaw = "https://" # canisterIdForUrl # ".raw.icp0.io";
-                    let clientIdOrigin = if (Text.equal(redirPref, "raw")) { baseRaw } else { baseCertified };
-                    let callbackOrigin = clientIdOrigin;
-                    let callbackUrlForIi = callbackOrigin # "/callback";
-                    // Percent-encode redirect_uri
+                    // Build callback for II. When using Expo proxy, include returnUrl so proxy can deep-link back to the app
+                    let callbackUrlForIiBase = if (Text.equal(redirPref, "expo")) { expoProxyFull } else { callbackOrigin # "/callback" };
+                    let nativeReturn = nativeRedirectUri # "?session-id=" # response.sessionId; // e.g., spotquest:///?session-id=<id>
+                    let callbackUrlForIi = if (Text.equal(redirPref, "expo")) {
+                        // Append returnUrl query so Expo proxy knows where to send the final redirect
+                        callbackUrlForIiBase # "?returnUrl=" # nativeReturn
+                    } else {
+                        callbackUrlForIiBase
+                    };
+                    // Percent-encode redirectUri
                     var encodedCallback = callbackUrlForIi;
                     encodedCallback := Text.replace(encodedCallback, #char ':', "%3A");
                     encodedCallback := Text.replace(encodedCallback, #char '/', "%2F");
@@ -4558,12 +4775,20 @@ actor GameUnified {
                     encodedCallback := Text.replace(encodedCallback, #char '&', "%26");
                     encodedCallback := Text.replace(encodedCallback, #char '=', "%3D");
                     encodedCallback := Text.replace(encodedCallback, #char '@', "%40");
-                    let authorizeUrl = "https://id.ai/#authorize?" #
-                        "client_id=" # clientIdOrigin # "&" #
-                        "redirect_uri=" # encodedCallback # "&" #
+                    let originOnly = if (Text.equal(redirPref, "expo")) { "https://auth.expo.dev" } else { callbackOrigin };
+                    // Force redirect-based response (avoid web_message). Use query for Expo proxy.
+                    let responseMode = if (Text.equal(redirPref, "expo")) { "query" } else { "fragment" };
+                    // Use legacy authorize hash route for compatibility
+                    let authorizeUrl = "https://identity.ic0.app/#authorize?" #
+                        "sessionId=" # response.sessionId # "&" #
                         "state=" # response.sessionId # "&" #
-                        "response_type=token&scope=openid&nonce=" # response.sessionId #
-                        "&prompt=login";
+                        "derivationOrigin=" # originOnly # "&" #
+                        "scope=openid&" #
+                        "client_id=" # originOnly # "&" #
+                        "response_mode=" # responseMode # "&" #
+                        "response_type=token&" #
+                        "prompt=consent&" #
+                        "redirect_uri=" # encodedCallback;
 
                     // If debug mode, show an intermediate page with the exact authorize URL
                     if (debugMode) {
@@ -4581,8 +4806,7 @@ actor GameUnified {
                               "<div class='small'>Callback: " # callbackUrlForIi # "</div>" #
                               "<a class='btn' href='" # callbackUrlForIi # "'>Open callback (should show Redirecting...)</a>" #
                               "<h3 style='margin-top:20px'>Origins</h3>" #
-                              "<div class='small'>client_id: " # clientIdOrigin # "</div>" #
-                              "<div class='small'>redirect_uri: " # callbackOrigin # "/callback</div>" #
+                              "<div class='small'>redirectUri: " # callbackOrigin # "/callback</div>" #
                               "<p class='small'>If it doesn't open, long-press to copy and paste in Safari.</p>" #
                               "<script>" #
                               "const url='" # authorizeUrl # "';" #
@@ -4593,6 +4817,7 @@ actor GameUnified {
                         return htmlResponse(debugHtml, 200);
                     };
 
+                    addLog("authorize url: " # authorizeUrl);
                     // Return redirect HTML using the computed authorize URL
                     let redirectHtml = "<!DOCTYPE html>" #
                               "<html>" #
@@ -4705,6 +4930,7 @@ actor GameUnified {
         // Special handling for HEAD /callback
         if (req.method == "HEAD" and path == "/callback") {
             Debug.print("✅ [HEAD_CALLBACK] Returning 200 for HEAD /callback");
+            addLog("callback HEAD received: " # req.url);
             // Internet Identity checks redirect_uri with HEAD request
             return {
                 status_code = 200;
@@ -4713,6 +4939,13 @@ actor GameUnified {
                 streaming_strategy = null;
                 upgrade = null;
             };
+        };
+
+        // Lightweight metrics endpoint (query only)
+        if (req.method == "GET" and path == "/api/metrics/callback") {
+            let lastAtText = Int.toText(callbackLastAt);
+            let json = "{\"hits\":" # Nat.toText(callbackHits) # ",\"lastAt\":\"" # lastAtText # "\"}";
+            return jsonResponse(json, 200);
         };
         
         if (path == "/newSession" or path == "/callback" or Text.startsWith(path, #text "/api/")) {
@@ -4731,7 +4964,57 @@ actor GameUnified {
     };
     
     public func http_request_update(req: HttpRequest) : async HttpResponse {
-        // Handle all requests through the common handler
+        // Dynamic endpoints can perform async operations here
+        let fullPath = req.url;
+        let path = switch (Text.split(fullPath, #char '?').next()) {
+            case null { fullPath };
+            case (?p) { p };
+        };
+        // id.ai PAR endpoint
+        if (Text.startsWith(path, #text "/api/idai/par")) {
+            // Parse query params
+            var sessionId = "";
+            var redirect = "";
+            var origin = "";
+            var responseMode = "fragment";
+            var responseType = "token";
+            var scope = "openid";
+            let parts = Text.split(fullPath, #char '?');
+            ignore parts.next();
+            switch (parts.next()) {
+                case null {};
+                case (?qs) {
+                    let kvs = Text.split(qs, #text "&");
+                    for (kv in kvs) {
+                        let p = Text.split(kv, #text "=");
+                        switch (p.next()) { case null {}; case (?k) {
+                            switch (p.next()) { case null {}; case (?v) {
+                                if (k == "sessionId") sessionId := v else
+                                if (k == "redirect") redirect := v else
+                                if (k == "origin") origin := v else
+                                if (k == "response_mode") responseMode := v else
+                                if (k == "response_type") responseType := v else
+                                if (k == "scope") scope := v;
+                            }}
+                        }}
+                    }
+                }
+            };
+            if (not idaiParEnabled) {
+                return jsonResponse("{\"error\":\"PAR disabled\"}", 400);
+            };
+            if (idaiParEndpoint == "") {
+                return jsonResponse("{\"error\":\"PAR endpoint not configured\"}", 400);
+            };
+            // Prefer configured clientId if provided; fallback to origin
+            let clientId = if (Text.size(idaiClientId) > 0) { idaiClientId } else { origin };
+            let raw = await doParRequest(clientId, redirect, sessionId, responseMode, responseType, scope);
+            switch (raw) {
+                case null { return textResponse("PAR failed", 500) };
+                case (?txt) { return textResponse(txt, 200) };
+            };
+        };
+        // Fallback: use common handler (synchronous)
         handleHttpRequest(req)
     };
     

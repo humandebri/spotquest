@@ -14,10 +14,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Critical Architecture Decisions
 
 ### Canister Architecture
-The project uses a **unified canister** approach (`src/backend/unified/main.mo`) that combines all backend functionality:
+The project uses a **main canister** approach (`src/backend/main_canister/main.mo`) that combines all backend functionality:
 - All data is stored in stable memory and must be preserved during upgrades
 - **NEVER use `--mode reinstall`** when deploying - this will delete all user data
-- The frontend canister is legacy - all functionality is in the unified canister
+- The frontend canister is legacy - all functionality is in the main canister
 
 ### Authentication Flow
 - Production: Internet Identity via AuthSession and expo-auth-session
@@ -60,20 +60,20 @@ npm run web
 ### Backend Development
 ```bash
 # Deploy to mainnet (preserves data)
-dfx deploy unified --network ic
+dfx deploy main_canister --network ic
 
 # Generate IDL after backend changes
-dfx generate unified
+dfx generate main_canister
 
 # Check canister status
-dfx canister --network ic status unified
+dfx canister --network ic status main_canister
 
 # View logs
-dfx canister --network ic logs unified
+dfx canister --network ic logs main_canister
 
 # Local development
 dfx start --clean
-dfx deploy unified
+dfx deploy main_canister
 ```
 
 ### Mobile App Building (EAS)
@@ -137,7 +137,7 @@ if (result.err) {
 
 ## Module Organization
 
-### Backend Modules (`src/backend/unified/modules/`)
+### Backend Modules (`src/backend/main_canister/modules/`)
 - `TokenModule.mo`: ICRC-1 SPOT token (2 decimals, 10M supply)
 - `GameEngineModule.mo`: Core game logic, session management
 - `PhotoModuleV2.mo`: Photo storage and retrieval
@@ -166,7 +166,7 @@ utils/           # Helper functions
 
 ### TypeScript/IDL Mismatch
 After backend changes:
-1. `dfx generate unified`
+1. `dfx generate main_canister`
 2. Update IDL in `src/frontend/src/services/game.ts`
 3. Fix any TypeScript errors
 
@@ -365,13 +365,13 @@ const iiIntegrationUrl = buildAppConnectionURL({
    - 将来的な移行計画を作成
 
 3. **メインネットへのデプロイ**
-   - `dfx deploy unified --network ic`でバックエンドをデプロイ
+   - `dfx deploy main_canister --network ic`でバックエンドをデプロイ
    - Canister ID: 77fv5-oiaaa-aaaal-qsoea-cai
    - フロントエンドをポート8082で起動してテスト準備
 
 **変更ファイル**:
-- `/src/backend/unified/main.mo` - canisterOriginを`.icp0.io`に戻した
-- `/src/backend/unified/modules/IIIntegrationModule.mo` - response_typeを"token"に変更
+- `/src/backend/main_canister/main.mo` - canisterOriginを`.icp0.io`に戻した
+- `/src/backend/main_canister/modules/IIIntegrationModule.mo` - response_typeを"token"に変更
 - `/src/frontend/src/hooks/useIIAuthSessionV6.tsx` - tokenEndpoint追加、useProxyフラグ追加
 
 **未解決の課題**:
@@ -459,7 +459,7 @@ const iiIntegrationUrl = buildAppConnectionURL({
 - `/src/frontend/App.tsx` - buildAppConnectionURLとgetDeepLinkTypeを使用
 - `/src/frontend/src/components/LogIn.tsx` - シンプルな実装に置き換え
 - `/src/frontend/src/services/game.ts` - II関連メソッドを削除
-- `/src/backend/unified/main.mo` - ii-callback.htmlエンドポイントを削除
+- `/src/backend/main_canister/main.mo` - ii-callback.htmlエンドポイントを削除
 
 ### 2025-07-24 - Response Verification Errorの修正
 
@@ -481,7 +481,7 @@ const iiIntegrationUrl = buildAppConnectionURL({
 - これにより、実際の処理は`http_request_update`で行われ、証明書の検証問題を回避
 
 **変更ファイル**:
-- `/src/backend/unified/main.mo` - HTTP処理の再構造化
+- `/src/backend/main_canister/main.mo` - HTTP処理の再構造化
 
 **注意事項**:
 - デプロイにはキャニスターへのcycles追加が必要（最低221,204,655,923 cycles）
@@ -496,7 +496,7 @@ const iiIntegrationUrl = buildAppConnectionURL({
    - 最終残高：3,986,299,334,572 cycles（約4T cycles）
 
 2. **メインネットデプロイ**
-   - `dfx deploy unified --network ic`でデプロイ成功
+- `dfx deploy main_canister --network ic`でデプロイ成功
    - Response Verification Error修正が本番環境に反映
    - フロントエンドURL: https://7yetj-dqaaa-aaaal-qsoeq-cai.icp0.io/
    - バックエンドCandid: https://a4gq6-oaaaa-aaaab-qaa4q-cai.raw.icp0.io/?id=77fv5-oiaaa-aaaal-qsoea-cai
@@ -581,10 +581,10 @@ let authorizeUrl = "https://identity.ic0.app/#authorize?" #
    - ネイティブアプリが認証後に正しく動作する
 
 **変更ファイル**:
-- `/src/backend/unified/main.mo` - lines 4451-4491のネイティブアプリ処理
+- `/src/backend/main_canister/main.mo` - lines 4451-4491のネイティブアプリ処理
 
 **デプロイ**:
-- `dfx deploy unified --network ic`でメインネットにデプロイ完了
+- `dfx deploy main_canister --network ic`でメインネットにデプロイ完了
 - Canister ID: 77fv5-oiaaa-aaaal-qsoea-cai
 
 ### 2025-07-25 - /callbackのURLエンコーディング問題の修正
@@ -613,10 +613,10 @@ callbackUrl := canisterOrigin # "/callback?redirect-uri=" # nativeRedirectUri;
 - 結果的に、ネイティブアプリへのリダイレクトが機能するようになる
 
 **変更ファイル**:
-- `/src/backend/unified/main.mo` - lines 4455-4457のURLエンコーディング処理を削除
+- `/src/backend/main_canister/main.mo` - lines 4455-4457のURLエンコーディング処理を削除
 
 **デプロイ**:
-- `dfx deploy unified --network ic`でメインネットにデプロイ完了
+- `dfx deploy main_canister --network ic`でメインネットにデプロイ完了
 
 ### 2025-07-25 - /callbackエンドポイントの完全修正
 
@@ -671,10 +671,10 @@ callbackUrl := canisterOrigin # "/callback?redirect-uri=" # nativeRedirectUri;
 - /callbackがupgrade経由で正しく処理されるようになった
 
 **変更ファイル**:
-- `/src/backend/unified/main.mo` - 4箇所の修正
+- `/src/backend/main_canister/main.mo` - 4箇所の修正
 
 **デプロイ**:
-- `dfx deploy unified --network ic`でメインネットにデプロイ完了
+- `dfx deploy main_canister --network ic`でメインネットにデプロイ完了
 - 2025-07-25 05:14:47 UTCに反映
 
 ### 2025-07-25 - AuthSession redirectURI一致問題の修正
@@ -704,10 +704,10 @@ let nativeRedirectUri = "spotquest:///--/auth";
 3. AuthSessionが認識 → セッション完了
 
 **変更ファイル**:
-- `/src/backend/unified/main.mo` - line 4456のnativeRedirectUri
+- `/src/backend/main_canister/main.mo` - line 4456のnativeRedirectUri
 
 **デプロイ**:
-- `dfx deploy unified --network ic`でメインネットにデプロイ完了
+- `dfx deploy main_canister --network ic`でメインネットにデプロイ完了
 - 2025-07-25 05:17:00 UTCに反映
 
 ### 2025-07-25 - /callbackのJavaScript改善とデバッグ機能追加
@@ -746,11 +746,11 @@ let nativeRedirectUri = "spotquest:///--/auth";
 - デバッグ情報により、実際のredirectURIの形式を確認可能
 
 **変更ファイル**:
-- `/src/backend/unified/main.mo` - /callbackのJavaScript改善
+- `/src/backend/main_canister/main.mo` - /callbackのJavaScript改善
 - `/src/frontend/App.tsx` - デバッグログ追加
 
 **デプロイ**:
-- `dfx deploy unified --network ic`でメインネットにデプロイ完了
+- `dfx deploy main_canister --network ic`でメインネットにデプロイ完了
 - 2025-07-25 05:26:00 UTCに反映
 
 **確認結果**:
@@ -782,7 +782,7 @@ let nativeRedirectUri = "spotquest:///";
 6. フロントエンドのAuthSessionが認識 → セッション完了
 
 **変更ファイル**:
-- `/src/backend/unified/main.mo` - line 4470のnativeRedirectUri
+- `/src/backend/main_canister/main.mo` - line 4470のnativeRedirectUri
 
 **デプロイ**:
 - `dfx deploy unified --network ic`でメインネットにデプロイ完了
@@ -822,8 +822,8 @@ let nativeRedirectUri = "spotquest:///";
 - 将来的な拡張が容易（セッションに追加のメタデータを保存可能）
 
 **変更ファイル**:
-- `/src/backend/unified/modules/IIIntegrationModule.mo` - newSession関数のシグネチャ変更
-- `/src/backend/unified/main.mo` - /newSession、/callback、/api/session/:id/infoの実装を更新
+- `/src/backend/main_canister/modules/IIIntegrationModule.mo` - newSession関数のシグネチャ変更
+- `/src/backend/main_canister/main.mo` - /newSession、/callback、/api/session/:id/infoの実装を更新
 
 **デプロイ結果**:
 - メインネットへのデプロイ完了
@@ -887,8 +887,8 @@ let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.ic0.app";
 - Internet Identityは実際にはrawドメインを使用してredirect_uriをチェックするため、認証フローは正常に動作する
 
 **変更ファイル**:
-- `/src/backend/unified/main.mo` - HEADリクエストハンドラーの追加とドメイン修正
-- `/src/backend/unified/modules/IIIntegrationModule.mo` - identityドメインの修正
+- `/src/backend/main_canister/main.mo` - HEADリクエストハンドラーの追加とドメイン修正
+- `/src/backend/main_canister/modules/IIIntegrationModule.mo` - identityドメインの修正
 
 **検証結果**:
 - `curl -I https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io/callback` → HTTP/2 200 ✅
@@ -933,8 +933,8 @@ let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.ic0.app";
 
 **実施内容**:
 1. **バックエンドの更新**
-   - `/src/backend/unified/main.mo` - authorizeURL内の`identity.internetcomputer.org`を`id.ai`に変更
-   - `/src/backend/unified/modules/IIIntegrationModule.mo` - 2箇所のII URLを`id.ai`に更新
+   - `/src/backend/main_canister/main.mo` - authorizeURL内の`identity.internetcomputer.org`を`id.ai`に変更
+   - `/src/backend/main_canister/modules/IIIntegrationModule.mo` - 2箇所のII URLを`id.ai`に更新
 
 2. **フロントエンドの更新**
    - `/src/frontend/src/constants/index.ts` - デフォルトII URLを`id.ai`に変更
@@ -948,8 +948,8 @@ let canisterOrigin = "https://77fv5-oiaaa-aaaal-qsoea-cai.ic0.app";
 - II v2は後方互換性があるため、既存の認証フローに影響なし
 
 **変更ファイル**:
-- `/src/backend/unified/main.mo` - line 4052
-- `/src/backend/unified/modules/IIIntegrationModule.mo` - lines 150, 280
+- `/src/backend/main_canister/main.mo` - line 4052
+- `/src/backend/main_canister/modules/IIIntegrationModule.mo` - lines 150, 280
 - `/src/frontend/src/constants/index.ts` - line 24
 - `/src/frontend/.env` - line 7
 - `/src/frontend/.env.local` - line 7

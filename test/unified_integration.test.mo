@@ -13,7 +13,7 @@ import Blob "mo:base/Blob";
 import ICRC1 "../src/types/icrc1";
 import GameV2 "../src/types/game_v2";
 import Photo "../src/types/photo";
-import GameUnified "canister:unified";
+import GameUnified "canister:main_canister";
 
 // Test framework
 actor UnifiedIntegrationTest {

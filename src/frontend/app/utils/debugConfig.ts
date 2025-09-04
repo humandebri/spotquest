@@ -3,14 +3,14 @@
 
 export const DEBUG_CONFIG = {
   // Master switch - disables all debug logging when false
-  ENABLED: false,
+  ENABLED: true,
   
   // Individual debug categories
-  AUTH_FLOW: false,        // Authentication flow debugging
+  AUTH_FLOW: true,         // Authentication flow debugging
   STORAGE: false,          // Storage operations debugging
   II_INTEGRATION: false,   // Internet Identity integration debugging
   FETCH_INTERCEPT: false,  // Fetch request interception debugging
-  DEEP_LINKS: false,       // Deep link handling debugging
+  DEEP_LINKS: true,        // Deep link handling debugging
   JSON_PARSE: false,       // JSON parsing debugging
   ED25519_FIX: false,     // Ed25519 key identity fixing
   GAME_FLOW: false,       // Game flow debugging

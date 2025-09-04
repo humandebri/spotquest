@@ -1,10 +1,19 @@
 import 'dotenv/config';
 
+// Derive iOS Google scheme from client ID if provided via env
+const GOOGLE_CLIENT_ID_IOS = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS;
+const GOOGLE_IOS_SCHEME = GOOGLE_CLIENT_ID_IOS
+  ? `com.googleusercontent.apps.${GOOGLE_CLIENT_ID_IOS.replace('.apps.googleusercontent.com', '')}`
+  : undefined;
+
+const APP_SCHEME = process.env.EXPO_PUBLIC_APP_SCHEME || 'spotquest';
+
 export default {
   expo: {
     name: "SpotQuest",
     slug: "spotquest",
-    scheme: "spotquest", // カスタムURLスキーム for Internet Identity callback
+    // Register both app scheme and Google iOS scheme for native auth redirects
+    scheme: [APP_SCHEME, GOOGLE_IOS_SCHEME].filter(Boolean),
     owner: "hude",
     version: "1.0.0",
     orientation: "portrait",
@@ -52,10 +61,10 @@ export default {
     },
     linking: {
       prefixes: [
-        "spotquest://",  // カスタムスキームを追加
+        `${APP_SCHEME}://`, // custom scheme
         // Use modern Expo Auth proxy domain
-        "https://auth.expo.dev/@hude/spotquest",
-        "https://spotquest.app"
+        process.env.EXPO_PUBLIC_AUTH_PROXY_URL || "https://auth.expo.dev/@hude/spotquest",
+        process.env.EXPO_PUBLIC_APP_WEB_URL || "https://spotquest.app",
       ],
       config: {
         screens: {

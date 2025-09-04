@@ -1,9 +1,9 @@
-# Current Functionality Baseline - Unified Canister
+# Current Functionality Baseline - Main Canister
 
 ## Date: 2025-06-09
 ## Canister ID: 77fv5-oiaaa-aaaal-qsoea-cai (Mainnet)
 
-This document captures the current functionality of the unified canister before refactoring.
+This document captures the current functionality of the main canister before refactoring.
 
 ## ✅ Verified Functionality
 
