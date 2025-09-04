@@ -8,11 +8,12 @@ import {
   TouchableOpacity,
   Modal,
   Animated,
-  Image,
   Alert,
   ActivityIndicator,
   PanResponder,
+  Image as RNImage,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -103,6 +104,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     roundNumber,
     roundResults,
     setCurrentPhoto,
+    prefetchedNextPhoto,
     setGuess: setGameGuess,
     setTimeLeft: setGameTimeLeft,
     setSessionId,
@@ -120,6 +122,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     clearSessionData,
     resetGame,
     clearCurrentGuess,
+    clearPrefetchedNextPhoto,
   } = useGameStore();
   
   // Auth store
@@ -227,6 +230,23 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
       try {
         console.log('🎮 Starting game initialization...');
         
+        // If we have a prefetched next photo (from GameResult), use it immediately
+        if (prefetchedNextPhoto && sessionId) {
+          setCurrentPhoto(prefetchedNextPhoto);
+          setIsLoading(false);
+          setSessionLoading(false);
+          previousRoundRef.current = roundNumber;
+          setHasInitialized(true);
+          setNeedsNewPhoto(false);
+          clearPrefetchedNextPhoto();
+          // Defer stats load
+          photoServiceV2.getPhotoStatsDetails(BigInt(prefetchedNextPhoto.id), identity)
+            .then((stats) => { if (stats) setPhotoStats(stats); })
+            .catch(() => {});
+          console.log('🎮 Used prefetched next round photo');
+          return; // Skip backend getNextRound
+        }
+        
         // Initialize gameService first
         await gameService.init(identity);
         console.log('🎮 GameService initialized');
@@ -235,22 +255,23 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
         // This saves one API call
         setUserSessions([]);
         
-        // Create new session directly
+        // Create new session + first round in one call if backend supports it
+        // Otherwise fall back to createSessionWithCleanup + getNextRound
         let newSessionId: string | null = null;
+        let preFetchedRoundPhotoId: bigint | null = null;
         
         if (!sessionId) {
-          console.log('🎮 Creating new session...');
-          const result = await gameService.createSessionWithCleanup();
-          
-          if (result.err) {
-            throw new Error(result.err);
-          }
-          
-          if (result.ok) {
-            newSessionId = result.ok;
-            
-            // First update user sessions to reflect cleanup
-            // Get current sessions and update them
+          console.log('🎮 Attempt startSessionFirstRound (optimized)...');
+          const startRes = await gameService.startSessionFirstRound(regionFilter, gameMode);
+          if (startRes.ok) {
+            newSessionId = startRes.ok.sessionId;
+            const roundState = startRes.ok.round;
+            if (roundState && (roundState as any).photoId !== undefined) {
+              try {
+                preFetchedRoundPhotoId = BigInt((roundState as any).photoId);
+              } catch {}
+            }
+            // Update sessions and create new session in store
             const currentSessions = Array.isArray(userSessions) ? userSessions : [];
             const cleanedSessions = currentSessions.map(session => 
               session.status === 'Active' && session.id !== newSessionId
@@ -258,10 +279,30 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
                 : session
             );
             setUserSessions(cleanedSessions);
-            
-            // Then create the new session
             createNewSession(newSessionId);
-            console.log('🎮 New session created after cleanup:', newSessionId);
+            console.log('🎮 Optimized startSession used. New session:', newSessionId, 'photoId:', preFetchedRoundPhotoId);
+          } else {
+            console.log('🎮 Optimized startSession unavailable, falling back:', startRes.err);
+            console.log('🎮 Creating new session...');
+            const result = await gameService.createSessionWithCleanup();
+            
+            if (result.err) {
+              throw new Error(result.err);
+            }
+            
+            if (result.ok) {
+              newSessionId = result.ok;
+              
+              const currentSessions = Array.isArray(userSessions) ? userSessions : [];
+              const cleanedSessions = currentSessions.map(session => 
+                session.status === 'Active' && session.id !== newSessionId
+                  ? { ...session, status: 'Completed' as SessionStatus }
+                  : session
+              );
+              setUserSessions(cleanedSessions);
+              createNewSession(newSessionId);
+              console.log('🎮 New session created after cleanup:', newSessionId);
+            }
           }
         }
         
@@ -272,7 +313,9 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
           
           // Parallelize round data and token balance fetching with error handling
           const promises = await Promise.allSettled([
-            gameService.getNextRound(currentSessionId, regionFilter, gameMode),
+            preFetchedRoundPhotoId 
+              ? Promise.resolve({ ok: { photoId: preFetchedRoundPhotoId } }) as any 
+              : gameService.getNextRound(currentSessionId, regionFilter, gameMode),
             gameService.getTokenBalance(principal)
           ]);
           
@@ -362,17 +405,15 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
             const photoId = roundResult.ok.photoId;
             console.log('🎮 Round photo ID:', photoId);
             
-            // Fetch photo metadata, complete data, and stats in parallel (only once!)
-            const [photoMeta, photoCompleteData, photoStatsData] = await Promise.all([
+            // Fetch photo metadata and data URL in parallel (stats are deferred)
+            const [photoMeta, photoDataUrl] = await Promise.all([
               photoServiceV2.getPhotoMetadata(photoId, identity),
-              photoServiceV2.getPhotoCompleteData(photoId, identity),
-              photoServiceV2.getPhotoStatsDetails(photoId, identity)
+              photoServiceV2.getPhotoDataUrl(photoId, identity),
             ]);
             
-            if (photoMeta && photoCompleteData) {
-              // Store photo metadata and stats for UI display
+            if (photoMeta && photoDataUrl) {
+              // Store photo metadata for UI display
               setPhotoMeta(photoMeta);
-              setPhotoStats(photoStatsData);
               
               // ✅ Region filtering implementation completed (2025-06-16)
               // Backend's getNextRound function now supports region filtering.
@@ -390,49 +431,9 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
                 });
               }
               
-              // Use the already fetched complete photo data
-              const combinedChunks = photoCompleteData;
-              
-              // Convert to base64 data URL
-              // まず、データがすでにBase64かバイナリかを確認
-              const decoder = new TextDecoder();
-              const testChunk = combinedChunks.slice(0, Math.min(100, combinedChunks.length));
-              const asText = decoder.decode(testChunk);
-              
-              let photoUrl = '';
-              
-              if (asText.includes('data:image') || /^[A-Za-z0-9+/]/.test(asText)) {
-                // すでにBase64の場合
-                const base64String = decoder.decode(combinedChunks);
-                if (base64String.startsWith('data:')) {
-                  photoUrl = base64String;
-                } else {
-                  photoUrl = `data:image/jpeg;base64,${base64String}`;
-                }
-              } else {
-                // バイナリデータの場合、Base64に変換
-                const CHUNK_SIZE = 1024; // 1KB chunks
-                const binaryChunks: string[] = [];
-                
-                for (let i = 0; i < combinedChunks.length; i += CHUNK_SIZE) {
-                  const end = Math.min(i + CHUNK_SIZE, combinedChunks.length);
-                  const chunk = combinedChunks.slice(i, end);
-                  
-                  let binaryString = '';
-                  for (let j = 0; j < chunk.length; j++) {
-                    binaryString += String.fromCharCode(chunk[j]);
-                  }
-                  binaryChunks.push(binaryString);
-                }
-                
-                const fullBinaryString = binaryChunks.join('');
-                const base64String = btoa(fullBinaryString);
-                photoUrl = `data:image/jpeg;base64,${base64String}`;
-              }
-              
               setCurrentPhoto({
                 id: photoMeta.id.toString(),
-                url: photoUrl,
+                url: photoDataUrl,
                 actualLocation: { 
                   latitude: photoMeta.latitude, 
                   longitude: photoMeta.longitude 
@@ -442,6 +443,13 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
                 uploader: photoMeta.owner.toString(),
                 difficulty: difficulty as string,
               });
+
+              // Defer stats fetch to background to reduce initial latency
+              photoServiceV2.getPhotoStatsDetails(photoId, identity)
+                .then((stats) => {
+                  if (stats) setPhotoStats(stats);
+                })
+                .catch(() => {});
             } else {
               // Fallback if photo metadata not found
               console.warn('🎮 Photo metadata not found for ID:', photoId);
@@ -572,7 +580,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   // 画像のアスペクト比を取得
   useEffect(() => {
     if (currentPhoto?.url) {
-      Image.getSize(
+      RNImage.getSize(
         currentPhoto.url,
         (width, height) => {
           const ratio = width / height;
@@ -1308,8 +1316,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
     <View style={styles.container}>
       {/* 写真を画面全体に表示 - ドラッグ可能 */}
       <View style={styles.photoContainer}>
-        <Animated.Image 
-          source={{ uri: currentPhoto.url }} 
+        <Animated.View
           style={[
             styles.fullScreenPhoto,
             {
@@ -1320,9 +1327,15 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
               ],
             },
           ]}
-          resizeMode="contain"
           {...panResponder.panHandlers}
-        />
+        >
+          <ExpoImage
+            source={{ uri: currentPhoto.url }}
+            style={{ width: '100%', height: '100%' }}
+            contentFit="contain"
+            cachePolicy={currentPhoto.url.startsWith('data:') ? 'memory-disk' : 'immutable'}
+          />
+        </Animated.View>
       </View>
       
       {/* ズームリセットボタン */}

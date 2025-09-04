@@ -1001,6 +1001,74 @@ actor GameUnified {
             };
         };
     };
+
+    // Start a new session and return the first round in a single update call
+    public shared(msg) func startSession(regionFilter: ?Text) : async Result.Result<{ sessionId: Text; round: GameV2.RoundState }, Text> {
+        if (reputationManager.isBanned(msg.caller)) {
+            return #err("User is banned");
+        };
+
+        // Check play limits (same as createSession)
+        switch (gameLimitsManager.consumePlay(msg.caller)) {
+            case (#err(e)) { return #err(e) };
+            case (#ok()) { /* Continue */ };
+        };
+
+        // 1) Create the session with initial Elo rating
+        var sessionId : Text = "";
+        switch (gameEngineManager.createSession(msg.caller)) {
+            case (#err(e)) { return #err(e) };
+            case (#ok(id)) {
+                sessionId := id;
+                let currentEloRating = eloRatingManager.getPlayerRating(msg.caller);
+                switch (gameEngineManager.getSession(sessionId)) {
+                    case null { /* ignore */ };
+                    case (?session) {
+                        let updatedSession = {
+                            session with
+                            initialEloRating = ?currentEloRating;
+                        };
+                        gameEngineManager.updateSession(sessionId, updatedSession);
+                    };
+                };
+            };
+        };
+
+        // 2) Select first photo (no used photos yet)
+        let selectedPhoto = switch(regionFilter) {
+            case null { getRandomPhotoExcluding([]) };
+            case (?region) {
+                if (Text.startsWith(region, #text "weekly:")) {
+                    let actualRegion = if (Text.size(region) > 7) {
+                        Text.trimStart(region, #text "weekly:")
+                    } else { "" };
+                    if (actualRegion == "") { getWeeklyPhotoExcluding(null, []) }
+                    else { getWeeklyPhotoExcluding(?actualRegion, []) };
+                } else {
+                    getRegionPhotoExcluding(region, [])
+                }
+            };
+        };
+
+        switch (selectedPhoto) {
+            case null {
+                switch(regionFilter) {
+                    case null { return #err("No photos available") };
+                    case (?region) { return #err("No photos found for selected region: " # region) };
+                }
+            };
+            case (?photoV2) {
+                // 3) Create first round bound to the selected photo
+                switch(gameEngineManager.getNextRound(sessionId, msg.caller, photoV2.id)) {
+                    case (#err(e)) { return #err(e) };
+                    case (#ok(roundState)) {
+                        Debug.print("🎮 startSession -> photo: " # Nat.toText(photoV2.id));
+                        return #ok({ sessionId = sessionId; round = roundState });
+                    };
+                }
+            };
+        }
+    };
     
     public shared(msg) func submitGuess(
         sessionId: Text,

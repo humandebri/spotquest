@@ -1,4 +1,5 @@
 import { Actor, HttpAgent, Identity } from '@dfinity/agent';
+import { DEBUG_CONFIG, debugLog } from '../utils/debugConfig';
 import { CustomPrincipal as Principal } from '../utils/principal';
 import { IDL } from '@dfinity/candid';
 import { CANISTER_ID_UNIFIED, IC_HOST } from '../constants';
@@ -66,7 +67,7 @@ class GameService {
       }
 
       // Debug logging
-      console.log('🎮 GameService.init called with identity:', {
+      debugLog('API_CALLS', '🎮 GameService.init called with identity:', {
         type: identity.constructor.name,
         principal: identity.getPrincipal().toString()
       });
@@ -74,13 +75,13 @@ class GameService {
       // Reuse existing actor if identity hasn't changed (but not for dev mode)
       const isDevMode = identity.constructor.name === 'Ed25519KeyIdentity';
       if (this.identity && this.identity === identity && this.actor && !isDevMode && this.initialized) {
-        console.log('🎮 Reusing existing actor');
+        debugLog('API_CALLS', '🎮 Reusing existing actor');
         return;
       }
       
       // Dev modeでは常に新しいactorを作成（証明書エラー回避のため）
       if (isDevMode && this.actor) {
-        console.log('🎮 DEV: Recreating actor with certificate bypass');
+        debugLog('API_CALLS', '🎮 DEV: Recreating actor with certificate bypass');
       }
 
       this.identity = identity;
@@ -89,7 +90,7 @@ class GameService {
       
       // Small delay to ensure everything is settled
       await new Promise(resolve => setTimeout(resolve, 100));
-      console.log('🎮 GameService fully initialized');
+      debugLog('API_CALLS', '🎮 GameService fully initialized');
     } catch (error) {
       console.error('🎮 GameService initialization failed:', error);
       this.initialized = false;
@@ -105,7 +106,7 @@ class GameService {
       
       // Create HttpAgent with special configuration for dev mode
       const host = process.env.EXPO_PUBLIC_IC_HOST || 'https://ic0.app';
-      console.log('🎮 Creating HttpAgent with host:', host);
+      debugLog('API_CALLS', '🎮 Creating HttpAgent with host:', host);
       
       const agentOptions: any = {
         identity,
@@ -135,7 +136,7 @@ class GameService {
       const canisterId = CANISTER_ID_UNIFIED;
       
       // Log agent configuration
-      console.log('🎮 HttpAgent created:', {
+      debugLog('API_CALLS', '🎮 HttpAgent created:', {
         host: host,
         identity: identity.getPrincipal().toString(),
         isDevMode,
@@ -143,8 +144,8 @@ class GameService {
       
       // Dev modeの場合、追加のデバッグログ
       if (isDevMode) {
-        console.log('🎮 DEV: Agent initialized in dev mode');
-        console.log('🎮 DEV: Agent configuration:', {
+        debugLog('API_CALLS', '🎮 DEV: Agent initialized in dev mode');
+        debugLog('API_CALLS', '🎮 DEV: Agent configuration:', {
           host,
           canisterId,
           verifyQuerySignatures: true,
@@ -156,12 +157,12 @@ class GameService {
       // if (process.env.NODE_ENV === 'development') {
       //   await this.agent.fetchRootKey();
       // }
-      console.log('🎮 Using canister ID:', canisterId);
+      debugLog('API_CALLS', '🎮 Using canister ID:', canisterId);
       
       // Test Principal creation with custom implementation
       try {
         const testPrincipal = Principal.fromText(canisterId);
-        console.log('🎮 Custom Principal.fromText succeeded:', testPrincipal.toString());
+        debugLog('API_CALLS', '🎮 Custom Principal.fromText succeeded:', testPrincipal.toString());
       } catch (principalError: any) {
         console.error('🎮 Custom Principal.fromText failed:', principalError);
         console.error('🎮 Principal error details:', {
@@ -176,7 +177,7 @@ class GameService {
       }
 
     // IDL factory for unified canister
-    console.log('🎮 Creating IDL factory...');
+    debugLog('API_CALLS', '🎮 Creating IDL factory...');
     const idlFactory = () => {
       // Define types
       const HintType = IDL.Variant({
@@ -360,11 +361,22 @@ class GameService {
       });
 
 
+      // Result type for startSession
+      const Result_StartSession = IDL.Variant({
+        ok: IDL.Record({
+          sessionId: IDL.Text,
+          round: RoundState,
+        }),
+        err: IDL.Text,
+      });
+
       return IDL.Service({
         
         // Game Engine functions
         createSession: IDL.Func([], [Result_Text], []),
         getNextRound: IDL.Func([IDL.Text, IDL.Opt(IDL.Text)], [Result_RoundState], []),
+        // Optional optimized API (if available on backend): creates session and returns first round in one update
+        startSession: IDL.Func([IDL.Opt(IDL.Text)], [Result_StartSession], []),
         submitGuess: IDL.Func(
           [IDL.Text, IDL.Float64, IDL.Float64, IDL.Opt(IDL.Float64), IDL.Float64], 
           [Result_RoundResult], 
@@ -550,14 +562,14 @@ class GameService {
     };
 
       // Actor作成
-      console.log('🎮 About to create Actor...');
+      debugLog('API_CALLS', '🎮 About to create Actor...');
       try {
         // Try using canisterId as string first
         this.actor = Actor.createActor(idlFactory, {
           agent: this.agent,
           canisterId: canisterId,
         });
-        console.log('🎮 Actor created successfully with string canisterId');
+        debugLog('API_CALLS', '🎮 Actor created successfully with string canisterId');
       } catch (actorError: any) {
         console.error('🎮 Actor creation with string failed:', actorError.message);
         
@@ -568,7 +580,7 @@ class GameService {
             agent: this.agent,
             canisterId: principalCanisterId as any,
           });
-          console.log('🎮 Actor created successfully with custom Principal');
+          debugLog('API_CALLS', '🎮 Actor created successfully with custom Principal');
         } catch (principalError: any) {
           console.error('🎮 Actor creation with custom Principal failed:', principalError);
           throw principalError;
@@ -576,7 +588,7 @@ class GameService {
       }
       
       if (isDevMode) {
-        console.log('🎮 DEV: Actor created in dev mode - mock responses will be used for network errors');
+        debugLog('API_CALLS', '🎮 DEV: Actor created in dev mode - mock responses will be used for network errors');
       }
       
       // Verify actor is properly initialized
@@ -707,12 +719,12 @@ class GameService {
     }
     
     try {
-      console.log('🎮 Calling createSession...');
-      console.log('🎮 Actor methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(this.actor)));
-      console.log('🎮 Identity principal:', this.identity?.getPrincipal().toString());
+      debugLog('API_CALLS', '🎮 Calling createSession...');
+      debugLog('API_CALLS', '🎮 Actor methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(this.actor)));
+      debugLog('API_CALLS', '🎮 Identity principal:', this.identity?.getPrincipal().toString());
       
       const result = await this.actor.createSession();
-      console.log('🎮 createSession result:', result);
+      debugLog('API_CALLS', '🎮 createSession result:', result);
       return result;
     } catch (error: any) {
       console.error('Failed to create session:', error);
@@ -731,7 +743,7 @@ class GameService {
     }
     
     try {
-      console.log('🎮 getNextRound called with regionFilter:', regionFilter, 'gameMode:', gameMode);
+      debugLog('API_CALLS', '🎮 getNextRound called with regionFilter:', regionFilter, 'gameMode:', gameMode);
       
       // For 'thisweek' mode, use a special filter that tells the backend to use weekly photos
       if (gameMode === 'thisweek') {
@@ -744,6 +756,35 @@ class GameService {
     } catch (error: any) {
       console.error('Failed to get next round:', error);
       return { err: error.message || 'Failed to get next round' };
+    }
+  }
+
+  // Try a one-round-trip API on compatible backends. Falls back if method is unavailable.
+  async startSessionFirstRound(regionFilter?: string, gameMode: string = 'classic'):
+    Promise<{ ok?: { sessionId: string; round: any }; err?: string }> {
+    if (!this.initialized || !this.actor) {
+      return { err: 'Service not initialized. Please login first.' };
+    }
+
+    try {
+      // Encode mode into filter like getNextRound does for 'thisweek'
+      const filter = gameMode === 'thisweek'
+        ? (regionFilter ? `weekly:${regionFilter}` : 'weekly:')
+        : (regionFilter || undefined);
+
+      // Some backends may not implement the method; catch and fallback
+      const result = await this.actor.startSession(filter ? [filter] : []);
+      if (result && 'ok' in result) {
+        return { ok: result.ok };
+      }
+      return { err: result?.err || 'Unknown error' };
+    } catch (e: any) {
+      // Method not found or other reject — signal fallback
+      const msg = e?.message || String(e);
+      if (msg.includes('Method not found') || msg.includes('does not exist')) {
+        return { err: 'METHOD_NOT_AVAILABLE' };
+      }
+      return { err: msg };
     }
   }
 

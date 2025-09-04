@@ -133,6 +133,17 @@ export function useAuth() {
     return isDevMode ? false : !iiIntegration.isAuthReady;
   }, [storeAuthenticated, isDevMode, iiIntegration.isAuthReady]);
 
+  // Wrapped logout to also clear local store state
+  const wrappedLogout = React.useCallback(async () => {
+    try {
+      await iiIntegration.logout();
+    } catch (e) {
+      debugLog('AUTH_FLOW', '🔍 iiIntegration.logout error (ignored):', e);
+    } finally {
+      setUnauthenticated();
+    }
+  }, [iiIntegration.logout, setUnauthenticated]);
+
   return {
     // State from store (properly synced)
     isAuthenticated: storeAuthenticated,
@@ -145,7 +156,7 @@ export function useAuth() {
     
     // Methods from expo-ii-integration
     login,
-    logout: iiIntegration.logout,
+    logout: wrappedLogout,
     checkAuth: async () => {
       // expo-ii-integration manages auth state automatically
     },

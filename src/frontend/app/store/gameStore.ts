@@ -47,6 +47,7 @@ interface RoundResult {
 interface GameStore {
   // Current game state
   currentPhoto: GamePhoto | null;
+  prefetchedNextPhoto: GamePhoto | null;
   currentGuess: { latitude: number; longitude: number } | null;
   confidenceRadius: number;
   timeLeft: number;
@@ -76,6 +77,8 @@ interface GameStore {
   setTokenBalance: (balance: bigint) => void;
   addPurchasedHint: (hint: HintInfo) => void;
   addRoundResult: (result: RoundResult) => void;
+  setPrefetchedNextPhoto: (photo: GamePhoto | null) => void;
+  clearPrefetchedNextPhoto: () => void;
   resetGame: () => void;
   
   // Actions - Session management
@@ -98,6 +101,7 @@ interface GameStore {
 export const useGameStore = create<GameStore>((set, get) => ({
   // Initial state
   currentPhoto: null,
+  prefetchedNextPhoto: null,
   currentGuess: null,
   confidenceRadius: 1000,
   timeLeft: 180,
@@ -140,6 +144,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
   addRoundResult: (result) => set((state) => ({
     roundResults: [...state.roundResults, result]
   })),
+
+  setPrefetchedNextPhoto: (photo) => set({ prefetchedNextPhoto: photo }),
+  clearPrefetchedNextPhoto: () => set({ prefetchedNextPhoto: null }),
   
   resetGame: () => set({
     currentPhoto: null,

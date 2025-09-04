@@ -14,6 +14,9 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navigation/AppNavigator';
 import { useGameStore } from '../../store/gameStore';
+import { useAuth } from '../../hooks/useAuth';
+import { gameService } from '../../services/game';
+import { photoServiceV2 } from '../../services/photoV2';
 import Svg, { Circle, Path } from 'react-native-svg';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -24,9 +27,36 @@ type GameResultScreenNavigationProp = NativeStackNavigationProp<RootStackParamLi
 export default function GameResultScreen() {
   const navigation = useNavigation<GameResultScreenNavigationProp>();
   const route = useRoute<GameResultScreenRouteProp>();
-  const { roundNumber, setRoundNumber, addRoundResult } = useGameStore();
+  const { roundNumber, setRoundNumber, addRoundResult, sessionId, setPrefetchedNextPhoto } = useGameStore();
+  const prefetchedNextPhoto = useGameStore(s => s.prefetchedNextPhoto);
+  const { identity } = useAuth();
   const mapRef = useRef<MapView>(null);
   const [mapReady, setMapReady] = useState(false);
+  
+  // Lightweight toast (local)
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+  const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const showToast = useCallback((msg: string) => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
+    setToastMessage(msg);
+    Animated.timing(toastOpacity, {
+      toValue: 1,
+      duration: 150,
+      useNativeDriver: true,
+    }).start(() => {
+      toastTimerRef.current = setTimeout(() => {
+        Animated.timing(toastOpacity, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }).start(() => setToastMessage(null));
+      }, 1800);
+    });
+  }, [toastOpacity]);
   
   // Extract values directly from route to avoid object recreation
   const params = route?.params || {};
@@ -68,6 +98,48 @@ export default function GameResultScreen() {
       isTimeout: timeUsed >= 180,
     });
   }, []); // Empty dependency array to run only once
+
+  // Prefetch next round photo in background (safe: GamePlay will use it and skip re-fetch)
+  useEffect(() => {
+    let cancelled = false;
+    const prefetch = async () => {
+      try {
+        if (!identity || !sessionId) return;
+        if (roundNumber >= 5) return;
+        // Region filter and mode from params
+        const regionFilter = (route.params as any)?.regionFilter;
+        const gameMode = 'normal';
+
+        await gameService.init(identity);
+        const next = await gameService.getNextRound(sessionId, regionFilter, gameMode);
+        if (next?.ok && next.ok.photoId) {
+          const photoId: bigint = next.ok.photoId;
+          const [meta, dataUrl] = await Promise.all([
+            photoServiceV2.getPhotoMetadata(photoId, identity),
+            photoServiceV2.getPhotoDataUrl(photoId, identity),
+          ]);
+          if (!cancelled && meta && dataUrl) {
+            setPrefetchedNextPhoto({
+              id: String(meta.id),
+              url: dataUrl,
+              actualLocation: { latitude: meta.latitude, longitude: meta.longitude },
+              azimuth: meta.azimuth && meta.azimuth.length > 0 ? meta.azimuth[0] : 0,
+              timestamp: Number(meta.uploadTime),
+              uploader: meta.owner.toString(),
+              difficulty: (params.difficulty || 'NORMAL') as string,
+            });
+          }
+        }
+      } catch (e) {
+        // Prefetch failure toast (best-effort)
+        if (!cancelled) {
+          showToast('次のラウンドの事前読み込みに失敗しました。通常の取得で続行します。');
+        }
+      }
+    };
+    prefetch();
+    return () => { cancelled = true; };
+  }, []);
   
   // Optimize photo URL handling - don't keep in memory, use placeholder
   const photoUrl = useMemo(() => {
@@ -134,6 +206,10 @@ export default function GameResultScreen() {
   useEffect(() => {
     return () => {
       isMountedRef.current = false;
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+        toastTimerRef.current = null;
+      }
       // Stop all animations to prevent memory leaks
       fadeAnim.stopAnimation();
       scoreAnim.stopAnimation();
@@ -435,12 +511,31 @@ export default function GameResultScreen() {
 
   // No token minting here - will be done at session completion
 
-  const handlePlayAgain = () => {
+  const waitForPrefetchShort = useCallback(async (timeoutMs: number = 700) => {
+    const start = Date.now();
+    // Fast path
+    if (useGameStore.getState().prefetchedNextPhoto) return true;
+    while (Date.now() - start < timeoutMs) {
+      await new Promise(r => setTimeout(r, 50));
+      if (useGameStore.getState().prefetchedNextPhoto) return true;
+    }
+    return false;
+  }, []);
+
+  const handlePlayAgain = async () => {
     // Check if this was the last round (or if we've somehow exceeded 5 rounds)
     if (roundNumber >= 5) {
       // Navigate to session summary
       navigation.replace('SessionSummary');
     } else {
+      // Small wait if prefetch is still in progress to improve UX
+      if (!useGameStore.getState().prefetchedNextPhoto) {
+        showToast('次のラウンドを準備中…');
+        await waitForPrefetchShort(700);
+        if (!useGameStore.getState().prefetchedNextPhoto) {
+          showToast('事前読み込み未完了のためオンラインから取得します');
+        }
+      }
       // Validate round number before incrementing
       const nextRound = Math.min(roundNumber + 1, 5); // Cap at 5 to prevent exceeding max rounds
       console.log('🎮 GameResult - Moving to round', nextRound, 'from round', roundNumber);
@@ -711,6 +806,26 @@ export default function GameResultScreen() {
           </Text>
         </TouchableOpacity>
       </LinearGradient>
+
+      {/* Toast */}
+      {toastMessage && (
+        <Animated.View
+          style={{
+            position: 'absolute',
+            bottom: 24,
+            left: 16,
+            right: 16,
+            backgroundColor: 'rgba(0,0,0,0.85)',
+            borderRadius: 12,
+            paddingVertical: 10,
+            paddingHorizontal: 14,
+            opacity: toastOpacity,
+          }}
+          pointerEvents="none"
+        >
+          <Text style={{ color: '#fff', textAlign: 'center' }}>{toastMessage}</Text>
+        </Animated.View>
+      )}
     </View>
   );
 }

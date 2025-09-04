@@ -1,4 +1,5 @@
 import { Actor, HttpAgent, Identity } from '@dfinity/agent';
+import { DEBUG_CONFIG, debugLog } from '../utils/debugConfig';
 import { Principal } from '@dfinity/principal';
 import { CustomPrincipal } from '../utils/principal';
 import { CANISTER_ID_UNIFIED } from '../constants';
@@ -282,6 +283,8 @@ class PhotoServiceV2 {
   private identity: Identity | null = null;
   private photoCache: Map<string, PhotoMetaV2> = new Map();
   private chunkCache: Map<string, Uint8Array> = new Map();
+  private dataUrlCache: Map<string, string> = new Map();
+  private statsCache: Map<string, PhotoStatsDetailsV2> = new Map();
   private cacheTimeout = 5 * 60 * 1000; // 5分のキャッシュ
 
   async init(identity: Identity) {
@@ -299,7 +302,7 @@ class PhotoServiceV2 {
       const host = process.env.EXPO_PUBLIC_IC_HOST || 'https://ic0.app';
       const canisterId = UNIFIED_CANISTER_ID;
       
-      console.log('🖼️ Initializing photo service V2:', { host, canisterId });
+      debugLog('API_CALLS', '🖼️ Initializing photo service V2:', { host, canisterId });
       
       // Dev modeの確認（デバッグ用）
       const isDevMode = identity.constructor.name === 'Ed25519KeyIdentity';
@@ -322,7 +325,7 @@ class PhotoServiceV2 {
 
       // Dev modeの場合、追加の設定
       if (isDevMode) {
-        console.log('🖼️ Dev mode detected - certificate verification will be handled by early patches');
+        debugLog('API_CALLS', '🖼️ Dev mode detected - certificate verification will be handled by early patches');
       }
 
       this.actor = Actor.createActor(idlFactory, {
@@ -330,7 +333,7 @@ class PhotoServiceV2 {
         canisterId: canisterId,
       });
       
-      console.log('🖼️ Photo service V2 initialized successfully');
+      debugLog('API_CALLS', '🖼️ Photo service V2 initialized successfully');
     } catch (error) {
       console.error('❌ Failed to initialize photo service V2:', error);
       throw error;
@@ -353,9 +356,9 @@ class PhotoServiceV2 {
         difficulty: difficultyFromString(request.difficulty), // 文字列 → variant型に変換
       };
       
-      console.log('🖼️ Creating photo with request:', request);
+      debugLog('API_CALLS', '🖼️ Creating photo with request:', request);
       const result = await this.actor.createPhotoV2(idlRequest);
-      console.log('🖼️ Photo created:', result);
+      debugLog('API_CALLS', '🖼️ Photo created:', result);
       return result;
     } catch (error) {
       console.error('❌ Create photo error:', error);
@@ -484,13 +487,13 @@ class PhotoServiceV2 {
     }
 
     try {
-      console.log('📥 Fetching photo metadata:', photoId);
+      debugLog('API_CALLS', '📥 Fetching photo metadata:', photoId);
       const startTime = Date.now();
       
       const result = await this.actor.getPhotoMetadataV2(photoId);
       
       const fetchTime = Date.now() - startTime;
-      console.log(`📊 Photo metadata fetch time: ${fetchTime}ms`);
+      debugLog('API_CALLS', `📊 Photo metadata fetch time: ${fetchTime}ms`);
       
       if (result.length > 0) {
         const metadata = result[0];
@@ -524,13 +527,13 @@ class PhotoServiceV2 {
     }
 
     try {
-      console.log('📥 Fetching photo chunk:', photoId, chunkIndex);
+      debugLog('API_CALLS', '📥 Fetching photo chunk:', photoId, chunkIndex);
       const startTime = Date.now();
       
       const result = await this.actor.getPhotoChunkV2(photoId, chunkIndex);
       
       const fetchTime = Date.now() - startTime;
-      console.log(`📊 Photo chunk fetch time: ${fetchTime}ms`);
+      debugLog('API_CALLS', `📊 Photo chunk fetch time: ${fetchTime}ms`);
       
       if (result.length > 0) {
         const chunk = new Uint8Array(result[0]);
@@ -622,15 +625,25 @@ class PhotoServiceV2 {
    * 写真の詳細統計情報を取得
    */
   async getPhotoStatsDetails(photoId: bigint, identity?: Identity): Promise<PhotoStatsDetailsV2 | null> {
+    // キャッシュをチェック
+    const cacheKey = `stats_${photoId}`;
+    const cached = this.statsCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     if (!this.actor && identity) {
       await this.init(identity);
     }
 
     try {
-      console.log('📊 Fetching photo stats details:', photoId);
+      debugLog('API_CALLS', '📊 Fetching photo stats details:', photoId);
       const result = await this.actor.getPhotoStatsDetailsV2(photoId);
       if (result.length > 0) {
-        return result[0];
+        const stats = result[0];
+        this.statsCache.set(cacheKey, stats);
+        setTimeout(() => this.statsCache.delete(cacheKey), this.cacheTimeout);
+        return stats;
       }
       return null;
     } catch (error) {
@@ -648,7 +661,7 @@ class PhotoServiceV2 {
     const cacheKey = `complete_${photoId}`;
     const cached = this.chunkCache.get(cacheKey);
     if (cached) {
-      console.log('🚀 Complete photo data cache hit:', photoId);
+      debugLog('API_CALLS', '🚀 Complete photo data cache hit:', photoId);
       return cached;
     }
 
@@ -657,7 +670,7 @@ class PhotoServiceV2 {
     }
 
     try {
-      console.log('📥 Fetching complete photo data:', photoId);
+      debugLog('API_CALLS', '📥 Fetching complete photo data:', photoId);
       const startTime = Date.now();
       
       // Use the backend method directly
@@ -667,7 +680,7 @@ class PhotoServiceV2 {
       
       if (result.length > 0) {
         const completeData = new Uint8Array(result[0]);
-        console.log(`📊 Complete photo data fetch time: ${fetchTime}ms, size: ${completeData.length} bytes`);
+        debugLog('API_CALLS', `📊 Complete photo data fetch time: ${fetchTime}ms, size: ${completeData.length} bytes`);
         
         // キャッシュに保存
         this.chunkCache.set(cacheKey, completeData);
@@ -682,6 +695,46 @@ class PhotoServiceV2 {
       console.error('❌ Get complete photo data error:', error);
       return null;
     }
+  }
+
+  /**
+   * 写真データURL（base64）を取得（高速変換＋キャッシュ付き）
+   */
+  async getPhotoDataUrl(photoId: bigint, identity?: Identity): Promise<string | null> {
+    const cacheKey = `dataurl_${photoId}`;
+    const cached = this.dataUrlCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const completeData = await this.getPhotoCompleteData(photoId, identity);
+    if (!completeData) return null;
+
+    // 判定：すでにテキスト（dataURLやBase64文字列）が返ってきているか
+    const decoder = new TextDecoder();
+    const head = completeData.slice(0, Math.min(100, completeData.length));
+    const headText = decoder.decode(head);
+
+    let dataUrl: string;
+    if (headText.includes('data:image')) {
+      // dataURLのテキストとして返ってきている
+      const asText = decoder.decode(completeData);
+      dataUrl = asText;
+    } else if (/^[A-Za-z0-9+/]/.test(headText)) {
+      // Base64テキストとして返ってきている
+      const base64String = decoder.decode(completeData);
+      dataUrl = base64String.startsWith('data:')
+        ? base64String
+        : `data:image/jpeg;base64,${base64String}`;
+    } else {
+      // バイナリ -> Base64 高速変換
+      const base64 = uint8ToBase64(completeData);
+      dataUrl = `data:image/jpeg;base64,${base64}`;
+    }
+
+    this.dataUrlCache.set(cacheKey, dataUrl);
+    setTimeout(() => this.dataUrlCache.delete(cacheKey), this.cacheTimeout);
+    return dataUrl;
   }
 
 
@@ -770,6 +823,18 @@ export function difficultyFromString(diff: string): { EASY: null } | { NORMAL: n
     case 'EXTREME': return { EXTREME: null };
     default: return { NORMAL: null };
   }
+}
+
+// 高速な Uint8Array -> Base64 変換（大きな配列に対応）
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunkSize = 0x8000; // 32KB チャンク
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const sub = bytes.subarray(i, i + chunkSize);
+    // Hermes では apply に TypedArray は直接渡せない場合があるため Array に変換
+    binary += String.fromCharCode.apply(null, Array.from(sub) as unknown as number[]);
+  }
+  return btoa(binary);
 }
 
 // 画像URIをBase64に変換するヘルパー関数

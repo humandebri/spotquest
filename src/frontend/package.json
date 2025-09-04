@@ -14,6 +14,7 @@
     "icp:update": "npm_config_legacy_peer_deps=true npx -p expo-icp@latest expo-icp update"
   },
   "dependencies": {
+    "expo-image": "~2.2.0",
     "@dfinity/agent": "^0.20.2",
     "@dfinity/auth-client": "^0.20.2",
     "@dfinity/candid": "^0.20.2",
