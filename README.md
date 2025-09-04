@@ -196,6 +196,24 @@ Ratings influence:
 - **ICRC-1 Standard** - Token implementation
 - **Timer Module** - Scheduled tasks
 
+## 🔐 Google Sign-In Setup
+
+- Env vars (create `src/frontend/.env.local`):
+  - `EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS` = iOS OAuth client ID (ends with `.apps.googleusercontent.com`)
+  - `EXPO_PUBLIC_GOOGLE_CLIENT_ID` = Web OAuth client ID (for Expo Go / web proxy)
+  - `EXPO_PUBLIC_AUTH_PROXY_URL` = `https://auth.expo.dev/@<your-expo-account>/<project-slug>`
+
+- Google Cloud Console:
+  - iOS client: Bundle ID `com.spotquest.app`
+  - Web client: Add `EXPO_PUBLIC_AUTH_PROXY_URL` to Authorized redirect URIs
+
+- Run and verify:
+  - Expo Go: uses Web/Proxy flow. Log shows `usingIOSClient: false` and redirect includes `auth.expo.dev`
+  - Dev Client/Standalone iOS: uses native flow. Log shows `usingIOSClient: true` and redirect like `com.googleusercontent.apps.<id>:/oauthredirect`
+
+- Troubleshooting:
+  - `invalid_request`: most often redirect URI mismatch or missing nonce. Check env, proxy URL, and logs printed by `GoogleAuth config`.
+
 ## 🔮 Future Roadmap
 
 ### Phase 1: Azimuth Scoring (Q1 2024)
