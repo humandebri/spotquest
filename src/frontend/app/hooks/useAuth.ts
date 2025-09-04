@@ -66,7 +66,12 @@ export function useAuth() {
     };
 
     if (iiIntegration.isAuthReady && !isDevMode) {
-      syncAuthState();
+      // If store is already authenticated (e.g., via Google), don't override with II state
+      if (storeAuthenticated) {
+        debugLog('AUTH_FLOW', '🔍 Store already authenticated; skipping II sync');
+      } else {
+        syncAuthState();
+      }
     }
   }, [iiIntegration.isAuthenticated, iiIntegration.isAuthReady, storeAuthenticated, isDevMode]);
 

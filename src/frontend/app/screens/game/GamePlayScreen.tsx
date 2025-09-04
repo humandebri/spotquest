@@ -145,6 +145,8 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   const [hasInitialized, setHasInitialized] = useState(false);
   const [navigationDestination, setNavigationDestination] = useState<string | null>(null);
   const navigationDestinationRef = useRef<string | null>(null);
+  // Prevent duplicate initialization/fetches due to re-renders/auth updates
+  const isInitializingRef = useRef(false);
   
   // Detect round changes and trigger new photo fetch
   useEffect(() => {
@@ -176,6 +178,10 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
   // Combined initialization - gameService and game session
   useEffect(() => {
     const initializeGame = async () => {
+      // Avoid overlapping initializations
+      if (isInitializingRef.current) {
+        return;
+      }
       // Wait for both identity and principal, and check navigation guard
       if (!identity || !principal || hasNavigated) {
         return;
@@ -210,6 +216,9 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
         setNeedsNewPhoto(false); // Reset the flag
       }
       
+      // Mark as initializing (prevents concurrent calls)
+      isInitializingRef.current = true;
+
       setIsLoading(true);
       setSessionLoading(true);
       setError(null);
@@ -492,10 +501,14 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
             }
           ]
         );
+      } finally {
+        // Clear initializing flag regardless of success/failure
+        isInitializingRef.current = false;
       }
     };
-    
+
     initializeGame();
+    // No cleanup needed here; handled in finally above
   }, [principal, identity, needsNewPhoto]); // Added needsNewPhoto to trigger re-initialization when round changes
   
   // Update ref when navigation destination changes
