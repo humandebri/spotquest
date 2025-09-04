@@ -14,7 +14,6 @@
     "icp:update": "npm_config_legacy_peer_deps=true npx -p expo-icp@latest expo-icp update"
   },
   "dependencies": {
-    "expo-image": "~2.2.0",
     "@dfinity/agent": "^0.20.2",
     "@dfinity/auth-client": "^0.20.2",
     "@dfinity/candid": "^0.20.2",
@@ -38,6 +37,7 @@
     "expo-camera": "~16.1.9",
     "expo-clipboard": "^7.1.4",
     "expo-constants": "~17.1.6",
+    "expo-crypto": "^14.0.2",
     "expo-crypto-universal": "^0.2.12",
     "expo-crypto-universal-native": "^0.2.12",
     "expo-crypto-universal-web": "^0.2.12",
@@ -50,6 +50,7 @@
     "expo-icp-app-connect-helpers": "^0.1.5",
     "expo-icp-frontend-helpers": "^0.1.13",
     "expo-ii-integration": "^0.1.24",
+    "expo-image": "~2.2.0",
     "expo-image-manipulator": "~13.1.7",
     "expo-image-picker": "~16.1.4",
     "expo-linear-gradient": "~14.1.4",
@@ -94,6 +95,7 @@
     "@noble/hashes": "^1.3.3"
   },
   "overrides": {
-    "@noble/hashes": "^1.3.3"
+    "@noble/hashes": "^1.3.3",
+    "expo-crypto": "14.0.2"
   }
 }

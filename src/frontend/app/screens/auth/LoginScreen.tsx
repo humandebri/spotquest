@@ -26,6 +26,7 @@ import { LogIn as IIAuthButton } from '../../components/LogIn';
 export default function LoginScreen() {
   const { loginAsDev, isDevMode } = useDevAuth();
   const [isDevLogin, setIsDevLogin] = useState(false);
+  const isPublicBuild = process.env.EXPO_PUBLIC_PUBLIC_BUILD === 'true' && !__DEV__;
   // II auth state handling removed from this screen
 
   const handleDevLogin = async () => {
@@ -104,25 +105,31 @@ export default function LoginScreen() {
           {/* Login Section */}
           <View style={styles.loginSection}>
             <Text style={styles.sectionTitle}>Get Started</Text>
-            {/* Internet Identity login via expo-icp flow */}
-            <IIAuthButton />
-            <View style={{ height: 8 }} />
-            
-            {/* Oisy Wallet login */}
-            <TouchableOpacity style={styles.helperButton} onPress={handleOisyLogin}>
-              <Text style={styles.helperText}>Login with Oisy Wallet (Safari)</Text>
-            </TouchableOpacity>
-            <View style={{ height: 8 }} />
-            <TouchableOpacity style={styles.helperButton} onPress={handleGoogleLogin}>
-              <Text style={styles.helperText}>Sign in with Google</Text>
-            </TouchableOpacity>
-            <View style={{ height: 12 }} />
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>OR</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
+            {isPublicBuild ? (
+              // Public build: show only Google login
+              <TouchableOpacity style={styles.helperButton} onPress={handleGoogleLogin}>
+                <Text style={styles.helperText}>Sign in with Google</Text>
+              </TouchableOpacity>
+            ) : (
+              // Internal/dev build: show full options
+              <>
+                {/* Internet Identity login via expo-icp flow */}
+                <IIAuthButton />
+                <View style={{ height: 8 }} />
+                {/* Oisy Wallet login */}
+                <TouchableOpacity style={styles.helperButton} onPress={handleOisyLogin}>
+                  <Text style={styles.helperText}>Login with Oisy Wallet (Safari)</Text>
+                </TouchableOpacity>
+                <View style={{ height: 8 }} />
+                <TouchableOpacity style={styles.helperButton} onPress={handleGoogleLogin}>
+                  <Text style={styles.helperText}>Sign in with Google</Text>
+                </TouchableOpacity>
+                <View style={{ height: 12 }} />
+                <View style={styles.divider}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>OR</Text>
+                  <View style={styles.dividerLine} />
+                </View>
                 <TouchableOpacity
                   style={styles.devButton}
                   onPress={handleDevLogin}
@@ -137,8 +144,9 @@ export default function LoginScreen() {
                     </>
                   )}
                 </TouchableOpacity>
-
-                {/* II troubleshooting buttons removed */}
+              </>
+            )}
+            {/* II troubleshooting buttons removed */}
           </View>
 
           {/* Info Section */}

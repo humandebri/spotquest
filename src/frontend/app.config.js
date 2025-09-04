@@ -19,7 +19,9 @@ export default {
     orientation: "portrait",
     icon: "./assets/app_icon.png",
     userInterfaceStyle: "light",
-    newArchEnabled: true,
+    // New Architecture can cause native build issues with some libraries on CI.
+    // Disable for reliability unless specifically verified in production.
+    newArchEnabled: false,
     splash: {
       image: "./assets/splash-icon.png",
       resizeMode: "contain",
@@ -28,11 +30,12 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.spotquest.app",
-      buildNumber: "18",
+      buildNumber: "19",
       infoPlist: {
         CFBundleIconName: "AppIcon",
         NSCameraUsageDescription: "This app needs access to camera to take photos for the game.",
         NSPhotoLibraryUsageDescription: "This app needs access to photo library to select photos for the game.",
+        NSPhotoLibraryAddUsageDescription: "This app may save edited or captured photos to your library.",
         NSLocationWhenInUseUsageDescription: "This app needs location access to tag photos with GPS coordinates.",
         NSLocationAlwaysAndWhenInUseUsageDescription: "This app needs location access to tag photos with GPS coordinates.",
         ITSAppUsesNonExemptEncryption: false,

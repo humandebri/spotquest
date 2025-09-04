@@ -378,12 +378,14 @@ function AppWithAuth() {
     );
   }
 
+  const enableDevProvider = __DEV__ || process.env.EXPO_PUBLIC_ENABLE_DEV_LOGIN === 'true';
+  const Wrapper: React.ComponentType<any> = enableDevProvider ? DevAuthProvider : React.Fragment as any;
   return (
-    <DevAuthProvider>
+    <Wrapper>
       <IIIntegrationProvider value={iiIntegration}>
         <AppContent />
       </IIIntegrationProvider>
-    </DevAuthProvider>
+    </Wrapper>
   );
 }
 
