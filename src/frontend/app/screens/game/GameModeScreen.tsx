@@ -50,38 +50,40 @@ export default function GameModeScreen() {
   // Check photo count and Pro membership on component mount
   useEffect(() => {
     const checkPhotoCountAndPro = async () => {
-      if (!identity) return;
-      
+      // Even if identity is not ready, we can perform anonymous queries to count photos
+
       setIsCheckingPhotos(true);
       try {
         // 🚀 並列実行による高速化: サービスの初期化を同時に行う
         console.log('🎮 Initializing services in parallel...');
         await Promise.all([
-          photoServiceV2.init(identity),
-          gameService.init(identity)
+          photoServiceV2.init(identity), // identity がなくても匿名で初期化可能
+          identity ? gameService.init(identity) : Promise.resolve()
         ]);
         console.log('🎮 Services initialized');
         
-        const principal = identity.getPrincipal();
+        const principal = identity?.getPrincipal();
         
         // 🚀 並列実行による高速化: ProステータスとPhoto検索を同時に実行
         // これらは互いに依存しないため、並列化可能
         console.log('🎮 Fetching Pro status and photos in parallel...');
         const [proStatusResult, searchResult] = await Promise.allSettled([
-          gameService.getProMembershipStatus(principal),
+          principal ? gameService.getProMembershipStatus(principal) : Promise.resolve(null),
           photoServiceV2.searchPhotos({
             status: { Active: null }
-          }, undefined, 10)
+          }, undefined, 10, identity)
         ]);
         
         // Process Pro status
-        if (proStatusResult.status === 'fulfilled') {
+        if (proStatusResult.status === 'fulfilled' && proStatusResult.value) {
           console.log('🎮 Pro membership status:', proStatusResult.value);
           if (proStatusResult.value) {
             setIsProMember(proStatusResult.value.isPro);
           }
         } else {
-          console.error('Failed to fetch Pro status:', proStatusResult.reason);
+          if (principal) {
+            console.error('Failed to fetch Pro status:', (proStatusResult as any).reason);
+          }
         }
         
         // Process photo search results

@@ -287,28 +287,27 @@ class PhotoServiceV2 {
   private statsCache: Map<string, PhotoStatsDetailsV2> = new Map();
   private cacheTimeout = 5 * 60 * 1000; // 5分のキャッシュ
 
-  async init(identity: Identity) {
+  async init(identity?: Identity) {
     try {
-      if (!identity) {
-        throw new Error('No identity provided');
-      }
+      // identity is optional for anonymous query calls
 
       // Reuse existing actor if identity hasn't changed
       if (this.identity === identity && this.actor) {
         return;
       }
 
-      this.identity = identity;
+      this.identity = identity || null;
       const host = process.env.EXPO_PUBLIC_IC_HOST || 'https://ic0.app';
       const canisterId = UNIFIED_CANISTER_ID;
       
       debugLog('API_CALLS', '🖼️ Initializing photo service V2:', { host, canisterId });
       
       // Dev modeの確認（デバッグ用）
-      const isDevMode = identity.constructor.name === 'Ed25519KeyIdentity';
-      
+      const isDevMode = identity && identity.constructor && identity.constructor.name === 'Ed25519KeyIdentity';
+
       this.agent = new HttpAgent({
-        identity,
+        // identity is optional for anonymous agent
+        identity: identity as any,
         host: host,
         verifyQuerySignatures: true, // 署名検証を有効化（正しいプリンシパルを使用）
         // API v3を有効化して高速化

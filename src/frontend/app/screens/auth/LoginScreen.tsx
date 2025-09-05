@@ -75,7 +75,18 @@ export default function LoginScreen() {
         Alert.alert('Google Login', 'Cancelled or no id_token');
         return;
       }
-      const identity = await getOrCreateSessionIdentity(secureStorage as any);
+      // Decode Google id_token payload to extract a stable subject identifier
+      const idToken = res.idToken;
+      let googleSub = 'default';
+      try {
+        const base64 = idToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        const json = JSON.parse(atob(base64));
+        googleSub = json.sub || json.email || 'default';
+      } catch (e) {
+        console.log('🔐 Failed to decode Google id_token payload, using default namespace');
+      }
+      // Use a namespaced session identity per Google account
+      const identity = await getOrCreateSessionIdentity(secureStorage as any, `google:${googleSub}`);
       const principal = identity.getPrincipal();
       useIIAuthStore.getState().setAuthenticated(principal as unknown as Principal, identity as any);
       debugLog('AUTH_FLOW', '✅ Google login linked to SpotQuest identity:', principal.toString());

@@ -59,17 +59,11 @@ export default function PhotoUploadScreenV2() {
   const { principal, identity } = useAuth();
   const mapRef = useRef<MapView>(null);
 
-  const { photoUri, latitude, longitude: rawLongitude, azimuth, timestamp } = route.params;
-  
-  // 西半球の座標修正（暫定的な対処）
-  // アメリカ大陸（おおよそ西経20度〜西経180度）の場合、正の値を負に変換
-  const longitude = rawLongitude > 0 && rawLongitude > 20 && rawLongitude < 180 ? -rawLongitude : rawLongitude;
+  const { photoUri, latitude, longitude, azimuth, timestamp } = route.params;
   
   console.log('📍 PhotoUploadScreenV2 received coordinates:', {
     latitude,
-    rawLongitude,
-    correctedLongitude: longitude,
-    isWesternHemisphere: rawLongitude > 0 && rawLongitude > 20 && rawLongitude < 180,
+    longitude,
   });
 
   const [description, setDescription] = useState('');
