@@ -111,8 +111,8 @@ class GameService {
       const agentOptions: any = {
         identity,
         host,
-        // 署名検証を有効化（正しいプリンシパルを使用）
-        verifyQuerySignatures: true,
+        // Disable query signature verification for public builds on RN (TestFlight)
+        verifyQuerySignatures: process.env.EXPO_PUBLIC_PUBLIC_BUILD === 'true' ? false : true,
         // API v3を有効化して高速化
         useQueryNonces: true,
         retryTimes: 3,

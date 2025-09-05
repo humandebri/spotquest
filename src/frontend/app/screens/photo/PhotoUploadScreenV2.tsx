@@ -130,6 +130,26 @@ export default function PhotoUploadScreenV2() {
     fetchLocationInfo();
   }, [latitude, longitude]);
 
+  // 入力欄の座標が変わった場合にもジオコーディングを再実行（デバウンス）
+  useEffect(() => {
+    const lat = parseFloat(displayLat);
+    const lon = parseFloat(displayLon);
+    if (isNaN(lat) || isNaN(lon)) return;
+    let timer: any = setTimeout(async () => {
+      try {
+        console.log('📍 Debounced geocoding for edited coords:', { lat, lon });
+        const regionInfo = await getRegionInfo(lat, lon);
+        setCountry(regionInfo.country);
+        setRegion(regionInfo.region);
+        const placeName = await reverseGeocode(lat, lon);
+        setLocationName(placeName);
+      } catch (e) {
+        console.error('❌ Debounced geocoding failed:', e);
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [displayLat, displayLon]);
+
 
   const onPhotoDateChange = (event: any, selectedDate?: Date) => {
     setShowPhotoDatePicker(false);

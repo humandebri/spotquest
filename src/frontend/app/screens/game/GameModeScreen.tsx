@@ -57,7 +57,7 @@ export default function GameModeScreen() {
         // 🚀 並列実行による高速化: サービスの初期化を同時に行う
         console.log('🎮 Initializing services in parallel...');
         await Promise.all([
-          photoServiceV2.init(identity), // identity がなくても匿名で初期化可能
+          photoServiceV2.init(identity || undefined), // identity がなくても匿名で初期化可能
           identity ? gameService.init(identity) : Promise.resolve()
         ]);
         console.log('🎮 Services initialized');
@@ -71,7 +71,7 @@ export default function GameModeScreen() {
           principal ? gameService.getProMembershipStatus(principal) : Promise.resolve(null),
           photoServiceV2.searchPhotos({
             status: { Active: null }
-          }, undefined, 10, identity)
+          }, undefined, 10, identity || undefined)
         ]);
         
         // Process Pro status

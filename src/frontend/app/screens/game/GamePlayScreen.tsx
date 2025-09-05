@@ -1333,7 +1333,7 @@ export default function GamePlayScreen({ route }: GamePlayScreenProps) {
             source={{ uri: currentPhoto.url }}
             style={{ width: '100%', height: '100%' }}
             contentFit="contain"
-            cachePolicy={currentPhoto.url.startsWith('data:') ? 'memory-disk' : 'immutable'}
+            cachePolicy={currentPhoto.url.startsWith('data:') ? 'memory-disk' : 'disk'}
           />
         </Animated.View>
       </View>

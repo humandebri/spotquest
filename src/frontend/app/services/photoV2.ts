@@ -305,11 +305,14 @@ class PhotoServiceV2 {
       // Dev modeの確認（デバッグ用）
       const isDevMode = identity && identity.constructor && identity.constructor.name === 'Ed25519KeyIdentity';
 
+      const isPublicBuild = process.env.EXPO_PUBLIC_PUBLIC_BUILD === 'true';
       this.agent = new HttpAgent({
         // identity is optional for anonymous agent
         identity: identity as any,
         host: host,
-        verifyQuerySignatures: true, // 署名検証を有効化（正しいプリンシパルを使用）
+        // In React Native production (TestFlight), signature verification can fail due to missing crypto
+        // Disable verification for public builds to avoid false negatives
+        verifyQuerySignatures: isPublicBuild ? false : true,
         // API v3を有効化して高速化
         useQueryNonces: true,
         retryTimes: 3,
