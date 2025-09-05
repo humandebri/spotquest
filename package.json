@@ -6,7 +6,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "echo 'No build required for asset canister'",
-    "eas-build-pre-install": "npm config set legacy-peer-deps true"
+    "eas-build-pre-install": "npm config set legacy-peer-deps true",
+    "typecheck": "npm -C src/frontend run typecheck",
+    "frontend:ci": "npm -C src/frontend ci --legacy-peer-deps && npm -C src/frontend run typecheck"
   },
   "keywords": [],
   "author": "",
