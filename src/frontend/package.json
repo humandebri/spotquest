@@ -17,6 +17,7 @@
     "prebuild:ios": "expo prebuild --no-install --platform ios",
     "prebuild:android": "expo prebuild --no-install --platform android",
     "doctor": "npx expo-doctor",
+    "lock:update": "npm install --legacy-peer-deps --package-lock-only",
     "icp:setup": "npm_config_legacy_peer_deps=true npx -p expo-icp@latest expo-icp setup",
     "icp:update": "npm_config_legacy_peer_deps=true npx -p expo-icp@latest expo-icp update"
   },

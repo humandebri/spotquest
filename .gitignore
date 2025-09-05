@@ -93,6 +93,8 @@ wallets.json
 yarn.lock
 package-lock.json
 pnpm-lock.yaml
+# Keep frontend lockfile for reproducible EAS builds
+!src/frontend/package-lock.json
 
 # Testing
 playwright-report/
