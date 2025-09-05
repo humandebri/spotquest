@@ -21,8 +21,9 @@ module {
         private var lastResetTime : Time.Time = Time.now();
         
         // Constants
-        private let FREE_DAILY_PLAYS : Nat = 3;
-        private let PRO_DAILY_PLAYS : Nat = 5;
+        // Temporary increase of daily play limits
+        private let FREE_DAILY_PLAYS : Nat = 10;
+        private let PRO_DAILY_PLAYS : Nat = 12; // Keep Pro at +2 over free
         private let PRO_MEMBERSHIP_COST : Nat = 50000; // 500 SPOT (in smallest units)
         private let PRO_MEMBERSHIP_DURATION : Int = 30 * 24 * 60 * 60 * 1_000_000_000; // 30 days in nanoseconds
         private let NANOSECONDS_PER_DAY : Int = 24 * 60 * 60 * 1_000_000_000;
