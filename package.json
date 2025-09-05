@@ -8,7 +8,11 @@
     "build": "echo 'No build required for asset canister'",
     "eas-build-pre-install": "npm config set legacy-peer-deps true",
     "typecheck": "npm -C src/frontend run typecheck",
-    "frontend:ci": "npm -C src/frontend ci --legacy-peer-deps && npm -C src/frontend run typecheck"
+    "frontend:ci": "npm -C src/frontend ci --legacy-peer-deps && npm -C src/frontend run typecheck",
+    "expo": "npm -C src/frontend run expo",
+    "prebuild:ios": "npm -C src/frontend run prebuild:ios",
+    "prebuild:android": "npm -C src/frontend run prebuild:android",
+    "doctor": "npm -C src/frontend run doctor"
   },
   "keywords": [],
   "author": "",

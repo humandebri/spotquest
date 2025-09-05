@@ -13,6 +13,10 @@
     "eas-build-pre-install": "npm config set legacy-peer-deps true",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint:deps": "node -e \"try{const p=require('./package.json');console.log('react-native',p.dependencies['react-native']||'N/A');console.log('@types/react',p.devDependencies['@types/react']||'N/A')}catch(e){process.exit(1)}\"",
+    "expo": "expo",
+    "prebuild:ios": "expo prebuild --no-install --platform ios",
+    "prebuild:android": "expo prebuild --no-install --platform android",
+    "doctor": "npx expo-doctor",
     "icp:setup": "npm_config_legacy_peer_deps=true npx -p expo-icp@latest expo-icp setup",
     "icp:update": "npm_config_legacy_peer_deps=true npx -p expo-icp@latest expo-icp update"
   },
